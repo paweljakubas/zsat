@@ -3,7 +3,7 @@
 **Z**ig based **S**cience plot and **A**nimation command line **T*ool
 
 [![Zig Version](https://img.shields.io/badge/Zig_Version-0.15.2-orange.svg?logo=zig)](README.md)
-[![License: MIT](https://img.shields.io/badge/License-Apache 2.0-lightgrey.svg?logo=cachet)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](LICENSE)
 [![Built by paweljakubas](https://img.shields.io/badge/Built%20by-@paweljakubas-blue)](https://github.com/paweljakubas)
 
 ## Rationale to create **zsat**
