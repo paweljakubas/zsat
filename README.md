@@ -15,8 +15,8 @@ or countless libraries in Python/R/Julia ecosystems.
 
 But they lack four features that are crucial for my workflow:
 - they are not integrated with modern terminal emulators that have graphics support
-- the paradigm of plot/animation construction in the current tools is not satisfactory for the person that have experienced workflow of a great [haskell diagrams](https://archives.haskell.org/projects.haskell.org/diagrams/) library
-- they are far away in terms of succinctness of data manipulation that one can realize in array languages like APL or J (which I am fan of)
+- the paradigm of plot/animation construction in the current tools is not satisfactory for the person that has experienced workflow of a great [haskell diagrams](https://archives.haskell.org/projects.haskell.org/diagrams/) library
+- they are far away in terms of succinctness of data manipulation that one can realize in array languages like APL or J (which I am huge fan)
 - it usually takes a long time to produce satisfactory animation and feedback loop is too slow for me
 
 Hence, my humble attempt to address those pain points as the goals of this project.
@@ -25,10 +25,13 @@ I also treat this as an opportunity to learn and practice Zig, a truely wonderfu
 
 ## Backend
 At this moment the only backend possible is based on haskell's diagrams library, meaning one needs
+
+```
 - ghc
 - cabal
-installed in the local system.
- Please run `zsat setup show` to inspect if you are ready in backend sense.
+```
+
+installed in the local system. Please run `zsat setup show` to inspect if you are ready in backend sense.
 
 ## Front end
 If one wants PNG or GIF file as an output then no front end is required.
@@ -39,3 +42,21 @@ But if one want to have full experience I advocated for, and enlisted as one of 
 then one needs terminal emulator that implements [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/),
 like Kitty, WezTerm and Ghostty to name a few.
 Alternatively one can use it with a tool supporting the protocol, like [blackcat](https://github.com/j-c-m/blackcat).
+
+## Current state of the tool
+
+```bash
+  (main) zsat λ ./zig-out/bin/zsat --help
+Animation and plot toolkit
+v0.0.1
+
+Usage: zsat [options]
+
+Available commands:
+   version (v)     Show zsat version
+
+Flags:
+   -h, --help      Shows the help for a command [Bool] (default: false)
+
+Use "zsat [command] --help" for more information.
+```
