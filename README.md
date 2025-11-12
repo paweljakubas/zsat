@@ -46,17 +46,29 @@ Alternatively one can use it with a tool supporting the protocol, like [blackcat
 ## Current state of the tool
 
 ```bash
-  (main) zsat λ ./zig-out/bin/zsat --help
-Animation and plot toolkit
+./zig-out/bin/zsat --help
+Zig-powered science animation and plot toolkit
 v0.0.1
 
 Usage: zsat [options]
 
 Available commands:
+   draw (d)        Construct figure from bits
    version (v)     Show zsat version
 
 Flags:
    -h, --help      Shows the help for a command [Bool] (default: false)
 
 Use "zsat [command] --help" for more information.
+
+  (main) zsat λ ./zig-out/bin/zsat draw --help
+Construct figure from bits
+
+Usage: zsat draw [options]
+
+Flags:
+   -e0, --element0     Visual element that wil be contained in the figure. Visualization aspects are defined here. [String] (default: "cos tam")
+   -h, --help          Shows the help for a command [Bool] (default: false)
+
+Use "zsat draw --help" for more information.
 ```
