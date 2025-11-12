@@ -61,6 +61,8 @@ Flags:
 
 Use "zsat [command] --help" for more information.
 
+
+
   (main) zsat λ ./zig-out/bin/zsat draw --help
 Construct figure from bits
 
@@ -72,3 +74,8 @@ Flags:
 
 Use "zsat draw --help" for more information.
 ```
+
+## Zig packages (outside std) proudly used in the project:
+
+- (**zli** for command line support)[https://github.com/xcaeser/zli]
+- (**macha** parser combinator library for parsing)[https://github.com/Hejsil/mecha]

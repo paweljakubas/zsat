@@ -36,6 +36,9 @@ pub fn build(b: *std.Build) void {
     const zli_dep = b.dependency("zli", .{ .target = target, .optimize = optimize });
     exe.root_module.addImport("zli", zli_dep.module("zli"));
 
+    const mecha = b.dependency("mecha", .{});
+    exe.root_module.addImport("mecha", mecha.module("mecha"));
+
     // This declares intent for the executable to be installed into the
     // standard location when the user invokes the "install" step (the default
     // step when running `zig build`).
