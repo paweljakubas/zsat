@@ -60,23 +60,17 @@ Flags:
    -h, --help      Shows the help for a command [Bool] (default: false)
 
 Use "zsat [command] --help" for more information.
+```
 
+## Development
 
-
-  (main) zsat λ ./zig-out/bin/zsat draw --help
-Construct figure from bits
-
-Usage: zsat draw [options]
-
-Flags:
-   -e0, --element0     Visual element that wil be contained in the figure. Visualization aspects are defined here. [String] (default: "cos tam")
-   -h, --help          Shows the help for a command [Bool] (default: false)
-
-Use "zsat draw --help" for more information.
+```
+zig build
+zig build test --summary all
 ```
 
 ## Zig packages (outside std) proudly used in the project:
 
 - [**zli**](https://github.com/xcaeser/zli) for CLI development support
-- [**macha**])(https://github.com/Hejsil/mecha) parser combinator library
+- [**macha**](https://github.com/Hejsil/mecha) parser combinator library
 - [**cmdtest**](https://github.com/pyk/cmdtest) for testing CLI app
