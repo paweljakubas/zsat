@@ -77,5 +77,6 @@ Use "zsat draw --help" for more information.
 
 ## Zig packages (outside std) proudly used in the project:
 
-- (**zli** for command line support)[https://github.com/xcaeser/zli]
-- (**macha** parser combinator library for parsing)[https://github.com/Hejsil/mecha]
+- [**zli**](https://github.com/xcaeser/zli) for CLI development support
+- [**macha**])(https://github.com/Hejsil/mecha) parser combinator library
+- [**cmdtest**](https://github.com/pyk/cmdtest) for testing CLI app
