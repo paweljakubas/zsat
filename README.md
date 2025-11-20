@@ -23,6 +23,9 @@ Hence, my humble attempt to address those pain points as the goals of this proje
 
 I also treat this as an opportunity to learn and practice Zig, a truely wonderful general programming language with a angle to be performant and low-level.
 
+**zsat** must have picked two from __flexibility__, __power__ and __simplicity__ and, by a design, has chosen
+__flexibility__ and __power__ . If the simplicity is a must for you  **zsat** might not be the best choice.
+
 ## Backend
 At this moment the only backend possible is based on haskell's diagrams library, meaning one needs
 
@@ -36,17 +39,19 @@ installed in the local system. Please run `zsat setup show` to inspect if you ar
 ## Front end
 If one wants PNG or GIF file as an output then no front end is required.
 You are good, but you will need to open the plot/run animation separately.
-In order to have it add always `--output/-o FILE` to the `zsat` command.
+In order to have it add `--output/-o FILE` to the `zsat` command.
 
-But if one want to have full experience I advocated for, and enlisted as one of the four crucial features I am into in the Rationale section,
-then one needs terminal emulator that implements [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/),
-like Kitty, WezTerm and Ghostty to name a few.
-Alternatively one can use it with a tool supporting the protocol, like [blackcat](https://github.com/j-c-m/blackcat).
+If one wants to have a full experience I advocated for, and enlisted as one of the four crucial features in the Rationale section,
+then terminal emulator that implements [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) is required.
+The terminals supporting **kitty graphics protocol** includes Kitty, WezTerm and Ghostty, to name a few.
+
+At this moment `zsat` enables using automatically a tool supporting the protocol, namely [blackcat](https://github.com/j-c-m/blackcat).
+Meaning **blackcat** is required to be installed.
 
 ## Current state of the tool
 
 ```bash
-./zig-out/bin/zsat --help
+$ zsat --help
 Zig-powered science animation and plot toolkit
 v0.0.1
 

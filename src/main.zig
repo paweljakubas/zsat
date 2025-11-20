@@ -24,5 +24,5 @@ pub fn main() !void {
 
     try root.execute(.{}); // Or pass data with: try root.execute(.{ .data = &my_data });
 
-    try stdout.flush(); // Don't forget to flush!
+    try stdout.flush();
 }

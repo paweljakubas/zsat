@@ -6,9 +6,16 @@ const zli = @import("zli");
 const element0_flag = zli.Flag{
     .name = "element0",
     .shortcut = "e0",
-    .description = "Visual element that wil be contained in the figure. Visualization aspects are defined here.",
+    .description = "Visual element to be contained in the figure.",
     .type = .String,
-    .default_value = .{ .String = "cos tam" },
+    .default_value = .{ .String = "vec xy fixed [lw:2; lc: black]" },
+};
+
+const debug_flag = zli.Flag{
+    .name = "debug",
+    .description = "Dump intermediate draw representation and corresponding Haskell scrypt.",
+    .type = .Bool,
+    .default_value = .{ .Bool = false },
 };
 
 pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) !*zli.Command {
@@ -19,12 +26,18 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
     }, run);
 
     try cmd.addFlag(element0_flag);
+    try cmd.addFlag(debug_flag);
 
     return cmd;
 }
 
 fn run(ctx: zli.CommandContext) !void {
+    const debug = ctx.flag("debug", bool);
     const element0 = ctx.flag("element0", []const u8);
 
-    std.debug.print("Defining {s}\n", .{element0});
+    if (debug) {
+        std.debug.print("element0: {s}\n", .{element0});
+    } else {
+        std.debug.print("plotting \n", .{});
+    }
 }
