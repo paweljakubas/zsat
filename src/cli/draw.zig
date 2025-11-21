@@ -3,12 +3,12 @@ const Writer = std.Io.Writer;
 const Reader = std.Io.Reader;
 const zli = @import("zli");
 
-const element0_flag = zli.Flag{
-    .name = "element0",
-    .shortcut = "e0",
-    .description = "Visual element to be contained in the figure.",
+const element_flag = zli.Flag{
+    .name = "element",
+    .shortcut = "e",
+    .description = "Visual element(s) to be contained in the figure.",
     .type = .String,
-    .default_value = .{ .String = "vec xy fixed [lw:2; lc: black]" },
+    .default_value = .{ .String = "e0:{vec xy fixed [lw:2; lc: black]}" },
 };
 
 const debug_flag = zli.Flag{
@@ -22,10 +22,10 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
     const cmd = try zli.Command.init(writer, reader, allocator, .{
         .name = "draw",
         .shortcut = "d",
-        .description = "Construct figure from bits",
+        .description = "Construct figure from elements, layers and frames",
     }, run);
 
-    try cmd.addFlag(element0_flag);
+    try cmd.addFlag(element_flag);
     try cmd.addFlag(debug_flag);
 
     return cmd;
@@ -33,10 +33,10 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
 
 fn run(ctx: zli.CommandContext) !void {
     const debug = ctx.flag("debug", bool);
-    const element0 = ctx.flag("element0", []const u8);
+    const elements = ctx.flag("elements", []const u8);
 
     if (debug) {
-        std.debug.print("element0: {s}\n", .{element0});
+        std.debug.print("elements: {s}\n", .{elements});
     } else {
         std.debug.print("plotting \n", .{});
     }

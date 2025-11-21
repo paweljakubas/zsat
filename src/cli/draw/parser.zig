@@ -5,7 +5,7 @@ const testing = std.testing;
 //element
 pub const ElementType = enum {
     Vector2D,
-    Point2D,
+    //Point2D,
 };
 
 // coordinate system type
@@ -16,21 +16,22 @@ pub const CoordinateType = enum {
 
 // coordinate axis position
 pub const CoordinateOrientation = enum {
-    Fixed, //coordinate always stays the same positioned in the space
-    Adjusting, //coordinate starts for each segment as set and then rotates in such a way that x or r axis follows the last segment
+    Fixed, //coordinate always stays the same positioned in the space, following figure borders
+    //Adjusting, //coordinate starts as Fixed and then rotates in such a way that x or r axis follows the last segment
 };
 
 pub const ElementDrawCmd = struct {
     element: ElementType,
-    coordinateSystem: CoordinateType,
-    coordinateOrientation: CoordinateOrientation,
+    coordinateSystem: ?CoordinateType = .Cartesian2D,
+    coordinateOrientation: ?CoordinateOrientation = .Fixed,
 };
 
 //Parsers
 const skipWhitespace =
     mecha.ascii.char(' ').many(.{ .collect = false }).discard();
 
-pub const elementTypeParser = mecha.combine(.{ skipWhitespace, mecha.string("vec") });
+const elementTypeParser = mecha.combine(.{ skipWhitespace, mecha.string("vec") });
+const coordinateTypeParser = mecha.combine(.{ skipWhitespace, mecha.oneOf(.{ mecha.string("xy"), mecha.string("polar") }) });
 
 test "elementType" {
     const fa = testing.failing_allocator;

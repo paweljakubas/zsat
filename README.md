@@ -13,18 +13,20 @@ visualize the result of the simulation, also with a capability to produce animat
 There are wonderful visualization tools used widely in scientific community, like **gnuplot**,
 or countless libraries in Python/R/Julia ecosystems.
 
-But they lack four features that are crucial for my workflow:
+But they lack five features that are crucial for my workflow:
 - they are not integrated with modern terminal emulators that have graphics support
-- the paradigm of plot/animation construction in the current tools is not satisfactory for the person that has experienced workflow of a great [haskell diagrams](https://archives.haskell.org/projects.haskell.org/diagrams/) library
-- they are far away in terms of succinctness of data manipulation that one can realize in array languages like APL or J (which I am huge fan)
+- the paradigm of plot/animation construction in the current tools is not satisfactory for the person that has worked with a great [haskell diagrams](https://archives.haskell.org/projects.haskell.org/diagrams/) library and is in pursuit of total control
+- they are far away in terms of succinctness of data manipulation that one can realize in array languages like APL or J (which I am a huge fan)
 - it usually takes a long time to produce satisfactory animation and feedback loop is too slow for me
+- it is not so staightforward to save customized templates that could be reused later and thanks to that accelerate workflow
 
 Hence, my humble attempt to address those pain points as the goals of this project.
 
-I also treat this as an opportunity to learn and practice Zig, a truely wonderful general programming language with a angle to be performant and low-level.
+I also treat this as an opportunity to learn and practice Zig, a truely wonderful general programming language with a angle to be performant, explicit and low-level.
 
-**zsat** must have picked two from __flexibility__, __power__ and __simplicity__ and, by a design, has chosen
-__flexibility__ and __power__ . If the simplicity is a must for you  **zsat** might not be the best choice.
+**zsat** must have picked two from the triple: _flexibility_, _power_ and _simplicity_.
+And, by a design, has chosen __flexibility__ and __power__.
+Meaning if the simplicity is a must for you  **zsat** might not be the best choice.
 
 ## Backend
 At this moment the only backend possible is based on haskell's diagrams library, meaning one needs
@@ -41,12 +43,12 @@ If one wants PNG or GIF file as an output then no front end is required.
 You are good, but you will need to open the plot/run animation separately.
 In order to have it add `--output/-o FILE` to the `zsat` command.
 
-If one wants to have a full experience I advocated for, and enlisted as one of the four crucial features in the Rationale section,
+If one wants to have a full experience I advocated for, and enlisted as one of the four crucial features in the Rationale section above,
 then terminal emulator that implements [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) is required.
 The terminals supporting **kitty graphics protocol** includes Kitty, WezTerm and Ghostty, to name a few.
 
-At this moment `zsat` enables using automatically a tool supporting the protocol, namely [blackcat](https://github.com/j-c-m/blackcat).
-Meaning **blackcat** is required to be installed.
+At this moment `zsat` enables using a tool supporting the protocol via [blackcat](https://github.com/j-c-m/blackcat) under the hood.
+Meaning **blackcat** is required to be installed (of course, modulo ones uses `--output` flag and aims to get png/gif files).
 
 ## Current state of the tool
 
@@ -73,6 +75,10 @@ Use "zsat [command] --help" for more information.
 zig build
 zig build test --summary all
 ```
+
+## Tutorials
+
+Vector plots
 
 ## Zig packages (outside std) proudly used in the project:
 
