@@ -21,8 +21,8 @@ pub const CoordinateOrientation = enum {
 };
 
 pub const ElementDrawCmd = struct {
-    elementName: u8,
-    element: ElementType,
+    elementNumber: u8,
+    elementType: ElementType,
     coordinateSystem: ?CoordinateType = .xy,
     coordinateOrientation: ?CoordinateOrientation = .fixed,
 };
@@ -30,7 +30,13 @@ pub const ElementDrawCmd = struct {
 //Parsers
 const skipWhitespace =
     mecha.ascii.char(' ').many(.{ .collect = false }).discard();
+const skipOpenBracket =
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.ascii.char('{').discard() });
+const skipCloseBracket =
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char('}').discard(), skipWhitespace });
 
+const elementNumberParser =
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char('e').discard(), mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 2 }).asStr().convert(mecha.toInt(u8, 10)) });
 const elementTypeParser =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.string("vec2d").asStr(), mecha.toEnum(ElementType)) });
 const coordinateTypeParser =
@@ -38,7 +44,24 @@ const coordinateTypeParser =
 const coordinateOrientationParser =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("fixed"), mecha.string("adjusting") }).asStr(), mecha.toEnum(CoordinateOrientation)) });
 
-//const elementParser = mecha.combine(.{ elementTypeParser, mecha.opt(.{coordinateTypeParser}), mecha.opt(.{coordinateOrientationParser}) });
+const elementParser =
+    mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket }).map(mecha.toStruct(ElementDrawCmd));
+
+test "elementNumber" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try elementNumberParser.parse(fa, "e2");
+    try testing.expectEqual(2, r1.value.ok);
+
+    const r2 = try elementNumberParser.parse(fa, " e0");
+    try testing.expectEqual(0, r2.value.ok);
+
+    const r3 = try elementNumberParser.parse(fa, " e11");
+    try testing.expectEqual(11, r3.value.ok);
+
+    const r4 = try elementNumberParser.parse(fa, "11");
+    try testing.expectEqual(0, r4.index);
+}
 
 test "elementType" {
     const fa = testing.failing_allocator;
@@ -85,9 +108,18 @@ test "coordinateOrientationParser" {
     try testing.expectEqual(0, r4.index);
 }
 
-//test "element" {
-//    const fa = testing.failing_allocator;
-//
-//    const r1 = try elementParser.parse(fa, "e0:{vec}");
-//    try testing.expectEqualStrings("vec", r1.value.ok);
-//}
+test "element" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try elementParser.parse(fa, "e0:{vec2d}");
+    try testing.expectEqual(ElementDrawCmd{ .elementNumber = 0, .elementType = .vec2d, .coordinateSystem = null, .coordinateOrientation = null }, r1.value.ok);
+
+    const r2 = try elementParser.parse(fa, " e0 :{ vec2d     }    ");
+    try testing.expectEqual(ElementDrawCmd{ .elementNumber = 0, .elementType = .vec2d, .coordinateSystem = null, .coordinateOrientation = null }, r2.value.ok);
+
+    const r3 = try elementParser.parse(fa, "e5:{vec2d fixed}");
+    try testing.expectEqual(ElementDrawCmd{ .elementNumber = 5, .elementType = .vec2d, .coordinateSystem = null, .coordinateOrientation = .fixed }, r3.value.ok);
+
+    const r4 = try elementParser.parse(fa, "e7:{vec2d xy fixed}");
+    try testing.expectEqual(ElementDrawCmd{ .elementNumber = 7, .elementType = .vec2d, .coordinateSystem = .xy, .coordinateOrientation = .fixed }, r4.value.ok);
+}
