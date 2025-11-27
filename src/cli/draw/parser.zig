@@ -27,6 +27,22 @@ pub const ElementDrawCmd = struct {
     coordinateOrientation: ?CoordinateOrientation = .fixed,
 };
 
+pub const ReferenceFrame = enum {
+    local, // in reference to local reference frame, for example, 0.2 means 1/5 in the context to something, so when something get larger then the attribute is scaled accordingly
+    global, // in reference to global reference frame, for example, 0.05 means it iscomputed to the final vector space
+    normalized, // in reference to global reference frame, for example, 0.1 means 10% of the height/width of the final diagram
+    output, // in reference to the requested output size of diagram
+};
+
+pub const LineWidthType = struct {
+    reference: ReferenceFrame,
+    value: u8, // in %
+};
+
+pub const Vec2dStyles = struct {
+    lineWidth: LineWidthType,
+};
+
 //Parsers
 const skipWhitespace =
     mecha.ascii.char(' ').many(.{ .collect = false }).discard();
@@ -43,6 +59,14 @@ const coordinateTypeParser =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("xy"), mecha.string("polar") }).asStr(), mecha.toEnum(CoordinateType)) });
 const coordinateOrientationParser =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("fixed"), mecha.string("adjusting") }).asStr(), mecha.toEnum(CoordinateOrientation)) });
+
+const lineWidthTypeParser =
+    mecha.combine(.{ mecha.oneOf(.{ mecha.string("lw"), mecha.string("lwL"), mecha.string("lwG"), mecha.string("lwN"), mecha.string("lwO") }), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.int(u8, .{}) });
+
+//expecting here "attr ref val" structure
+//pub fn toLineWidthType(_allocator: mem.Allocator, _str: []const u8) mecha.ConvertError!LineWidthType {
+//    return error.ConversionFailed;
+//}
 
 const elementParser =
     mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket }).map(mecha.toStruct(ElementDrawCmd));
@@ -122,4 +146,19 @@ test "element" {
 
     const r4 = try elementParser.parse(fa, "e7:{vec2d xy fixed}");
     try testing.expectEqual(ElementDrawCmd{ .elementNumber = 7, .elementType = .vec2d, .coordinateSystem = .xy, .coordinateOrientation = .fixed }, r4.value.ok);
+}
+
+test "LineWidthTypeParser" {
+    const fa = testing.failing_allocator;
+
+    const Parser = @TypeOf(lineWidthTypeParser);
+
+    const r1 = try lineWidthTypeParser.parse(fa, "lw:10");
+    try testing.expectEqual(Parser.T{ "lw", 10 }, r1.value.ok);
+
+    const r2 = try lineWidthTypeParser.asStr().parse(fa, "lw  :  10");
+    try testing.expectEqualStrings("lw  :  10", r2.value.ok);
+
+    const r3 = try lineWidthTypeParser.parse(fa, "lw  :  10");
+    try testing.expectEqual(Parser.T{ "lw", 10 }, r3.value.ok);
 }
