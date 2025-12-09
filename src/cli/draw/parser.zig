@@ -28,9 +28,9 @@ pub const ElementDrawCmd = struct {
 };
 
 pub const ReferenceFrame = enum {
-    local, // in reference to local reference frame, for example, 0.2 means 1/5 in the context to something, so when something get larger then the attribute is scaled accordingly
-    global, // in reference to global reference frame, for example, 0.05 means it iscomputed to the final vector space
-    normalized, // in reference to global reference frame, for example, 0.1 means 10% of the height/width of the final diagram
+    local, // in reference to local reference frame, for example, 20 means 1/5 in the context to something, so when something get larger then the attribute is scaled accordingly
+    global, // in reference to global reference frame, for example, 5 means 5% computed wrt the final vector space
+    normalized, // in reference to global reference frame, for example, 10 means 10% of the height/width of the final diagram
     output, // in reference to the requested output size of diagram
 };
 
@@ -60,13 +60,41 @@ const coordinateTypeParser =
 const coordinateOrientationParser =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("fixed"), mecha.string("adjusting") }).asStr(), mecha.toEnum(CoordinateOrientation)) });
 
-const lineWidthTypeParser =
-    mecha.combine(.{ mecha.oneOf(.{ mecha.string("lw"), mecha.string("lwL"), mecha.string("lwG"), mecha.string("lwN"), mecha.string("lwO") }), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.int(u8, .{}) });
+const lineWidthTypeParserRaw =
+    mecha.combine(.{ mecha.oneOf(.{ mecha.string("lwL"), mecha.string("lwG"), mecha.string("lwN"), mecha.string("lwO"), mecha.string("lw") }), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.int(u8, .{}) });
 
-//expecting here "attr ref val" structure
-//pub fn toLineWidthType(_allocator: mem.Allocator, _str: []const u8) mecha.ConvertError!LineWidthType {
-//    return error.ConversionFailed;
-//}
+const lineWidthTypeParserRawP = @TypeOf(lineWidthTypeParserRaw);
+const LineWidthT = enum {
+    lw,
+    lwL,
+    lwG,
+    lwN,
+    lwO,
+};
+fn toLineWidthType(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.ConvertError!LineWidthType {
+    const to = struct {
+        fn to(str: []const u8) ?LineWidthT {
+            return std.meta.stringToEnum(LineWidthT, str);
+        }
+    }.to;
+    if (to(res[0])) |validT| {
+        const switchRes: ReferenceFrame = switch (validT) {
+            .lw => .local,
+            .lwL => .local,
+            .lwG => .global,
+            .lwN => .normalized,
+            .lwO => .output,
+        };
+        return .{
+            .reference = switchRes,
+            .value = res[1],
+        };
+    } else {
+        return error.ConversionFailed;
+    }
+}
+
+const lineWidthTypeParserTyped = lineWidthTypeParserRaw.convert(toLineWidthType);
 
 const elementParser =
     mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket }).map(mecha.toStruct(ElementDrawCmd));
@@ -148,17 +176,30 @@ test "element" {
     try testing.expectEqual(ElementDrawCmd{ .elementNumber = 7, .elementType = .vec2d, .coordinateSystem = .xy, .coordinateOrientation = .fixed }, r4.value.ok);
 }
 
-test "LineWidthTypeParser" {
+test "LineWidthTypeParserRaw" {
     const fa = testing.failing_allocator;
 
-    const Parser = @TypeOf(lineWidthTypeParser);
+    const Parser = @TypeOf(lineWidthTypeParserRaw);
 
-    const r1 = try lineWidthTypeParser.parse(fa, "lw:10");
+    const r1 = try lineWidthTypeParserRaw.parse(fa, "lw:10");
     try testing.expectEqual(Parser.T{ "lw", 10 }, r1.value.ok);
 
-    const r2 = try lineWidthTypeParser.asStr().parse(fa, "lw  :  10");
+    const r2 = try lineWidthTypeParserRaw.asStr().parse(fa, "lw  :  10");
     try testing.expectEqualStrings("lw  :  10", r2.value.ok);
 
-    const r3 = try lineWidthTypeParser.parse(fa, "lw  :  10");
-    try testing.expectEqual(Parser.T{ "lw", 10 }, r3.value.ok);
+    const r3 = try lineWidthTypeParserRaw.parse(fa, "lwL  :  10");
+    try testing.expectEqual(Parser.T{ "lwL", 10 }, r3.value.ok);
+}
+
+test "LineWidthTypeParserTyped" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try lineWidthTypeParserTyped.parse(fa, "lw:10");
+    try testing.expectEqual(LineWidthType{ .reference = .local, .value = 10 }, r1.value.ok);
+
+    const r2 = try lineWidthTypeParserTyped.parse(fa, "lw  :  10");
+    try testing.expectEqual(LineWidthType{ .reference = .local, .value = 10 }, r2.value.ok);
+
+    const r3 = try lineWidthTypeParserTyped.parse(fa, "lwG  :  6");
+    try testing.expectEqual(LineWidthType{ .reference = .global, .value = 6 }, r3.value.ok);
 }
