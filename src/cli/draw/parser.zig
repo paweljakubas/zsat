@@ -1,5 +1,6 @@
 const mecha = @import("mecha");
 const std = @import("std");
+const attr = @import("attributes.zig");
 const testing = std.testing;
 
 //element
@@ -39,8 +40,13 @@ pub const LineWidthType = struct {
     value: u8, // in %
 };
 
+pub const LineColorType = struct {
+    value: attr.ColorName,
+};
+
 pub const Vec2dStyles = struct {
     lineWidth: LineWidthType,
+    lineColor: LineColorType,
 };
 
 //Parsers
@@ -60,6 +66,7 @@ const coordinateTypeParser =
 const coordinateOrientationParser =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("fixed"), mecha.string("adjusting") }).asStr(), mecha.toEnum(CoordinateOrientation)) });
 
+//LineWidth parser
 const lineWidthTypeParserRaw =
     mecha.combine(.{ mecha.oneOf(.{ mecha.string("lwL"), mecha.string("lwG"), mecha.string("lwN"), mecha.string("lwO"), mecha.string("lw") }), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.int(u8, .{}) });
 
@@ -93,8 +100,16 @@ fn toLineWidthType(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.C
         return error.ConversionFailed;
     }
 }
-
 const lineWidthTypeParserTyped = lineWidthTypeParserRaw.convert(toLineWidthType);
+
+//LineColor parser
+const lineColorTypeParserRaw =
+    mecha.combine(.{ mecha.string("lc").discard(), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, attr.colorNameParserTyped });
+const lineColorTypeParserRawP = @TypeOf(lineColorTypeParserRaw);
+fn toLineColorType(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.ConvertError!LineColorType {
+    return .{ .value = res };
+}
+const lineColorTypeParserTyped = lineColorTypeParserRaw.convert(toLineColorType);
 
 const elementParser =
     mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket }).map(mecha.toStruct(ElementDrawCmd));
@@ -202,4 +217,17 @@ test "LineWidthTypeParserTyped" {
 
     const r3 = try lineWidthTypeParserTyped.parse(fa, "lwG  :  6");
     try testing.expectEqual(LineWidthType{ .reference = .global, .value = 6 }, r3.value.ok);
+}
+
+test "LineWColorTypeParserTyped" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try lineColorTypeParserTyped.parse(fa, "lc:green");
+    try testing.expectEqual(LineColorType{ .value = .green }, r1.value.ok);
+
+    const r2 = try lineColorTypeParserTyped.parse(fa, "lc :  green");
+    try testing.expectEqual(LineColorType{ .value = .green }, r2.value.ok);
+
+    const r3 = try lineColorTypeParserTyped.parse(fa, "lc : yellow");
+    try testing.expectEqual(LineColorType{ .value = .yellow }, r3.value.ok);
 }

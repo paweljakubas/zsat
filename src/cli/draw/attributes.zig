@@ -1,9 +1,8 @@
 const mecha = @import("mecha");
 const std = @import("std");
-const testing = std.testing;
 
 //colour names
-pub const ColourName = enum {
+pub const ColorName = enum {
     aqua,
     azure,
     black,
@@ -23,7 +22,7 @@ pub const ColourName = enum {
     yellow,
 };
 
-const lineColorNameParserRaw =
+const colorNameParserRaw =
     mecha.oneOf(.{
         mecha.string("aqua"),
         mecha.string("azure"),
@@ -44,17 +43,14 @@ const lineColorNameParserRaw =
         mecha.string("yellow"),
     });
 
-fn toLColorNameType(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.ConvertError!ColorName {
-    const to = struct {
-        fn to(str: []const u8) ?ColorName {
-            return std.meta.stringToEnum(ColorName, str);
-        }
-    }.to;
-    if (to(res[0])) |validColor| {
+const lineColorNameParserRawP = @TypeOf(colorNameParserRaw);
+
+fn toColorNameType(_: std.mem.Allocator, res: lineColorNameParserRawP.T) mecha.ConvertError!ColorName {
+    if (std.meta.stringToEnum(ColorName, res)) |validColor| {
         return validColor;
     } else {
         return error.ConversionFailed;
     }
 }
 
-const lineColorNameParserTyped = lineColorNameParserRaw.convert(toColorNameType);
+pub const colorNameParserTyped = colorNameParserRaw.convert(toColorNameType);
