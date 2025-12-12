@@ -1,6 +1,6 @@
 # zsat
 
-**Z**ig based **S**cience plot and **A**nimation command line **T**ool
+**Z**ig-based **S**cience plotting and **A**nimation command line **T**ool
 
 [![Zig Version](https://img.shields.io/badge/Zig_Version-0.15.2-orange.svg?logo=zig)](README.md)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](LICENSE)
@@ -15,18 +15,18 @@ or countless libraries in Python/R/Julia ecosystems.
 
 But they lack five features that are crucial for my workflow:
 - they are not integrated with modern terminal emulators that have graphics support
-- the paradigm of plot/animation construction in the current tools is not satisfactory for the person that has worked with a great [haskell diagrams](https://archives.haskell.org/projects.haskell.org/diagrams/) library and is in pursuit of total control and expliciteness
+- the paradigm of plot/animation construction in the current tools is not satisfactory for the person that has worked with a great [haskell diagrams](https://archives.haskell.org/projects.haskell.org/diagrams/) library, is in pursuit of total control and expliciteness and into math
 - they are far away in terms of succinctness of data manipulation that one can realize in array languages like APL or J (of which I am a huge fan), and the elegance of Haskell
-- it usually takes a long time to produce a satisfactory animation using existant tools and the feedback loop is too slow for me
+- it usually takes a long time to produce a satisfactory animation using existent tools and the intermediate feedback loop is too slow for me
 - it is not so staightforward to save customized templates that could be reused later and thanks to that accelerate the workflow
 
 Hence, my humble attempt to address those pain points as the goals of this project.
 
-I also treat this as an opportunity to learn and practice Zig, a truely wonderful general programming language with a angle to be performant, explicit and low-level.
+I also treat this as an opportunity to learn and practice Zig, a truely wonderful general programming language with an angle to be performant, explicit and low-level.
 
-**zsat** must have had picked maximum two from the triple choice of _flexibility_, _power_ and _simplicity_.
-And, by a design, I have chosen __flexibility__ and __power__.
-Meaning if the simplicity is a must for you  **zsat** might not be the best choice.
+**zsat** must have had picked maximum two out of three choices of _flexibility_, _power_ and _simplicity_.
+And, by a design, __flexibility__ and __power__ was chosen over _simplicity_.
+Meaning, if you are in pursuit of the simplicity **zsat** might not be the best choice.
 
 ## Backend
 At this moment the only backend possible is based on haskell's diagrams library, meaning one needs
@@ -38,7 +38,7 @@ At this moment the only backend possible is based on haskell's diagrams library,
 
 installed in the local system. Please run `zsat setup show` to inspect if you are ready in backend sense.
 
-The plan is to use `z2d` and `blender2d` as another two possible backends.
+The plan is to use `z2d` and `blender2d` as another two possible backends in the future.
 
 ## Front end
 If one wants PNG or GIF file as an output then no front end is required.
@@ -87,4 +87,4 @@ Vector plots - coming soon!
 - [**zli**](https://github.com/xcaeser/zli) for CLI development support
 - [**macha**](https://github.com/Hejsil/mecha) parser combinator library
 - [**cmdtest**](https://github.com/pyk/cmdtest) for testing CLI app
-- [blackcat](https://github.com/j-c-m/blackcat) cat enabling png/gif opening in **kitty graphics protocol** supported terminals
+- [**blackcat**](https://github.com/j-c-m/blackcat) cat enabling png/gif opening in **kitty graphics protocol** supported terminals

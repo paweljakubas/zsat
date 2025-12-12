@@ -29,24 +29,29 @@ pub const ElementDrawCmd = struct {
 };
 
 pub const ReferenceFrame = enum {
-    local, // in reference to local reference frame, for example, 20 means 1/5 in the context to something, so when something get larger then the attribute is scaled accordingly
-    global, // in reference to global reference frame, for example, 5 means 5% computed wrt the final vector space
-    normalized, // in reference to global reference frame, for example, 10 means 10% of the height/width of the final diagram
-    output, // in reference to the requested output size of diagram
+    local, // in reference to local reference frame, for example, 200 means 1/5 in the context to something, so when something get larger then the attribute is scaled accordingly
+    global, // in reference to global reference frame, for example, 50 means 5% computed wrt the final vector space
+    normalized, // in reference to global reference frame, for example, 10 means 1% of the height/width of the final diagram
+    output, // in reference to the requested output size of diagram, for example, 10 in pixels
 };
 
 pub const LineWidthType = struct {
     reference: ReferenceFrame,
-    value: u8, // in %
+    value: u16, // in 0.1 % for local/global/normalized and in number of pixels for output
 };
 
 pub const LineColorType = struct {
     value: attr.ColorName,
 };
 
+pub const LineOpacityType = struct {
+    value: u8, // The opacity is a value between 100 (completely opaque, the default) and 0 (completely transparent) with relation to the current opacity.
+};
+
 pub const Vec2dStyles = struct {
     lineWidth: LineWidthType,
     lineColor: LineColorType,
+    lineOpacity: LineOpacityType,
 };
 
 //Parsers
@@ -68,7 +73,7 @@ const coordinateOrientationParser =
 
 //LineWidth parser
 const lineWidthTypeParserRaw =
-    mecha.combine(.{ mecha.oneOf(.{ mecha.string("lwL"), mecha.string("lwG"), mecha.string("lwN"), mecha.string("lwO"), mecha.string("lw") }), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.int(u8, .{}) });
+    mecha.combine(.{ mecha.oneOf(.{ mecha.string("lwL"), mecha.string("lwG"), mecha.string("lwN"), mecha.string("lwO"), mecha.string("lw") }), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.int(u16, .{}) });
 
 const lineWidthTypeParserRawP = @TypeOf(lineWidthTypeParserRaw);
 const LineWidthT = enum {
@@ -86,7 +91,7 @@ fn toLineWidthType(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.C
     }.to;
     if (to(res[0])) |validT| {
         const switchRes: ReferenceFrame = switch (validT) {
-            .lw => .local,
+            .lw => .normalized,
             .lwL => .local,
             .lwG => .global,
             .lwN => .normalized,
@@ -210,10 +215,10 @@ test "LineWidthTypeParserTyped" {
     const fa = testing.failing_allocator;
 
     const r1 = try lineWidthTypeParserTyped.parse(fa, "lw:10");
-    try testing.expectEqual(LineWidthType{ .reference = .local, .value = 10 }, r1.value.ok);
+    try testing.expectEqual(LineWidthType{ .reference = .normalized, .value = 10 }, r1.value.ok);
 
     const r2 = try lineWidthTypeParserTyped.parse(fa, "lw  :  10");
-    try testing.expectEqual(LineWidthType{ .reference = .local, .value = 10 }, r2.value.ok);
+    try testing.expectEqual(LineWidthType{ .reference = .normalized, .value = 10 }, r2.value.ok);
 
     const r3 = try lineWidthTypeParserTyped.parse(fa, "lwG  :  6");
     try testing.expectEqual(LineWidthType{ .reference = .global, .value = 6 }, r3.value.ok);
