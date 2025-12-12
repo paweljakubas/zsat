@@ -87,4 +87,4 @@ Vector plots - coming soon!
 - [**zli**](https://github.com/xcaeser/zli) for CLI development support
 - [**macha**](https://github.com/Hejsil/mecha) parser combinator library
 - [**cmdtest**](https://github.com/pyk/cmdtest) for testing CLI app
-- [**blackcat**](https://github.com/j-c-m/blackcat) cat enabling png/gif opening in **kitty graphics protocol** supported terminals
+- [**blackcat**](https://github.com/j-c-m/blackcat) cat enabling png/gif opening valid in **kitty graphics protocol** supported terminals

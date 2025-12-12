@@ -74,7 +74,6 @@ const coordinateOrientationParser =
 //LineWidth parser
 const lineWidthTypeParserRaw =
     mecha.combine(.{ mecha.oneOf(.{ mecha.string("lwL"), mecha.string("lwG"), mecha.string("lwN"), mecha.string("lwO"), mecha.string("lw") }), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.int(u16, .{}) });
-
 const lineWidthTypeParserRawP = @TypeOf(lineWidthTypeParserRaw);
 const LineWidthT = enum {
     lw,
@@ -115,6 +114,15 @@ fn toLineColorType(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.C
     return .{ .value = res };
 }
 const lineColorTypeParserTyped = lineColorTypeParserRaw.convert(toLineColorType);
+
+//LineOpacity parser
+const lineOpacityTypeParserRaw =
+    mecha.combine(.{ mecha.string("lo").discard(), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.int(u8, .{}) });
+const lineOpacityTypeParserRawP = @TypeOf(lineOpacityTypeParserRaw);
+fn toLineOpacityType(_: std.mem.Allocator, res: lineOpacityTypeParserRawP.T) mecha.ConvertError!LineOpacityType {
+    return .{ .value = res };
+}
+const lineOpacityTypeParserTyped = lineOpacityTypeParserRaw.convert(toLineOpacityType);
 
 const elementParser =
     mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket }).map(mecha.toStruct(ElementDrawCmd));
@@ -235,4 +243,17 @@ test "LineWColorTypeParserTyped" {
 
     const r3 = try lineColorTypeParserTyped.parse(fa, "lc : yellow");
     try testing.expectEqual(LineColorType{ .value = .yellow }, r3.value.ok);
+}
+
+test "LineOpacityTypeParserTyped" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try lineOpacityTypeParserTyped.parse(fa, "lo:10");
+    try testing.expectEqual(LineOpacityType{ .value = 10 }, r1.value.ok);
+
+    const r2 = try lineOpacityTypeParserTyped.parse(fa, "lo  :  10");
+    try testing.expectEqual(LineOpacityType{ .value = 10 }, r2.value.ok);
+
+    const r3 = try lineOpacityTypeParserTyped.parse(fa, "lo  :  6");
+    try testing.expectEqual(LineOpacityType{ .value = 6 }, r3.value.ok);
 }
