@@ -59,10 +59,23 @@ pub const LineCapType = struct {
     value: LineCap,
 };
 
+pub const LineJoin = enum {
+    none,
+    mitter,
+    round,
+    bevel,
+};
+
+pub const LineJoinType = struct {
+    value: LineJoin,
+};
+
 pub const Vec2dStyles = struct {
     lineWidth: LineWidthType,
     lineColor: LineColorType,
     lineOpacity: LineOpacityType,
+    lineCap: LineCapType,
+    lineJoin: LineJoinType,
 };
 
 //Parsers
@@ -174,6 +187,46 @@ fn toLineCapType(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.Conve
     }
 }
 const lineCapTypeParserTyped = lineCapTypeParserRaw.convert(toLineCapType);
+
+//Linejoin parser
+const lineJoinTypeParserRaw =
+    mecha.combine(.{ mecha.string("lj").discard(), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.oneOf(.{ mecha.string("none"), mecha.string("n"), mecha.string("mitter"), mecha.string("m"), mecha.string("round"), mecha.string("r"), mecha.string("bevel"), mecha.string("b") }) });
+const lineJoinTypeParserRawP = @TypeOf(lineJoinTypeParserRaw);
+const LineJoinT = enum {
+    none,
+    n,
+    mitter,
+    m,
+    round,
+    r,
+    bevel,
+    b,
+};
+fn toLineJoinType(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.ConvertError!LineJoinType {
+    const to = struct {
+        fn to(str: []const u8) ?LineJoinT {
+            return std.meta.stringToEnum(LineJoinT, str);
+        }
+    }.to;
+    if (to(res)) |validT| {
+        const switchRes: LineJoin = switch (validT) {
+            .none => .none,
+            .n => .none,
+            .mitter => .mitter,
+            .m => .mitter,
+            .round => .round,
+            .r => .round,
+            .bevel => .bevel,
+            .b => .bevel,
+        };
+        return .{
+            .value = switchRes,
+        };
+    } else {
+        return error.ConversionFailed;
+    }
+}
+const lineJoinTypeParserTyped = lineJoinTypeParserRaw.convert(toLineJoinType);
 
 const elementParser =
     mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket }).map(mecha.toStruct(ElementDrawCmd));
@@ -320,4 +373,17 @@ test "LineCapTypeParserTyped" {
 
     const r3 = try lineCapTypeParserTyped.parse(fa, "le  :  b");
     try testing.expectEqual(LineCapType{ .value = .butt }, r3.value.ok);
+}
+
+test "LineJoinTypeParserTyped" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try lineJoinTypeParserTyped.parse(fa, "lj: n");
+    try testing.expectEqual(LineJoinType{ .value = .none }, r1.value.ok);
+
+    const r2 = try lineJoinTypeParserTyped.parse(fa, "lj  :  none");
+    try testing.expectEqual(LineJoinType{ .value = .none }, r2.value.ok);
+
+    const r3 = try lineJoinTypeParserTyped.parse(fa, "lj  :  b");
+    try testing.expectEqual(LineJoinType{ .value = .bevel }, r3.value.ok);
 }
