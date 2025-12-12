@@ -70,12 +70,19 @@ pub const LineJoinType = struct {
     value: LineJoin,
 };
 
+pub const LineDashingType = struct {
+    reference: ReferenceFrame,
+    onOff: []const u16, // in 0.1 % for local/global/normalized (i.e., 10 = 1%) and in number of pixels for output
+    offset: u16, // in 0.1 % for local/global/normalized (i.e., 10 = 1%) and in number of pixels for output
+};
+
 pub const Vec2dStyles = struct {
     lineWidth: LineWidthType,
     lineColor: LineColorType,
     lineOpacity: LineOpacityType,
     lineCap: LineCapType,
     lineJoin: LineJoinType,
+    lineDashing: LineDashingType,
 };
 
 //Parsers
@@ -188,7 +195,7 @@ fn toLineCapType(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.Conve
 }
 const lineCapTypeParserTyped = lineCapTypeParserRaw.convert(toLineCapType);
 
-//Linejoin parser
+//LineJoin parser
 const lineJoinTypeParserRaw =
     mecha.combine(.{ mecha.string("lj").discard(), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.oneOf(.{ mecha.string("none"), mecha.string("n"), mecha.string("mitter"), mecha.string("m"), mecha.string("round"), mecha.string("r"), mecha.string("bevel"), mecha.string("b") }) });
 const lineJoinTypeParserRawP = @TypeOf(lineJoinTypeParserRaw);
@@ -227,6 +234,42 @@ fn toLineJoinType(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.Con
     }
 }
 const lineJoinTypeParserTyped = lineJoinTypeParserRaw.convert(toLineJoinType);
+
+//LineDashing parser
+const lineDashingTypeParserRaw =
+    mecha.combine(.{ mecha.oneOf(.{ mecha.string("ldL"), mecha.string("ldG"), mecha.string("ldN"), mecha.string("ldO"), mecha.string("ld") }), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.string("[").discard(), skipWhitespace, mecha.int(u16, .{}).many(.{ .collect = true, .min = 2, .separator = mecha.combine(.{ skipWhitespace, mecha.string(","), skipWhitespace }).discard() }), skipWhitespace, mecha.string("]").discard(), skipWhitespace, mecha.int(u16, .{}) });
+const lineDashingTypeParserRawP = @TypeOf(lineDashingTypeParserRaw);
+const LineDashingT = enum {
+    ld,
+    ldL,
+    ldG,
+    ldN,
+    ldO,
+};
+fn toLineDashingType(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mecha.ConvertError!LineDashingType {
+    const to = struct {
+        fn to(str: []const u8) ?LineDashingT {
+            return std.meta.stringToEnum(LineDashingT, str);
+        }
+    }.to;
+    if (to(res[0])) |validT| {
+        const switchRes: ReferenceFrame = switch (validT) {
+            .ld => .normalized,
+            .ldL => .local,
+            .ldG => .global,
+            .ldN => .normalized,
+            .ldO => .output,
+        };
+        return .{
+            .reference = switchRes,
+            .onOff = res[1],
+            .offset = res[2],
+        };
+    } else {
+        return error.ConversionFailed;
+    }
+}
+const lineDashingTypeParserTyped = lineDashingTypeParserRaw.convert(toLineDashingType);
 
 const elementParser =
     mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket }).map(mecha.toStruct(ElementDrawCmd));
@@ -386,4 +429,18 @@ test "LineJoinTypeParserTyped" {
 
     const r3 = try lineJoinTypeParserTyped.parse(fa, "lj  :  b");
     try testing.expectEqual(LineJoinType{ .value = .bevel }, r3.value.ok);
+}
+
+test "LineDashingTypeParserTyped" {
+    const a = testing.allocator;
+
+    const r1 = try lineDashingTypeParserTyped.parse(a, "ld: [2 , 3] 1");
+    defer a.free(r1.value.ok);
+    try testing.expectEqual(LineDashingType{ .reference = .normalized, .onOff = &[_]u16{ 2, 3 }, .offset = 1 }, r1.value.ok);
+
+    //const r2 = try lineDashingTypeParserTyped.parse(fa, "ld  :  [2   ,    3]    1");
+    //try testing.expectEqual(LineDashingType{ .reference = .normalized, .onOff = &[_]u16{ 2, 3 }, .offset = 1 }, r2.value.ok);
+
+    //const r3 = try lineJoinTypeParserTyped.parse(fa, "ldG  :  [ 2,3,10] 0");
+    //try testing.expectEqual(LineDashingType{ .reference = .normalized, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 }, r3.value.ok);
 }
