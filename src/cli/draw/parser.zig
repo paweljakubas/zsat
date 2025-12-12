@@ -48,6 +48,17 @@ pub const LineOpacityType = struct {
     value: u8, // The opacity is a value between 100 (completely opaque, the default) and 0 (completely transparent) with relation to the current opacity.
 };
 
+pub const LineCap = enum {
+    none,
+    butt,
+    round,
+    square,
+};
+
+pub const LineCapType = struct {
+    value: LineCap,
+};
+
 pub const Vec2dStyles = struct {
     lineWidth: LineWidthType,
     lineColor: LineColorType,
@@ -123,6 +134,46 @@ fn toLineOpacityType(_: std.mem.Allocator, res: lineOpacityTypeParserRawP.T) mec
     return .{ .value = res };
 }
 const lineOpacityTypeParserTyped = lineOpacityTypeParserRaw.convert(toLineOpacityType);
+
+//LineCap parser
+const lineCapTypeParserRaw =
+    mecha.combine(.{ mecha.string("le").discard(), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.oneOf(.{ mecha.string("none"), mecha.string("n"), mecha.string("butt"), mecha.string("b"), mecha.string("round"), mecha.string("r"), mecha.string("square"), mecha.string("s") }) });
+const lineCapTypeParserRawP = @TypeOf(lineCapTypeParserRaw);
+const LineCapT = enum {
+    none,
+    n,
+    butt,
+    b,
+    round,
+    r,
+    square,
+    s,
+};
+fn toLineCapType(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.ConvertError!LineCapType {
+    const to = struct {
+        fn to(str: []const u8) ?LineCapT {
+            return std.meta.stringToEnum(LineCapT, str);
+        }
+    }.to;
+    if (to(res)) |validT| {
+        const switchRes: LineCap = switch (validT) {
+            .none => .none,
+            .n => .none,
+            .butt => .butt,
+            .b => .butt,
+            .round => .round,
+            .r => .round,
+            .square => .square,
+            .s => .square,
+        };
+        return .{
+            .value = switchRes,
+        };
+    } else {
+        return error.ConversionFailed;
+    }
+}
+const lineCapTypeParserTyped = lineCapTypeParserRaw.convert(toLineCapType);
 
 const elementParser =
     mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket }).map(mecha.toStruct(ElementDrawCmd));
@@ -256,4 +307,17 @@ test "LineOpacityTypeParserTyped" {
 
     const r3 = try lineOpacityTypeParserTyped.parse(fa, "lo  :  6");
     try testing.expectEqual(LineOpacityType{ .value = 6 }, r3.value.ok);
+}
+
+test "LineCapTypeParserTyped" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try lineCapTypeParserTyped.parse(fa, "le: n");
+    try testing.expectEqual(LineCapType{ .value = .none }, r1.value.ok);
+
+    const r2 = try lineCapTypeParserTyped.parse(fa, "le  :  none");
+    try testing.expectEqual(LineCapType{ .value = .none }, r2.value.ok);
+
+    const r3 = try lineCapTypeParserTyped.parse(fa, "le  :  b");
+    try testing.expectEqual(LineCapType{ .value = .butt }, r3.value.ok);
 }
