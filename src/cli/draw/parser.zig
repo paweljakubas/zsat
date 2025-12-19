@@ -435,12 +435,14 @@ test "LineDashingTypeParserTyped" {
     const a = testing.allocator;
 
     const r1 = try lineDashingTypeParserTyped.parse(a, "ld: [2 , 3] 1");
-    defer a.free(r1.value.ok);
-    try testing.expectEqual(LineDashingType{ .reference = .normalized, .onOff = &[_]u16{ 2, 3 }, .offset = 1 }, r1.value.ok);
+    defer a.free(r1.value.ok.onOff);
+    try testing.expectEqualDeep(LineDashingType{ .reference = .normalized, .onOff = &[2]u16{ 2, 3 }, .offset = 1 }, r1.value.ok);
 
-    //const r2 = try lineDashingTypeParserTyped.parse(fa, "ld  :  [2   ,    3]    1");
-    //try testing.expectEqual(LineDashingType{ .reference = .normalized, .onOff = &[_]u16{ 2, 3 }, .offset = 1 }, r2.value.ok);
+    const r2 = try lineDashingTypeParserTyped.parse(a, "ld  :  [2   ,    3]    1");
+    defer a.free(r2.value.ok.onOff);
+    try testing.expectEqualDeep(LineDashingType{ .reference = .normalized, .onOff = &[_]u16{ 2, 3 }, .offset = 1 }, r2.value.ok);
 
-    //const r3 = try lineJoinTypeParserTyped.parse(fa, "ldG  :  [ 2,3,10] 0");
-    //try testing.expectEqual(LineDashingType{ .reference = .normalized, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 }, r3.value.ok);
+    const r3 = try lineDashingTypeParserTyped.parse(a, "ldG  :  [ 2,3,10] 0");
+    defer a.free(r3.value.ok.onOff);
+    try testing.expectEqualDeep(LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 }, r3.value.ok);
 }
