@@ -38,14 +38,33 @@ pub const ReferenceFrame = enum {
 pub const LineWidthType = struct {
     reference: ReferenceFrame,
     value: u16, // in 0.1 % for local/global/normalized and in number of pixels for output
+
+    fn defaultLineWidthaType() LineWidthType {
+        return LineWidthType{
+            .reference = .normalized,
+            .value = 20,
+        };
+    }
 };
 
 pub const LineColorType = struct {
     value: attr.ColorName,
+
+    pub fn defaultLineColorType() LineColorType {
+        return LineColorType{
+            .value = .black,
+        };
+    }
 };
 
 pub const LineOpacityType = struct {
     value: u8, // The opacity is a value between 100 (completely opaque, the default) and 0 (completely transparent) with relation to the current opacity.
+
+    pub fn defaultLineOpacityType() LineOpacityType {
+        return LineOpacityType{
+            .value = 100,
+        };
+    }
 };
 
 pub const LineCap = enum {
@@ -57,6 +76,12 @@ pub const LineCap = enum {
 
 pub const LineCapType = struct {
     value: LineCap,
+
+    pub fn defaultLineCapType() LineCapType {
+        return LineCapType{
+            .value = .none,
+        };
+    }
 };
 
 pub const LineJoin = enum {
@@ -68,21 +93,35 @@ pub const LineJoin = enum {
 
 pub const LineJoinType = struct {
     value: LineJoin,
+
+    pub fn defaultLineJoinType() LineJoinType {
+        return LineJoinType{
+            .value = .none,
+        };
+    }
 };
 
 pub const LineDashingType = struct {
     reference: ReferenceFrame,
     onOff: []const u16, // in 0.1 % for local/global/normalized (i.e., 10 = 1%) and in number of pixels for output
     offset: u16, // in 0.1 % for local/global/normalized (i.e., 10 = 1%) and in number of pixels for output
+
+    pub fn defaultLineDashingType() LineDashingType {
+        return LineDashingType{
+            .reference = .normalized,
+            .onOff = [2]u16{ 10, 10 },
+            .value = 0,
+        };
+    }
 };
 
 pub const Vec2dStyles = struct {
-    lineWidth: LineWidthType,
-    lineColor: LineColorType,
-    lineOpacity: LineOpacityType,
-    lineCap: LineCapType,
-    lineJoin: LineJoinType,
-    lineDashing: LineDashingType,
+    lineWidth: LineWidthType = .defaultLineWidthaType(),
+    lineColor: LineColorType = .defaultLineColorType(),
+    lineOpacity: LineOpacityType = .defaultLineOpacityType(),
+    lineCap: LineCapType = .defaultLineCapType(),
+    lineJoin: LineJoinType = .defaultLineJoinType(),
+    lineDashing: LineDashingType = .defaultLineDashingType(),
 };
 
 //Parsers
@@ -271,6 +310,18 @@ fn toLineDashingType(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mec
 }
 const lineDashingTypeParserTyped = lineDashingTypeParserRaw.convert(toLineDashingType);
 
+//Vec2dStyles parser
+const oneOfVec2dStyleParser = mecha.oneOf(.{
+    lineWidthTypeParserTyped,
+    lineColorTypeParserTyped,
+    lineOpacityTypeParserTyped,
+    lineCapTypeParserTyped,
+    lineJoinTypeParserTyped,
+    lineDashingTypeParserTyped,
+});
+const vec2dStylesParser =
+    mecha.combine(.{ mecha.string("[").discard(), skipWhitespace, oneOfVec2dStyleParser.many(.{ .collect = true, .min = 1, .separator = mecha.combine(.{ skipWhitespace, mecha.string(";"), skipWhitespace }).discard() }), skipWhitespace, mecha.ascii.char(']').discard() });
+
 const elementParser =
     mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket }).map(mecha.toStruct(ElementDrawCmd));
 
@@ -445,4 +496,12 @@ test "LineDashingTypeParserTyped" {
     const r3 = try lineDashingTypeParserTyped.parse(a, "ldG  :  [ 2,3,10] 0");
     defer a.free(r3.value.ok.onOff);
     try testing.expectEqualDeep(LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 }, r3.value.ok);
+}
+
+test "vec2dStylesParser" {
+    const a = testing.allocator;
+
+    const r1 = try vec2dStylesParser.parse(a, "[ld: [2 , 3] 1]");
+    defer a.free(r1.value.ok);
+    try testing.expectEqualDeep(&[1]LineDashingType{.{ .reference = .normalized, .onOff = &[2]u16{ 2, 3 }, .offset = 1 }}, r1.value.ok);
 }
