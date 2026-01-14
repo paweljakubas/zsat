@@ -127,6 +127,7 @@ pub const Vec2dStyles = struct {
 const Vec2dStylesUnion = union(enum) {
     lineWidth: LineWidthType,
     lineColor: LineColorType,
+    lineOpacity: LineOpacityType,
 };
 
 //Parsers
@@ -202,7 +203,7 @@ fn toLineWidthUnion(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.
         return error.ConversionFailed;
     }
 }
-const lineWidthTypeParserUnion = lineWidthTypeParserRaw.convert(toLineWidthUnion);
+const lineWidthUnionParser = lineWidthTypeParserRaw.convert(toLineWidthUnion);
 
 //LineColor parser
 const lineColorTypeParserRaw =
@@ -215,7 +216,7 @@ const lineColorTypeParserTyped = lineColorTypeParserRaw.convert(toLineColorType)
 fn toLineColorUnion(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
     return Vec2dStylesUnion{ .lineColor = .{ .value = res } };
 }
-const lineColorTypeParserUnion = lineColorTypeParserRaw.convert(toLineColorUnion);
+const lineColorUnionParser = lineColorTypeParserRaw.convert(toLineColorUnion);
 
 //LineOpacity parser
 const lineOpacityTypeParserRaw =
@@ -225,6 +226,10 @@ fn toLineOpacityType(_: std.mem.Allocator, res: lineOpacityTypeParserRawP.T) mec
     return .{ .value = res };
 }
 const lineOpacityTypeParserTyped = lineOpacityTypeParserRaw.convert(toLineOpacityType);
+fn toLineOpacityUnion(_: std.mem.Allocator, res: lineOpacityTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
+    return Vec2dStylesUnion{ .lineOpacity = .{ .value = res } };
+}
+const lineOpacityUnionParser = lineOpacityTypeParserRaw.convert(toLineOpacityUnion);
 
 //LineCap parser
 const lineCapTypeParserRaw =
@@ -344,8 +349,9 @@ const lineDashingTypeParserTyped = lineDashingTypeParserRaw.convert(toLineDashin
 
 //Vec2dStyles parser
 const vec2dStyleUnionParser = mecha.oneOf(.{
-    lineWidthTypeParserUnion,
-    lineColorTypeParserUnion,
+    lineWidthUnionParser,
+    lineColorUnionParser,
+    lineOpacityUnionParser,
 });
 
 const elementParser =
@@ -544,4 +550,13 @@ test "vec2dStyleUnionParser" {
 
     const r6 = try vec2dStyleUnionParser.parse(fa, "lc : yellow");
     try testing.expectEqual(Vec2dStylesUnion{ .lineColor = .{ .value = .yellow } }, r6.value.ok);
+
+    const r7 = try vec2dStyleUnionParser.parse(fa, "lo:10");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineOpacity = .{ .value = 10 } }, r7.value.ok);
+
+    const r8 = try vec2dStyleUnionParser.parse(fa, "lo  :  10");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineOpacity = .{ .value = 10 } }, r8.value.ok);
+
+    const r9 = try vec2dStyleUnionParser.parse(fa, "lo  :  6");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineOpacity = .{ .value = 6 } }, r9.value.ok);
 }
