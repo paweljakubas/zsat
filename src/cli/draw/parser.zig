@@ -343,16 +343,10 @@ fn toLineDashingType(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mec
 const lineDashingTypeParserTyped = lineDashingTypeParserRaw.convert(toLineDashingType);
 
 //Vec2dStyles parser
-const oneOfVec2dStyleParser = mecha.oneOf(.{
-    lineWidthTypeParserTyped,
-    lineColorTypeParserTyped,
-    lineOpacityTypeParserTyped,
-    lineCapTypeParserTyped,
-    lineJoinTypeParserTyped,
-    lineDashingTypeParserTyped,
+const vec2dStyleUnionParser = mecha.oneOf(.{
+    lineWidthTypeParserUnion,
+    lineColorTypeParserUnion,
 });
-const vec2dStylesParser =
-    mecha.combine(.{ mecha.string("[").discard(), skipWhitespace, oneOfVec2dStyleParser.many(.{ .collect = true, .min = 1, .separator = mecha.combine(.{ skipWhitespace, mecha.string(";"), skipWhitespace }).discard() }), skipWhitespace, mecha.ascii.char(']').discard() });
 
 const elementParser =
     mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket }).map(mecha.toStruct(ElementDrawCmd));
@@ -530,10 +524,24 @@ test "LineDashingTypeParserTyped" {
     try testing.expectEqualDeep(LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 }, r3.value.ok);
 }
 
-//test "vec2dStylesParser" {
-//    const a = testing.allocator;
-//
-//    const r1 = try vec2dStylesParser.parse(a, "[ld: [2 , 3] 1]");
-//    defer a.free(r1.value.ok);
-//    try testing.expectEqualDeep(&[1]LineDashingType{.{ .reference = .normalized, .onOff = &[2]u16{ 2, 3 }, .offset = 1 }}, r1.value.ok);
-//}
+test "vec2dStyleUnionParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try vec2dStyleUnionParser.parse(fa, "lw:10");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, r1.value.ok);
+
+    const r2 = try vec2dStyleUnionParser.parse(fa, "lw  :  10");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, r2.value.ok);
+
+    const r3 = try vec2dStyleUnionParser.parse(fa, "lwG  :  6");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineWidth = .{ .reference = .global, .value = 6 } }, r3.value.ok);
+
+    const r4 = try vec2dStyleUnionParser.parse(fa, "lc:green");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineColor = .{ .value = .green } }, r4.value.ok);
+
+    const r5 = try vec2dStyleUnionParser.parse(fa, "lc :  green");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineColor = .{ .value = .green } }, r5.value.ok);
+
+    const r6 = try vec2dStyleUnionParser.parse(fa, "lc : yellow");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineColor = .{ .value = .yellow } }, r6.value.ok);
+}
