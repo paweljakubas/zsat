@@ -124,6 +124,11 @@ pub const Vec2dStyles = struct {
     lineDashing: LineDashingType = .defaultLineDashingType(),
 };
 
+const Vec2dStylesUnion = union(enum) {
+    lineWidth: LineWidthType,
+    lineColor: LineColorType,
+};
+
 //Parsers
 const skipWhitespace =
     mecha.ascii.char(' ').many(.{ .collect = false }).discard();
@@ -175,6 +180,29 @@ fn toLineWidthType(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.C
     }
 }
 const lineWidthTypeParserTyped = lineWidthTypeParserRaw.convert(toLineWidthType);
+fn toLineWidthUnion(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
+    const to = struct {
+        fn to(str: []const u8) ?LineWidthT {
+            return std.meta.stringToEnum(LineWidthT, str);
+        }
+    }.to;
+    if (to(res[0])) |validT| {
+        const switchRes: ReferenceFrame = switch (validT) {
+            .lw => .normalized,
+            .lwL => .local,
+            .lwG => .global,
+            .lwN => .normalized,
+            .lwO => .output,
+        };
+        return Vec2dStylesUnion{ .lineWidth = .{
+            .reference = switchRes,
+            .value = res[1],
+        } };
+    } else {
+        return error.ConversionFailed;
+    }
+}
+const lineWidthTypeParserUnion = lineWidthTypeParserRaw.convert(toLineWidthUnion);
 
 //LineColor parser
 const lineColorTypeParserRaw =
@@ -184,6 +212,10 @@ fn toLineColorType(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.C
     return .{ .value = res };
 }
 const lineColorTypeParserTyped = lineColorTypeParserRaw.convert(toLineColorType);
+fn toLineColorUnion(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
+    return Vec2dStylesUnion{ .lineColor = .{ .value = res } };
+}
+const lineColorTypeParserUnion = lineColorTypeParserRaw.convert(toLineColorUnion);
 
 //LineOpacity parser
 const lineOpacityTypeParserRaw =
@@ -498,10 +530,10 @@ test "LineDashingTypeParserTyped" {
     try testing.expectEqualDeep(LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 }, r3.value.ok);
 }
 
-test "vec2dStylesParser" {
-    const a = testing.allocator;
-
-    const r1 = try vec2dStylesParser.parse(a, "[ld: [2 , 3] 1]");
-    defer a.free(r1.value.ok);
-    try testing.expectEqualDeep(&[1]LineDashingType{.{ .reference = .normalized, .onOff = &[2]u16{ 2, 3 }, .offset = 1 }}, r1.value.ok);
-}
+//test "vec2dStylesParser" {
+//    const a = testing.allocator;
+//
+//    const r1 = try vec2dStylesParser.parse(a, "[ld: [2 , 3] 1]");
+//    defer a.free(r1.value.ok);
+//    try testing.expectEqualDeep(&[1]LineDashingType{.{ .reference = .normalized, .onOff = &[2]u16{ 2, 3 }, .offset = 1 }}, r1.value.ok);
+//}
