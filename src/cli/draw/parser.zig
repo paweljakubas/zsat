@@ -129,6 +129,7 @@ const Vec2dStylesUnion = union(enum) {
     lineColor: LineColorType,
     lineOpacity: LineOpacityType,
     lineCap: LineCapType,
+    lineJoin: LineJoinType,
 };
 
 //Parsers
@@ -336,6 +337,31 @@ fn toLineJoinType(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.Con
     }
 }
 const lineJoinTypeParserTyped = lineJoinTypeParserRaw.convert(toLineJoinType);
+fn toLineJoinUnion(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
+    const to = struct {
+        fn to(str: []const u8) ?LineJoinT {
+            return std.meta.stringToEnum(LineJoinT, str);
+        }
+    }.to;
+    if (to(res)) |validT| {
+        const switchRes: LineJoin = switch (validT) {
+            .none => .none,
+            .n => .none,
+            .mitter => .mitter,
+            .m => .mitter,
+            .round => .round,
+            .r => .round,
+            .bevel => .bevel,
+            .b => .bevel,
+        };
+        return Vec2dStylesUnion{ .lineJoin = .{
+            .value = switchRes,
+        } };
+    } else {
+        return error.ConversionFailed;
+    }
+}
+const lineJoinUnionParser = lineJoinTypeParserRaw.convert(toLineJoinUnion);
 
 //LineDashing parser
 const lineDashingTypeParserRaw =
@@ -379,6 +405,7 @@ const vec2dStyleUnionParser = mecha.oneOf(.{
     lineColorUnionParser,
     lineOpacityUnionParser,
     lineCapUnionParser,
+    lineJoinUnionParser,
 });
 
 const elementParser =
@@ -595,4 +622,13 @@ test "vec2dStyleUnionParser" {
 
     const r12 = try vec2dStyleUnionParser.parse(fa, "le  :  b");
     try testing.expectEqual(Vec2dStylesUnion{ .lineCap = .{ .value = .butt } }, r12.value.ok);
+
+    const r13 = try vec2dStyleUnionParser.parse(fa, "lj: n");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineJoin = .{ .value = .none } }, r13.value.ok);
+
+    const r14 = try vec2dStyleUnionParser.parse(fa, "lj  :  none");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineJoin = .{ .value = .none } }, r14.value.ok);
+
+    const r15 = try vec2dStyleUnionParser.parse(fa, "lj  :  b");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineJoin = .{ .value = .bevel } }, r15.value.ok);
 }
