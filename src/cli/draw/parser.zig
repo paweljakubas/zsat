@@ -130,6 +130,7 @@ const Vec2dStylesUnion = union(enum) {
     lineOpacity: LineOpacityType,
     lineCap: LineCapType,
     lineJoin: LineJoinType,
+    lineDashing: LineDashingType,
 };
 
 //Parsers
@@ -398,6 +399,30 @@ fn toLineDashingType(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mec
     }
 }
 const lineDashingTypeParserTyped = lineDashingTypeParserRaw.convert(toLineDashingType);
+fn toLineDashingUnion(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
+    const to = struct {
+        fn to(str: []const u8) ?LineDashingT {
+            return std.meta.stringToEnum(LineDashingT, str);
+        }
+    }.to;
+    if (to(res[0])) |validT| {
+        const switchRes: ReferenceFrame = switch (validT) {
+            .ld => .normalized,
+            .ldL => .local,
+            .ldG => .global,
+            .ldN => .normalized,
+            .ldO => .output,
+        };
+        return Vec2dStylesUnion{ .lineDashing = .{
+            .reference = switchRes,
+            .onOff = res[1],
+            .offset = res[2],
+        } };
+    } else {
+        return error.ConversionFailed;
+    }
+}
+const lineDashingUnionParser = lineDashingTypeParserRaw.convert(toLineDashingUnion);
 
 //Vec2dStyles parser
 const vec2dStyleUnionParser = mecha.oneOf(.{
@@ -406,6 +431,7 @@ const vec2dStyleUnionParser = mecha.oneOf(.{
     lineOpacityUnionParser,
     lineCapUnionParser,
     lineJoinUnionParser,
+    lineDashingUnionParser,
 });
 
 const elementParser =
@@ -631,4 +657,18 @@ test "vec2dStyleUnionParser" {
 
     const r15 = try vec2dStyleUnionParser.parse(fa, "lj  :  b");
     try testing.expectEqual(Vec2dStylesUnion{ .lineJoin = .{ .value = .bevel } }, r15.value.ok);
+
+    const a = testing.allocator;
+
+    const r16 = try vec2dStyleUnionParser.parse(a, "ld: [2 , 3] 1");
+    defer a.free(r16.value.ok.lineDashing.onOff);
+    try testing.expectEqualDeep(Vec2dStylesUnion{ .lineDashing = .{ .reference = .normalized, .onOff = &[2]u16{ 2, 3 }, .offset = 1 } }, r16.value.ok);
+
+    const r17 = try vec2dStyleUnionParser.parse(a, "ld  :  [2   ,    3]    1");
+    defer a.free(r17.value.ok.lineDashing.onOff);
+    try testing.expectEqualDeep(Vec2dStylesUnion{ .lineDashing = .{ .reference = .normalized, .onOff = &[_]u16{ 2, 3 }, .offset = 1 } }, r17.value.ok);
+
+    const r18 = try vec2dStyleUnionParser.parse(a, "ldG  :  [ 2,3,10] 0");
+    defer a.free(r18.value.ok.lineDashing.onOff);
+    try testing.expectEqualDeep(Vec2dStylesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, r18.value.ok);
 }
