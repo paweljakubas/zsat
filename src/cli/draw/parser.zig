@@ -128,6 +128,7 @@ const Vec2dStylesUnion = union(enum) {
     lineWidth: LineWidthType,
     lineColor: LineColorType,
     lineOpacity: LineOpacityType,
+    lineCap: LineCapType,
 };
 
 //Parsers
@@ -270,6 +271,31 @@ fn toLineCapType(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.Conve
     }
 }
 const lineCapTypeParserTyped = lineCapTypeParserRaw.convert(toLineCapType);
+fn toLineCapUnion(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
+    const to = struct {
+        fn to(str: []const u8) ?LineCapT {
+            return std.meta.stringToEnum(LineCapT, str);
+        }
+    }.to;
+    if (to(res)) |validT| {
+        const switchRes: LineCap = switch (validT) {
+            .none => .none,
+            .n => .none,
+            .butt => .butt,
+            .b => .butt,
+            .round => .round,
+            .r => .round,
+            .square => .square,
+            .s => .square,
+        };
+        return Vec2dStylesUnion{ .lineCap = .{
+            .value = switchRes,
+        } };
+    } else {
+        return error.ConversionFailed;
+    }
+}
+const lineCapUnionParser = lineCapTypeParserRaw.convert(toLineCapUnion);
 
 //LineJoin parser
 const lineJoinTypeParserRaw =
@@ -352,6 +378,7 @@ const vec2dStyleUnionParser = mecha.oneOf(.{
     lineWidthUnionParser,
     lineColorUnionParser,
     lineOpacityUnionParser,
+    lineCapUnionParser,
 });
 
 const elementParser =
@@ -559,4 +586,13 @@ test "vec2dStyleUnionParser" {
 
     const r9 = try vec2dStyleUnionParser.parse(fa, "lo  :  6");
     try testing.expectEqual(Vec2dStylesUnion{ .lineOpacity = .{ .value = 6 } }, r9.value.ok);
+
+    const r10 = try vec2dStyleUnionParser.parse(fa, "le: n");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineCap = .{ .value = .none } }, r10.value.ok);
+
+    const r11 = try vec2dStyleUnionParser.parse(fa, "le  :  none");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineCap = .{ .value = .none } }, r11.value.ok);
+
+    const r12 = try vec2dStyleUnionParser.parse(fa, "le  :  b");
+    try testing.expectEqual(Vec2dStylesUnion{ .lineCap = .{ .value = .butt } }, r12.value.ok);
 }
