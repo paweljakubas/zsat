@@ -109,8 +109,8 @@ pub const LineDashingType = struct {
     pub fn defaultLineDashingType() LineDashingType {
         return LineDashingType{
             .reference = .normalized,
-            .onOff = [2]u16{ 10, 10 },
-            .value = 0,
+            .onOff = &[2]u16{ 10, 10 },
+            .offset = 0,
         };
     }
 };
@@ -436,6 +436,21 @@ const vec2dStyleUnionParser = mecha.oneOf(.{
 
 const vec2dStyleSeparatorParser = mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
 const many_vec2dStyleUnionParser = mecha.many(vec2dStyleUnionParser, .{ .separator = vec2dStyleSeparatorParser });
+fn manyToVec2dStyles(alloc: std.mem.Allocator, fields: []Vec2dStylesUnion) mecha.ConvertError!Vec2dStyles {
+    var res = Vec2dStyles{};
+    for (fields) |field| switch (field) {
+        .lineWidth => |f| res.lineWidth = f,
+        .lineColor => |f| res.lineColor = f,
+        .lineOpacity => |f| res.lineOpacity = f,
+        .lineCap => |f| res.lineCap = f,
+        .lineJoin => |f| res.lineJoin = f,
+        .lineDashing => |f| res.lineDashing = f,
+    };
+
+    alloc.free(fields);
+    return res;
+}
+const vec2dStylesParser = many_vec2dStyleUnionParser.convert(manyToVec2dStyles);
 
 const elementParser =
     mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket }).map(mecha.toStruct(ElementDrawCmd));
@@ -702,4 +717,19 @@ test "many_vec2dStyleUnionParser" {
     defer a.free(r5_dashing.lineDashing.onOff);
     defer a.free(r5.value.ok);
     try testing.expectEqualDeep(&[3]Vec2dStylesUnion{ Vec2dStylesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, Vec2dStylesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, Vec2dStylesUnion{ .lineOpacity = .{ .value = 6 } } }, r5.value.ok);
+}
+
+test "vec2dStylesParser" {
+    const a = testing.allocator;
+
+    const r1 = try vec2dStylesParser.parse(a, "lw:10");
+    const styles1 = Vec2dStyles{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = .defaultLineOpacityType(),
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = .defaultLineDashingType(),
+    };
+    try testing.expectEqual(styles1, r1.value.ok);
 }
