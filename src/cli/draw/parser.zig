@@ -732,4 +732,27 @@ test "vec2dStylesParser" {
         .lineDashing = .defaultLineDashingType(),
     };
     try testing.expectEqual(styles1, r1.value.ok);
+
+    const r2 = try vec2dStylesParser.parse(a, "lw:10, lo  :  6");
+    const styles2 = Vec2dStyles{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = LineOpacityType{ .value = 6 },
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = .defaultLineDashingType(),
+    };
+    try testing.expectEqual(styles2, r2.value.ok);
+
+    const r3 = try vec2dStylesParser.parse(a, "ldG  :  [ 2,3,10] 0,lw:10, lo  :  6");
+    const styles3 = Vec2dStyles{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = LineOpacityType{ .value = 6 },
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
+    };
+    defer a.free(r3.value.ok.lineDashing.onOff);
+    try testing.expectEqualDeep(styles3, r3.value.ok);
 }
