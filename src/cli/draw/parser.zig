@@ -164,11 +164,6 @@ const skipCloseRecBracket =
 
 const elementNumberParserRaw =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('e').discard(), mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 2 }).asStr().convert(mecha.toInt(u8, 10)) });
-const elementNumberParserRawP = @TypeOf(elementNumberParserRaw);
-fn toElementNumberUnion(_: std.mem.Allocator, res: elementNumberParserRawP.T) mecha.ConvertError!ElementDrawCmdUnion {
-    return ElementDrawCmdUnion{ .elementNumber = res };
-}
-const elementNumberUnionParser = elementNumberParserRaw.convert(toElementNumberUnion);
 
 const elementTypeParserRaw =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.string("vec2d").asStr(), mecha.toEnum(ElementType)) });
@@ -498,8 +493,7 @@ const vec2dStylesParser = many_vec2dStyleUnionParser.convert(manyToVec2dStyles);
 const vec2dStylesParserBracketed = mecha.combine(.{ skipOpenRecBracket, vec2dStylesParser, skipCloseRecBracket });
 
 //ElementDrawCmd parser
-const elementParserUnionParser = mecha.oneOf(.{
-    elementNumberUnionParser,
+const elementValueUnionParser = mecha.oneOf(.{
     elementTypeUnionParser,
     coordinateTypeUnionParser,
     coordinateOrientationUnionParser,
@@ -522,19 +516,6 @@ test "elementNumber" {
 
     const r4 = try elementNumberParserRaw.parse(fa, "11");
     try testing.expectEqual(0, r4.index);
-}
-
-test "elementNumberUnion" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try elementNumberUnionParser.parse(fa, "e2");
-    try testing.expectEqual(ElementDrawCmdUnion{ .elementNumber = 2 }, r1.value.ok);
-
-    const r2 = try elementNumberUnionParser.parse(fa, " e0");
-    try testing.expectEqual(ElementDrawCmdUnion{ .elementNumber = 0 }, r2.value.ok);
-
-    const r3 = try elementNumberUnionParser.parse(fa, " e11");
-    try testing.expectEqual(ElementDrawCmdUnion{ .elementNumber = 11 }, r3.value.ok);
 }
 
 test "elementType" {
