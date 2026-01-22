@@ -29,7 +29,21 @@ pub const CoordinateOrientation = enum {
     }
 };
 
-pub const ElementDrawCmd = struct { elementNumber: u8, elementType: ElementType, coordinateSystem: ?CoordinateType = .defaultCoordinateType(), coordinateOrientation: ?CoordinateOrientation = .defaultCoordinateOrientation(), elementStyle: ?Vec2dStyles = Vec2dStyles{} };
+pub const ElementDrawCmd = struct {
+    elementNumber: u8,
+    elementType: ElementType,
+    coordinateSystem: ?CoordinateType = .defaultCoordinateType(),
+    coordinateOrientation: ?CoordinateOrientation = .defaultCoordinateOrientation(),
+    elementStyle: ?Vec2dStyles = Vec2dStyles{},
+};
+
+const ElementDrawCmdUnion = union(enum) {
+    elementNumber: u8,
+    elementType: ElementType,
+    coordinateSystem: CoordinateType,
+    coordinateOrientation: CoordinateOrientation,
+    elementStyle: Vec2dStyles,
+};
 
 pub const ReferenceFrame = enum {
     local, // in reference to local reference frame, for example, 200 means 1/5 in the context to something, so when something get larger then the attribute is scaled accordingly
@@ -148,8 +162,14 @@ const skipOpenRecBracket =
 const skipCloseRecBracket =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char(']').discard(), skipWhitespace });
 
-const elementNumberParser =
+const elementNumberParserRaw =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('e').discard(), mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 2 }).asStr().convert(mecha.toInt(u8, 10)) });
+const elementNumberParserRawP = @TypeOf(elementNumberParserRaw);
+fn toElementNumberUnion(_: std.mem.Allocator, res: elementNumberParserRawP.T) mecha.ConvertError!ElementDrawCmdUnion {
+    return ElementDrawCmdUnion{ .elementNumber = .{ .value = res } };
+}
+const elementNumberUnionParser = elementNumberParserRaw.convert(toElementNumberUnion);
+
 const elementTypeParser =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.string("vec2d").asStr(), mecha.toEnum(ElementType)) });
 const coordinateTypeParser =
@@ -458,24 +478,29 @@ fn manyToVec2dStyles(alloc: std.mem.Allocator, fields: []Vec2dStylesUnion) mecha
     return res;
 }
 const vec2dStylesParser = many_vec2dStyleUnionParser.convert(manyToVec2dStyles);
-
 const vec2dStylesParserBracketed = mecha.combine(.{ skipOpenRecBracket, vec2dStylesParser, skipCloseRecBracket });
+
+//ElementDrawCmd parser
+const elementParserUnionParser = mecha.oneOf(.{
+    elementNumberUnionParser,
+});
+
 const elementParser =
-    mecha.combine(.{ elementNumberParser, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket, vec2dStylesParserBracketed.opt() }).map(mecha.toStruct(ElementDrawCmd));
+    mecha.combine(.{ elementNumberParserRaw, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket, vec2dStylesParserBracketed.opt() }).map(mecha.toStruct(ElementDrawCmd));
 
 test "elementNumber" {
     const fa = testing.failing_allocator;
 
-    const r1 = try elementNumberParser.parse(fa, "e2");
+    const r1 = try elementNumberParserRaw.parse(fa, "e2");
     try testing.expectEqual(2, r1.value.ok);
 
-    const r2 = try elementNumberParser.parse(fa, " e0");
+    const r2 = try elementNumberParserRaw.parse(fa, " e0");
     try testing.expectEqual(0, r2.value.ok);
 
-    const r3 = try elementNumberParser.parse(fa, " e11");
+    const r3 = try elementNumberParserRaw.parse(fa, " e11");
     try testing.expectEqual(11, r3.value.ok);
 
-    const r4 = try elementNumberParser.parse(fa, "11");
+    const r4 = try elementNumberParserRaw.parse(fa, "11");
     try testing.expectEqual(0, r4.index);
 }
 
