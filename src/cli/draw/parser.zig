@@ -37,8 +37,7 @@ pub const ElementDrawCmd = struct {
     elementStyle: ?Vec2dStyles = Vec2dStyles{},
 };
 
-const ElementDrawCmdUnion = union(enum) {
-    elementNumber: u8,
+const ElementValueUnion = union(enum) {
     elementType: ElementType,
     coordinateSystem: CoordinateType,
     coordinateOrientation: CoordinateOrientation,
@@ -168,24 +167,24 @@ const elementNumberParserRaw =
 const elementTypeParserRaw =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.string("vec2d").asStr(), mecha.toEnum(ElementType)) });
 const elementTypeParserRawP = @TypeOf(elementTypeParserRaw);
-fn toElementTypeUnion(_: std.mem.Allocator, res: elementTypeParserRawP.T) mecha.ConvertError!ElementDrawCmdUnion {
-    return ElementDrawCmdUnion{ .elementType = res };
+fn toElementTypeUnion(_: std.mem.Allocator, res: elementTypeParserRawP.T) mecha.ConvertError!ElementValueUnion {
+    return ElementValueUnion{ .elementType = res };
 }
 const elementTypeUnionParser = elementTypeParserRaw.convert(toElementTypeUnion);
 
 const coordinateTypeParserRaw =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("xy"), mecha.string("polar") }).asStr(), mecha.toEnum(CoordinateType)) });
 const coordinateTypeParserRawP = @TypeOf(coordinateTypeParserRaw);
-fn toCoordinateTypeUnion(_: std.mem.Allocator, res: coordinateTypeParserRawP.T) mecha.ConvertError!ElementDrawCmdUnion {
-    return ElementDrawCmdUnion{ .coordinateSystem = res };
+fn toCoordinateTypeUnion(_: std.mem.Allocator, res: coordinateTypeParserRawP.T) mecha.ConvertError!ElementValueUnion {
+    return ElementValueUnion{ .coordinateSystem = res };
 }
 const coordinateTypeUnionParser = coordinateTypeParserRaw.convert(toCoordinateTypeUnion);
 
 const coordinateOrientationParserRaw =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("fixed"), mecha.string("adjusting") }).asStr(), mecha.toEnum(CoordinateOrientation)) });
 const coordinateOrientationParserRawP = @TypeOf(coordinateOrientationParserRaw);
-fn toCoordinateOrientationUnion(_: std.mem.Allocator, res: coordinateOrientationParserRawP.T) mecha.ConvertError!ElementDrawCmdUnion {
-    return ElementDrawCmdUnion{ .coordinateOrientation = res };
+fn toCoordinateOrientationUnion(_: std.mem.Allocator, res: coordinateOrientationParserRawP.T) mecha.ConvertError!ElementValueUnion {
+    return ElementValueUnion{ .coordinateOrientation = res };
 }
 const coordinateOrientationUnionParser = coordinateOrientationParserRaw.convert(toCoordinateOrientationUnion);
 
@@ -491,12 +490,18 @@ fn manyToVec2dStyles(alloc: std.mem.Allocator, fields: []Vec2dStylesUnion) mecha
 }
 const vec2dStylesParser = many_vec2dStyleUnionParser.convert(manyToVec2dStyles);
 const vec2dStylesParserBracketed = mecha.combine(.{ skipOpenRecBracket, vec2dStylesParser, skipCloseRecBracket });
+const vec2dStylesParserBracketedP = @TypeOf(vec2dStylesParserBracketed);
+fn toVec2dStylesParserBracketedUnion(_: std.mem.Allocator, res: vec2dStylesParserBracketedP.T) mecha.ConvertError!ElementValueUnion {
+    return ElementValueUnion{ .elementStyle = res };
+}
+const vec2dStylesParserBracketedUnion = vec2dStylesParserBracketed.convert(toVec2dStylesParserBracketedUnion);
 
 //ElementDrawCmd parser
 const elementValueUnionParser = mecha.oneOf(.{
     elementTypeUnionParser,
     coordinateTypeUnionParser,
     coordinateOrientationUnionParser,
+    vec2dStylesParserBracketedUnion,
 });
 
 const elementParser =
@@ -535,10 +540,10 @@ test "elementTypeUnion" {
     const fa = testing.failing_allocator;
 
     const r1 = try elementTypeUnionParser.parse(fa, "vec2d");
-    try testing.expectEqual(ElementDrawCmdUnion{ .elementType = .vec2d }, r1.value.ok);
+    try testing.expectEqual(ElementValueUnion{ .elementType = .vec2d }, r1.value.ok);
 
     const r2 = try elementTypeUnionParser.parse(fa, " vec2d");
-    try testing.expectEqual(ElementDrawCmdUnion{ .elementType = .vec2d }, r2.value.ok);
+    try testing.expectEqual(ElementValueUnion{ .elementType = .vec2d }, r2.value.ok);
 }
 
 test "coordinateType" {
@@ -561,13 +566,13 @@ test "coordinateTypeUnion" {
     const fa = testing.failing_allocator;
 
     const r1 = try coordinateTypeUnionParser.parse(fa, "xy");
-    try testing.expectEqual(ElementDrawCmdUnion{ .coordinateSystem = .xy }, r1.value.ok);
+    try testing.expectEqual(ElementValueUnion{ .coordinateSystem = .xy }, r1.value.ok);
 
     const r2 = try coordinateTypeUnionParser.parse(fa, " xy");
-    try testing.expectEqual(ElementDrawCmdUnion{ .coordinateSystem = .xy }, r2.value.ok);
+    try testing.expectEqual(ElementValueUnion{ .coordinateSystem = .xy }, r2.value.ok);
 
     const r3 = try coordinateTypeUnionParser.parse(fa, "polar");
-    try testing.expectEqual(ElementDrawCmdUnion{ .coordinateSystem = .polar }, r3.value.ok);
+    try testing.expectEqual(ElementValueUnion{ .coordinateSystem = .polar }, r3.value.ok);
 }
 
 test "coordinateOrientationParser" {
@@ -590,13 +595,13 @@ test "coordinateOrientationUnionParser" {
     const fa = testing.failing_allocator;
 
     const r1 = try coordinateOrientationUnionParser.parse(fa, "fixed");
-    try testing.expectEqual(ElementDrawCmdUnion{ .coordinateOrientation = .fixed }, r1.value.ok);
+    try testing.expectEqual(ElementValueUnion{ .coordinateOrientation = .fixed }, r1.value.ok);
 
     const r2 = try coordinateOrientationUnionParser.parse(fa, " fixed");
-    try testing.expectEqual(ElementDrawCmdUnion{ .coordinateOrientation = .fixed }, r2.value.ok);
+    try testing.expectEqual(ElementValueUnion{ .coordinateOrientation = .fixed }, r2.value.ok);
 
     const r3 = try coordinateOrientationUnionParser.parse(fa, " adjusting");
-    try testing.expectEqual(ElementDrawCmdUnion{ .coordinateOrientation = .adjusting }, r3.value.ok);
+    try testing.expectEqual(ElementValueUnion{ .coordinateOrientation = .adjusting }, r3.value.ok);
 }
 
 test "element" {
@@ -838,4 +843,45 @@ test "vec2dStylesParser" {
     };
     defer a.free(r3.value.ok.lineDashing.onOff);
     try testing.expectEqualDeep(styles3, r3.value.ok);
+}
+
+test "vec2dStylesParserUnion" {
+    const a = testing.allocator;
+
+    const r1 = try vec2dStylesParserBracketedUnion.parse(a, "[lw:10]");
+    const styles1 = Vec2dStyles{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = .defaultLineOpacityType(),
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = .defaultLineDashingType(),
+    };
+    const exp_value1 = ElementValueUnion{ .elementStyle = styles1 };
+    try testing.expectEqual(exp_value1, r1.value.ok);
+
+    const r2 = try vec2dStylesParserBracketedUnion.parse(a, "[lw:10, lo  :  6]");
+    const styles2 = Vec2dStyles{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = LineOpacityType{ .value = 6 },
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = .defaultLineDashingType(),
+    };
+    const exp_value2 = ElementValueUnion{ .elementStyle = styles2 };
+    try testing.expectEqual(exp_value2, r2.value.ok);
+
+    const r3 = try vec2dStylesParserBracketedUnion.parse(a, "[ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]");
+    const styles3 = Vec2dStyles{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = LineOpacityType{ .value = 6 },
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
+    };
+    const exp_value3 = ElementValueUnion{ .elementStyle = styles3 };
+    defer a.free(r3.value.ok.elementStyle.lineDashing.onOff);
+    try testing.expectEqualDeep(exp_value3, r3.value.ok);
 }
