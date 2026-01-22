@@ -170,8 +170,14 @@ fn toElementNumberUnion(_: std.mem.Allocator, res: elementNumberParserRawP.T) me
 }
 const elementNumberUnionParser = elementNumberParserRaw.convert(toElementNumberUnion);
 
-const elementTypeParser =
+const elementTypeParserRaw =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.string("vec2d").asStr(), mecha.toEnum(ElementType)) });
+const elementTypeParserRawP = @TypeOf(elementTypeParserRaw);
+fn toElementTypeUnion(_: std.mem.Allocator, res: elementTypeParserRawP.T) mecha.ConvertError!ElementDrawCmdUnion {
+    return ElementDrawCmdUnion{ .elementType = res };
+}
+const elementTypeUnionParser = elementTypeParserRaw.convert(toElementTypeUnion);
+
 const coordinateTypeParser =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("xy"), mecha.string("polar") }).asStr(), mecha.toEnum(CoordinateType)) });
 const coordinateOrientationParser =
@@ -483,10 +489,11 @@ const vec2dStylesParserBracketed = mecha.combine(.{ skipOpenRecBracket, vec2dSty
 //ElementDrawCmd parser
 const elementParserUnionParser = mecha.oneOf(.{
     elementNumberUnionParser,
+    elementTypeUnionParser,
 });
 
 const elementParser =
-    mecha.combine(.{ elementNumberParserRaw, skipOpenBracket, elementTypeParser, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket, vec2dStylesParserBracketed.opt() }).map(mecha.toStruct(ElementDrawCmd));
+    mecha.combine(.{ elementNumberParserRaw, skipOpenBracket, elementTypeParserRaw, coordinateTypeParser.opt(), coordinateOrientationParser.opt(), skipCloseBracket, vec2dStylesParserBracketed.opt() }).map(mecha.toStruct(ElementDrawCmd));
 
 test "elementNumber" {
     const fa = testing.failing_allocator;
@@ -520,14 +527,24 @@ test "elementNumberUnion" {
 test "elementType" {
     const fa = testing.failing_allocator;
 
-    const r1 = try elementTypeParser.parse(fa, "vec2d");
+    const r1 = try elementTypeParserRaw.parse(fa, "vec2d");
     try testing.expectEqual(.vec2d, r1.value.ok);
 
-    const r2 = try elementTypeParser.parse(fa, " vec2d");
+    const r2 = try elementTypeParserRaw.parse(fa, " vec2d");
     try testing.expectEqual(.vec2d, r2.value.ok);
 
-    const r3 = try elementTypeParser.parse(fa, "dot");
+    const r3 = try elementTypeParserRaw.parse(fa, "dot");
     try testing.expectEqual(0, r3.index);
+}
+
+test "elementTypeUnion" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try elementTypeUnionParser.parse(fa, "vec2d");
+    try testing.expectEqual(ElementDrawCmdUnion{ .elementType = .vec2d }, r1.value.ok);
+
+    const r2 = try elementTypeUnionParser.parse(fa, " vec2d");
+    try testing.expectEqual(ElementDrawCmdUnion{ .elementType = .vec2d }, r2.value.ok);
 }
 
 test "coordinateType" {
