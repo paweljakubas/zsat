@@ -186,8 +186,13 @@ fn toCoordinateTypeUnion(_: std.mem.Allocator, res: coordinateTypeParserRawP.T) 
 }
 const coordinateTypeUnionParser = coordinateTypeParserRaw.convert(toCoordinateTypeUnion);
 
-const coordinateOrientationParser =
+const coordinateOrientationParserRaw =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("fixed"), mecha.string("adjusting") }).asStr(), mecha.toEnum(CoordinateOrientation)) });
+const coordinateOrientationParserRawP = @TypeOf(coordinateOrientationParserRaw);
+fn toCoordinateOrientationUnion(_: std.mem.Allocator, res: coordinateOrientationParserRawP.T) mecha.ConvertError!ElementDrawCmdUnion {
+    return ElementDrawCmdUnion{ .coordinateOrientation = res };
+}
+const coordinateOrientationUnionParser = coordinateOrientationParserRaw.convert(toCoordinateOrientationUnion);
 
 //LineWidth parser
 const lineWidthTypeParserRaw =
@@ -493,10 +498,15 @@ const vec2dStylesParser = many_vec2dStyleUnionParser.convert(manyToVec2dStyles);
 const vec2dStylesParserBracketed = mecha.combine(.{ skipOpenRecBracket, vec2dStylesParser, skipCloseRecBracket });
 
 //ElementDrawCmd parser
-const elementParserUnionParser = mecha.oneOf(.{ elementNumberUnionParser, elementTypeUnionParser, coordinateTypeUnionParser });
+const elementParserUnionParser = mecha.oneOf(.{
+    elementNumberUnionParser,
+    elementTypeUnionParser,
+    coordinateTypeUnionParser,
+    coordinateOrientationUnionParser,
+});
 
 const elementParser =
-    mecha.combine(.{ elementNumberParserRaw, skipOpenBracket, elementTypeParserRaw, coordinateTypeParserRaw.opt(), coordinateOrientationParser.opt(), skipCloseBracket, vec2dStylesParserBracketed.opt() }).map(mecha.toStruct(ElementDrawCmd));
+    mecha.combine(.{ elementNumberParserRaw, skipOpenBracket, elementTypeParserRaw, coordinateTypeParserRaw.opt(), coordinateOrientationParserRaw.opt(), skipCloseBracket, vec2dStylesParserBracketed.opt() }).map(mecha.toStruct(ElementDrawCmd));
 
 test "elementNumber" {
     const fa = testing.failing_allocator;
@@ -582,17 +592,30 @@ test "coordinateTypeUnion" {
 test "coordinateOrientationParser" {
     const fa = testing.failing_allocator;
 
-    const r1 = try coordinateOrientationParser.parse(fa, "fixed");
+    const r1 = try coordinateOrientationParserRaw.parse(fa, "fixed");
     try testing.expectEqual(.fixed, r1.value.ok);
 
-    const r2 = try coordinateOrientationParser.parse(fa, " fixed");
+    const r2 = try coordinateOrientationParserRaw.parse(fa, " fixed");
     try testing.expectEqual(.fixed, r2.value.ok);
 
-    const r3 = try coordinateOrientationParser.parse(fa, " adjusting");
+    const r3 = try coordinateOrientationParserRaw.parse(fa, " adjusting");
     try testing.expectEqual(.adjusting, r3.value.ok);
 
-    const r4 = try coordinateOrientationParser.parse(fa, "var");
+    const r4 = try coordinateOrientationParserRaw.parse(fa, "var");
     try testing.expectEqual(0, r4.index);
+}
+
+test "coordinateOrientationUnionParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try coordinateOrientationUnionParser.parse(fa, "fixed");
+    try testing.expectEqual(ElementDrawCmdUnion{ .coordinateOrientation = .fixed }, r1.value.ok);
+
+    const r2 = try coordinateOrientationUnionParser.parse(fa, " fixed");
+    try testing.expectEqual(ElementDrawCmdUnion{ .coordinateOrientation = .fixed }, r2.value.ok);
+
+    const r3 = try coordinateOrientationUnionParser.parse(fa, " adjusting");
+    try testing.expectEqual(ElementDrawCmdUnion{ .coordinateOrientation = .adjusting }, r3.value.ok);
 }
 
 test "element" {
