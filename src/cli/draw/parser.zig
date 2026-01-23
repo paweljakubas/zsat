@@ -7,6 +7,10 @@ const testing = std.testing;
 pub const ElementType = enum {
     vec2d,
     //Point2D,
+
+    pub fn defaultElementType() ElementType {
+        return .vec2d;
+    }
 };
 
 // coordinate system type
@@ -37,6 +41,13 @@ pub const ElementDrawCmd = struct {
     elementStyle: ?Vec2dStyles = Vec2dStyles{},
 };
 
+pub const ElementValue = struct {
+    elementType: ?ElementType = .defaultElementType(),
+    coordinateSystem: ?CoordinateType = .defaultCoordinateType(),
+    coordinateOrientation: ?CoordinateOrientation = .defaultCoordinateOrientation(),
+    elementStyle: ?Vec2dStyles = Vec2dStyles{},
+};
+
 const ElementValueUnion = union(enum) {
     elementType: ElementType,
     coordinateSystem: CoordinateType,
@@ -55,7 +66,7 @@ pub const LineWidthType = struct {
     reference: ReferenceFrame,
     value: u16, // in 0.1 % for local/global/normalized and in number of pixels for output
 
-    fn defaultLineWidthaType() LineWidthType {
+    pub fn defaultLineWidthType() LineWidthType {
         return LineWidthType{
             .reference = .normalized,
             .value = 20,
@@ -132,7 +143,7 @@ pub const LineDashingType = struct {
 };
 
 pub const Vec2dStyles = struct {
-    lineWidth: LineWidthType = .defaultLineWidthaType(),
+    lineWidth: LineWidthType = .defaultLineWidthType(),
     lineColor: LineColorType = .defaultLineColorType(),
     lineOpacity: LineOpacityType = .defaultLineOpacityType(),
     lineCap: LineCapType = .defaultLineCapType(),
@@ -503,6 +514,20 @@ const elementValueUnionParser = mecha.oneOf(.{
     coordinateOrientationUnionParser,
     vec2dStylesParserBracketedUnion,
 });
+const many_elementValueUnionParser = mecha.many(elementValueUnionParser, .{ .separator = skipWhitespace });
+fn manyToElementValue(alloc: std.mem.Allocator, fields: []ElementValueUnion) mecha.ConvertError!ElementValue {
+    var res = ElementValue{};
+    for (fields) |field| switch (field) {
+        .elementType => |f| res.elementType = f,
+        .coordinateSystem => |f| res.coordinateSystem = f,
+        .coordinateOrientation => |f| res.coordinateOrientation = f,
+        .elementStyle => |f| res.elementStyle = f,
+    };
+
+    alloc.free(fields);
+    return res;
+}
+const elementValueParser = many_elementValueUnionParser.convert(manyToElementValue);
 
 const elementParser =
     mecha.combine(.{ elementNumberParserRaw, skipOpenBracket, elementTypeParserRaw, coordinateTypeParserRaw.opt(), coordinateOrientationParserRaw.opt(), skipCloseBracket, vec2dStylesParserBracketed.opt() }).map(mecha.toStruct(ElementDrawCmd));
@@ -883,5 +908,79 @@ test "vec2dStylesParserUnion" {
     };
     const exp_value3 = ElementValueUnion{ .elementStyle = styles3 };
     defer a.free(r3.value.ok.elementStyle.lineDashing.onOff);
+    try testing.expectEqualDeep(exp_value3, r3.value.ok);
+}
+
+test "elementValueParser" {
+    const a = testing.allocator;
+
+    const r0 = try elementValueParser.parse(a, "vec2d polar");
+    const styles0 = Vec2dStyles{
+        .lineWidth = .defaultLineWidthType(),
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = .defaultLineOpacityType(),
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = .defaultLineDashingType(),
+    };
+    const exp_value0 = ElementValue{
+        .elementType = .vec2d,
+        .coordinateSystem = .polar,
+        .coordinateOrientation = .fixed,
+        .elementStyle = styles0,
+    };
+    try testing.expectEqual(exp_value0, r0.value.ok);
+
+    const r1 = try elementValueParser.parse(a, "[lw:10]");
+    const styles1 = Vec2dStyles{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = .defaultLineOpacityType(),
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = .defaultLineDashingType(),
+    };
+    const exp_value1 = ElementValue{
+        .elementType = .vec2d,
+        .coordinateSystem = .xy,
+        .coordinateOrientation = .fixed,
+        .elementStyle = styles1,
+    };
+    try testing.expectEqual(exp_value1, r1.value.ok);
+
+    const r2 = try elementValueParser.parse(a, "vec2d  [lw:10, lo  :  6]");
+    const styles2 = Vec2dStyles{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = LineOpacityType{ .value = 6 },
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = .defaultLineDashingType(),
+    };
+    const exp_value2 = ElementValue{
+        .elementType = .vec2d,
+        .coordinateSystem = .xy,
+        .coordinateOrientation = .fixed,
+        .elementStyle = styles2,
+    };
+    try testing.expectEqual(exp_value2, r2.value.ok);
+
+    const r3 = try elementValueParser.parse(a, "vec2d polar [ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]");
+    const styles3 = Vec2dStyles{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = LineOpacityType{ .value = 6 },
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
+    };
+    const exp_value3 = ElementValue{
+        .elementType = .vec2d,
+        .coordinateSystem = .polar,
+        .coordinateOrientation = .fixed,
+        .elementStyle = styles3,
+    };
+    const elementStyleVal = r3.value.ok.elementStyle.?;
+    defer a.free(elementStyleVal.lineDashing.onOff);
     try testing.expectEqualDeep(exp_value3, r3.value.ok);
 }
