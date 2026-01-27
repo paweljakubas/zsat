@@ -25,7 +25,7 @@ pub const Target = struct {
 const skipWhitespace =
     mecha.ascii.char(' ').many(.{ .collect = false }).discard();
 const skipOpenBracket =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char('(').discard() });
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char('(').discard(), skipWhitespace });
 const skipCloseBracket =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char(')').discard(), skipWhitespace });
 const skipMap =
@@ -61,4 +61,25 @@ test "sourcesParser" {
     const sources1 = [1]Source{s1};
     try testing.expectEqualDeep(&sources1, r1.value.ok[0..1]);
     a.free(r1.value.ok);
+
+    const r2 = try sourcesParser.parse(a, "( seg )");
+    const s2 = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g' } };
+    const sources2 = [1]Source{s2};
+    try testing.expectEqualDeep(&sources2, r2.value.ok[0..1]);
+    a.free(r2.value.ok);
+
+    const r3 = try sourcesParser.parse(a, "( seg1, seg2 )");
+    const s3a = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s3b = Source{ .index = 1, .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const sources3 = [2]Source{ s3a, s3b };
+    try testing.expectEqualDeep(&sources3, r3.value.ok[0..2]);
+    a.free(r3.value.ok);
+
+    const r4 = try sourcesParser.parse(a, "( seg1, seg2, txt1 )");
+    const s4a = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s4b = Source{ .index = 1, .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const s4c = Source{ .index = 2, .name = &[_]u8{ 't', 'x', 't', '1' } };
+    const sources4 = [3]Source{ s4a, s4b, s4c };
+    try testing.expectEqualDeep(&sources4, r4.value.ok[0..3]);
+    a.free(r4.value.ok);
 }
