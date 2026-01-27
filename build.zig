@@ -43,6 +43,7 @@ pub fn build(b: *std.Build) void {
 
         for ([_][]const u8{
             "src/cli/draw/element.zig",
+            "src/cli/draw/ingest.zig",
             "src/cli/draw/attributes.zig",
         }) |test_file| {
             const unit_tests = b.addTest(.{
