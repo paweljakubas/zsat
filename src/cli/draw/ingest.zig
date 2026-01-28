@@ -32,14 +32,16 @@ const skipMap =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('-').discard(), mecha.ascii.char('>').discard() });
 const skipLambda =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('\\').discard() });
+const skipArrow =
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char('-').discard(), mecha.ascii.char('>').discard(), skipWhitespace });
 
 const ingestSeparatorParser = mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
 const ingestCharacterParser =
     mecha.oneOf(.{ mecha.ascii.range('a', 'z'), mecha.ascii.range('A', 'Z'), mecha.ascii.range('0', '9') });
 const ingestNameParser = mecha.many(ingestCharacterParser, .{ .collect = false });
-const many_ingestNameParser = mecha.many(ingestNameParser, .{ .collect = true, .separator = ingestSeparatorParser });
+const many_sourceNameParser = mecha.many(ingestNameParser, .{ .collect = true, .separator = ingestSeparatorParser });
 const sourcesParserRaw =
-    mecha.combine(.{ skipOpenBracket, many_ingestNameParser, skipCloseBracket });
+    mecha.combine(.{ skipOpenBracket, many_sourceNameParser, skipCloseBracket });
 const sourcesParserRawP = @TypeOf(sourcesParserRaw);
 fn toSourcesParser(allocator: std.mem.Allocator, names: sourcesParserRawP.T) mecha.ConvertError![]Source {
     var arr = try allocator.alloc(Source, names.len);
@@ -82,4 +84,14 @@ test "sourcesParser" {
     const sources4 = [3]Source{ s4a, s4b, s4c };
     try testing.expectEqualDeep(&sources4, r4.value.ok[0..3]);
     a.free(r4.value.ok);
+}
+
+const pairTargetNameParser = mecha.manyN(ingestNameParser, 2, .{ .separator = skipArrow });
+
+test "pairTargetNameParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try pairTargetNameParser.parse(fa, "seg -> e0");
+    const exp1 = [2][]const u8{ "seg", "e0" };
+    try testing.expectEqualDeep(&exp1, &r1.value.ok);
 }
