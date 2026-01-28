@@ -125,4 +125,18 @@ test "targetsParser" {
     const exp1 = [2]Target{ exp1a, exp1b };
     try testing.expectEqualDeep(&exp1, r1.value.ok[0..2]);
     a.free(r1.value.ok);
+
+    const r2 = try targetsParser.parse(a, "(seg1 -> e0   )");
+    const exp2a = Target{ .sourceName = "seg1", .elementName = "e0" };
+    const exp2 = [1]Target{exp2a};
+    try testing.expectEqualDeep(&exp2, r2.value.ok[0..1]);
+    a.free(r2.value.ok);
+
+    const r3 = try targetsParser.parse(a, "(seg1 -> e0, seg2 -> e0,   txt1 -> e11)");
+    const exp3a = Target{ .sourceName = "seg1", .elementName = "e0" };
+    const exp3b = Target{ .sourceName = "seg2", .elementName = "e0" };
+    const exp3c = Target{ .sourceName = "txt1", .elementName = "e11" };
+    const exp3 = [3]Target{ exp3a, exp3b, exp3c };
+    try testing.expectEqualDeep(&exp3, r3.value.ok[0..3]);
+    a.free(r3.value.ok);
 }
