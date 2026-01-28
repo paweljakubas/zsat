@@ -33,13 +33,13 @@ const skipMap =
 const skipLambda =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('\\').discard() });
 
-const sourcesSeparatorParser = mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
-const sourceCharacterParser =
+const ingestSeparatorParser = mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
+const ingestCharacterParser =
     mecha.oneOf(.{ mecha.ascii.range('a', 'z'), mecha.ascii.range('A', 'Z'), mecha.ascii.range('0', '9') });
-const sourceNameParser = mecha.many(sourceCharacterParser, .{ .collect = false });
-const many_sourceNameParser = mecha.many(sourceNameParser, .{ .collect = true, .separator = sourcesSeparatorParser });
+const ingestNameParser = mecha.many(ingestCharacterParser, .{ .collect = false });
+const many_ingestNameParser = mecha.many(ingestNameParser, .{ .collect = true, .separator = ingestSeparatorParser });
 const sourcesParserRaw =
-    mecha.combine(.{ skipOpenBracket, many_sourceNameParser, skipCloseBracket });
+    mecha.combine(.{ skipOpenBracket, many_ingestNameParser, skipCloseBracket });
 const sourcesParserRawP = @TypeOf(sourcesParserRaw);
 fn toSourcesParser(allocator: std.mem.Allocator, names: sourcesParserRawP.T) mecha.ConvertError![]Source {
     var arr = try allocator.alloc(Source, names.len);
