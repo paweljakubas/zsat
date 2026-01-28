@@ -21,6 +21,12 @@ pub const Target = struct {
     elementName: []const u8,
 };
 
+//Raw, pre-validation result of parsing the ingestion
+pub const Ingestion = struct {
+    inputs: []const Source,
+    mappingPairs: []const Target,
+};
+
 //Parsers
 const skipWhitespace =
     mecha.ascii.char(' ').many(.{ .collect = false }).discard();
@@ -139,4 +145,52 @@ test "targetsParser" {
     const exp3 = [3]Target{ exp3a, exp3b, exp3c };
     try testing.expectEqualDeep(&exp3, r3.value.ok[0..3]);
     a.free(r3.value.ok);
+}
+
+const ingestionParserRaw =
+    mecha.combine(.{ skipLambda, sourcesParser, skipArrow, targetsParser });
+const ingestionParserRawP = @TypeOf(ingestionParserRaw);
+fn toIngestionParser(_: std.mem.Allocator, res: ingestionParserRawP.T) mecha.ConvertError!Ingestion {
+    return Ingestion{ .inputs = res[0], .mappingPairs = res[1] };
+}
+const ingestionParser = ingestionParserRaw.convert(toIngestionParser);
+
+test "ingestionParser" {
+    const a = testing.allocator;
+
+    const r1 = try ingestionParser.parse(a, "\\(seg) -> (seg -> e0)");
+    const s1 = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g' } };
+    const source1 = [1]Source{s1};
+    const t1 = Target{ .sourceName = "seg", .elementName = "e0" };
+    const target1 = [1]Target{t1};
+    const exp1 = Ingestion{ .inputs = &source1, .mappingPairs = &target1 };
+    try testing.expectEqualDeep(&exp1, &r1.value.ok);
+    a.free(r1.value.ok.inputs);
+    a.free(r1.value.ok.mappingPairs);
+
+    const r2 = try ingestionParser.parse(a, "\\(seg1, seg2) -> (seg1 -> e0, seg2->e0)");
+    const s2a = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s2b = Source{ .index = 1, .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const source2 = [2]Source{ s2a, s2b };
+    const t2a = Target{ .sourceName = "seg1", .elementName = "e0" };
+    const t2b = Target{ .sourceName = "seg2", .elementName = "e0" };
+    const target2 = [2]Target{ t2a, t2b };
+    const exp2 = Ingestion{ .inputs = &source2, .mappingPairs = &target2 };
+    try testing.expectEqualDeep(&exp2, &r2.value.ok);
+    a.free(r2.value.ok.inputs);
+    a.free(r2.value.ok.mappingPairs);
+
+    const r3 = try ingestionParser.parse(a, "\\(seg1, seg2,txt1) -> (seg1 -> e0, seg2->e0,txt1->e11)");
+    const s3a = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s3b = Source{ .index = 1, .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const s3c = Source{ .index = 2, .name = &[_]u8{ 't', 'x', 't', '1' } };
+    const source3 = [3]Source{ s3a, s3b, s3c };
+    const t3a = Target{ .sourceName = "seg1", .elementName = "e0" };
+    const t3b = Target{ .sourceName = "seg2", .elementName = "e0" };
+    const t3c = Target{ .sourceName = "txt1", .elementName = "e11" };
+    const target3 = [3]Target{ t3a, t3b, t3c };
+    const exp3 = Ingestion{ .inputs = &source3, .mappingPairs = &target3 };
+    try testing.expectEqualDeep(&exp3, &r3.value.ok);
+    a.free(r3.value.ok.inputs);
+    a.free(r3.value.ok.mappingPairs);
 }
