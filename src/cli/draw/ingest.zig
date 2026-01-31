@@ -62,8 +62,6 @@ const skipCloseBracket =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char(')').discard(), skipWhitespace });
 const skipMap =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('-').discard(), mecha.ascii.char('>').discard() });
-const skipLambda =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char('\\').discard() });
 const skipArrow =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('-').discard(), mecha.ascii.char('>').discard(), skipWhitespace });
 
@@ -174,7 +172,7 @@ test "targetsParser" {
 }
 
 const ingestionParserRaw =
-    mecha.combine(.{ skipLambda, sourcesParser, skipArrow, targetsParser });
+    mecha.combine(.{ skipWhitespace, sourcesParser, skipArrow, targetsParser });
 const ingestionParserRawP = @TypeOf(ingestionParserRaw);
 fn toIngestionParser(_: std.mem.Allocator, res: ingestionParserRawP.T) mecha.ConvertError!Ingestion {
     return Ingestion{ .inputs = res[0], .mappingPairs = res[1] };
@@ -184,7 +182,7 @@ const ingestionParser = ingestionParserRaw.convert(toIngestionParser);
 test "ingestionParser" {
     const a = testing.allocator;
 
-    const r1 = try ingestionParser.parse(a, "\\(seg) -> (seg -> e0)");
+    const r1 = try ingestionParser.parse(a, "(seg) -> (seg -> e0)");
     const s1 = Source{ .name = &[_]u8{ 's', 'e', 'g' } };
     const source1 = [1]Source{s1};
     const t1 = Target{ .sourceName = "seg", .elementName = "e0" };
@@ -194,7 +192,7 @@ test "ingestionParser" {
     a.free(r1.value.ok.inputs);
     a.free(r1.value.ok.mappingPairs);
 
-    const r2 = try ingestionParser.parse(a, "\\(seg1, seg2) -> (seg1 -> e0, seg2->e0)");
+    const r2 = try ingestionParser.parse(a, "(seg1, seg2) -> (seg1 -> e0, seg2->e0)");
     const s2a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
     const s2b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
     const source2 = [2]Source{ s2a, s2b };
@@ -206,7 +204,7 @@ test "ingestionParser" {
     a.free(r2.value.ok.inputs);
     a.free(r2.value.ok.mappingPairs);
 
-    const r3 = try ingestionParser.parse(a, "\\(seg1, seg2,txt1) -> (seg1 -> e0, seg2->e0,txt1->e11)");
+    const r3 = try ingestionParser.parse(a, " (seg1, seg2,txt1) -> (seg1 -> e0, seg2->e0,txt1->e11)");
     const s3a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
     const s3b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
     const s3c = Source{ .name = &[_]u8{ 't', 'x', 't', '1' } };
