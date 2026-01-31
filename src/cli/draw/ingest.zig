@@ -3,15 +3,41 @@ const std = @import("std");
 const testing = std.testing;
 
 //final ingest pair mapping between data source to target
-pub const IngestPair = struct {
+pub const IngestionMapping = struct {
     index: u8,
     from: u8,
     to: u8,
 };
 
+//Validated ingestion
+pub const IngestionValidated = struct {
+    mappings: []const IngestionMapping,
+};
+
+pub const IngestionError = error{
+    WrongNumberOfInputStreams,
+};
+
+//Validate Ingestion to get IngestionValidated if all elements in mappingPairs of Ingestion are from elements arg
+//and all sources in mappingPairs of Ingestion are in inputs. Otherwise, emit error
+//_: [][]const u8,
+//pub fn validateIngestion(allocator: std.mem.Allocator, numberOfSources: u8, elements: [][]const u8, ingestion: Ingestion) IngestionError!IngestionValidated {
+//    if (ingestion.inputs.len != numberOfSources) {
+//        return .WrongNumberOfInputStreams;
+//    }
+//    var arr = try allocator.alloc(IngestionMapping, ingestion.mappingPairs.len);
+//    var ix: u8 = 0;
+//    for (ingestion.mappingPairs) |theTarget| {
+//        const elemToFind = [1][]const u8 {theTarget.elementName};
+//        arr[ix] = IngestionMapping{ .index = ix, .from = std.mem.findAny([]const u8, elements, &elemToFind, .from = std.mem.findAny([]const u8, elements, &elemToFind};
+//        ix += 1;
+//    }
+//
+//    return ingestion;
+//}
+
 //Handling the name of data source and its occurence number
 pub const Source = struct {
-    index: u8,
     name: []const u8,
 };
 
@@ -53,7 +79,7 @@ fn toSourcesParser(allocator: std.mem.Allocator, names: sourcesParserRawP.T) mec
     var arr = try allocator.alloc(Source, names.len);
     var ix: u8 = 0;
     for (names) |theRes| {
-        arr[ix] = Source{ .index = ix, .name = theRes };
+        arr[ix] = Source{ .name = theRes };
         ix += 1;
     }
     allocator.free(names);
@@ -65,28 +91,28 @@ test "sourcesParser" {
     const a = testing.allocator;
 
     const r1 = try sourcesParser.parse(a, "(seg)");
-    const s1 = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g' } };
+    const s1 = Source{ .name = &[_]u8{ 's', 'e', 'g' } };
     const sources1 = [1]Source{s1};
     try testing.expectEqualDeep(&sources1, r1.value.ok[0..1]);
     a.free(r1.value.ok);
 
     const r2 = try sourcesParser.parse(a, "( seg )");
-    const s2 = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g' } };
+    const s2 = Source{ .name = &[_]u8{ 's', 'e', 'g' } };
     const sources2 = [1]Source{s2};
     try testing.expectEqualDeep(&sources2, r2.value.ok[0..1]);
     a.free(r2.value.ok);
 
     const r3 = try sourcesParser.parse(a, "( seg1, seg2 )");
-    const s3a = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g', '1' } };
-    const s3b = Source{ .index = 1, .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const s3a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s3b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
     const sources3 = [2]Source{ s3a, s3b };
     try testing.expectEqualDeep(&sources3, r3.value.ok[0..2]);
     a.free(r3.value.ok);
 
     const r4 = try sourcesParser.parse(a, "( seg1, seg2, txt1 )");
-    const s4a = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g', '1' } };
-    const s4b = Source{ .index = 1, .name = &[_]u8{ 's', 'e', 'g', '2' } };
-    const s4c = Source{ .index = 2, .name = &[_]u8{ 't', 'x', 't', '1' } };
+    const s4a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s4b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const s4c = Source{ .name = &[_]u8{ 't', 'x', 't', '1' } };
     const sources4 = [3]Source{ s4a, s4b, s4c };
     try testing.expectEqualDeep(&sources4, r4.value.ok[0..3]);
     a.free(r4.value.ok);
@@ -159,7 +185,7 @@ test "ingestionParser" {
     const a = testing.allocator;
 
     const r1 = try ingestionParser.parse(a, "\\(seg) -> (seg -> e0)");
-    const s1 = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g' } };
+    const s1 = Source{ .name = &[_]u8{ 's', 'e', 'g' } };
     const source1 = [1]Source{s1};
     const t1 = Target{ .sourceName = "seg", .elementName = "e0" };
     const target1 = [1]Target{t1};
@@ -169,8 +195,8 @@ test "ingestionParser" {
     a.free(r1.value.ok.mappingPairs);
 
     const r2 = try ingestionParser.parse(a, "\\(seg1, seg2) -> (seg1 -> e0, seg2->e0)");
-    const s2a = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g', '1' } };
-    const s2b = Source{ .index = 1, .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const s2a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s2b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
     const source2 = [2]Source{ s2a, s2b };
     const t2a = Target{ .sourceName = "seg1", .elementName = "e0" };
     const t2b = Target{ .sourceName = "seg2", .elementName = "e0" };
@@ -181,9 +207,9 @@ test "ingestionParser" {
     a.free(r2.value.ok.mappingPairs);
 
     const r3 = try ingestionParser.parse(a, "\\(seg1, seg2,txt1) -> (seg1 -> e0, seg2->e0,txt1->e11)");
-    const s3a = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g', '1' } };
-    const s3b = Source{ .index = 1, .name = &[_]u8{ 's', 'e', 'g', '2' } };
-    const s3c = Source{ .index = 2, .name = &[_]u8{ 't', 'x', 't', '1' } };
+    const s3a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s3b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const s3c = Source{ .name = &[_]u8{ 't', 'x', 't', '1' } };
     const source3 = [3]Source{ s3a, s3b, s3c };
     const t3a = Target{ .sourceName = "seg1", .elementName = "e0" };
     const t3b = Target{ .sourceName = "seg2", .elementName = "e0" };
@@ -194,3 +220,14 @@ test "ingestionParser" {
     a.free(r3.value.ok.inputs);
     a.free(r3.value.ok.mappingPairs);
 }
+
+//test "ingestion validation" {
+//    const s1 = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g' } };
+//    const source1 = [1]Source{s1};
+//    const t1 = Target{ .sourceName = "seg", .elementName = "e0" };
+//    const target1 = [1]Target{t1};
+//    const ingestion1 = Ingestion{ .inputs = &source1, .mappingPairs = &target1 };
+//    const validation1 = validateIngestion(1, ingestion1);
+//    try testing.expectEqual(validation1, ingestion1);
+//}
+//
