@@ -204,9 +204,9 @@ test "ingestionParser" {
 }
 
 // Validate 'Ingestion' to get 'IngestionValidated' if
-// (a) all elements in mappingPairs of 'ingestion' are from 'elements' array specified
-// (b) the number of sources is the same as the one specified in numberOfSources arg
-// (c) all sources in mappingPairs of Ingestion exist in inputs.
+// (a) all elements in mappingPairs of 'ingestion' are from 'elements' array specified (if not `IngestionError.ElementInMappingInvalid` triggered)
+// (b) the number of sources is the same as the one specified in numberOfSources arg (if not `IngestionError.WrongNumberOfInputStreams` triggered)
+// (c) all sources in mappingPairs of Ingestion exist in inputs (if not 'IngestionError.InputInMappingInvalid' triggered)
 // Otherwise, one of the errors from IngestionError is emitted
 //
 // Usage and allocation information
@@ -313,4 +313,26 @@ test "ingestion validation" {
     const validation4 = try validateIngestion(a, 2, &elems4, ingestion4);
     try testing.expectEqualDeep(&validation4, &ingestionValidated4);
     a.free(validation4.mappings);
+
+    const s5a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s5b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const source5 = [2]Source{ s5a, s5b };
+    const t5a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
+    const t5b = TargetPair{ .sourceName = "seg22", .elementName = "e11" };
+    const target5 = [2]TargetPair{ t5a, t5b };
+    const ingestion5 = Ingestion{ .inputs = &source5, .mappingPairs = &target5 };
+    const elems5: [2][]const u8 = .{ "e11", "e0" };
+    const validation5 = validateIngestion(a, 2, &elems5, ingestion5);
+    try testing.expectEqual(validation5, IngestionError.InputInMappingInvalid);
+
+    const s6a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s6b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const source6 = [2]Source{ s6a, s6b };
+    const t6a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
+    const t6b = TargetPair{ .sourceName = "seg2", .elementName = "e11" };
+    const target6 = [2]TargetPair{ t6a, t6b };
+    const ingestion6 = Ingestion{ .inputs = &source6, .mappingPairs = &target6 };
+    const elems6: [2][]const u8 = .{ "e1", "e0" };
+    const validation6 = validateIngestion(a, 2, &elems6, ingestion6);
+    try testing.expectEqual(validation6, IngestionError.ElementInMappingInvalid);
 }
