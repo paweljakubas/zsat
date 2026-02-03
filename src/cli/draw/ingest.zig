@@ -259,4 +259,39 @@ test "ingestion validation" {
     const validation1 = try validateIngestion(a, 1, &elems1, ingestion1);
     try testing.expectEqualDeep(&validation1, &ingestionValidated1);
     a.free(validation1.mappings);
+
+    const validation2 = validateIngestion(a, 2, &elems1, ingestion1);
+    try testing.expectEqual(validation2, IngestionError.WrongNumberOfInputStreams);
+
+    const s3a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s3b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const source3 = [2]Source{ s3a, s3b };
+    const t3a = Target{ .sourceName = "seg1", .elementName = "e0" };
+    const t3b = Target{ .sourceName = "seg2", .elementName = "e0" };
+    const target3 = [2]Target{ t3a, t3b };
+    const ingestion3 = Ingestion{ .inputs = &source3, .mappingPairs = &target3 };
+    const im3a = IngestionMapping{ .index = 0, .from = 0, .to = 0 };
+    const im3b = IngestionMapping{ .index = 1, .from = 1, .to = 0 };
+    const mappings3 = [2]IngestionMapping{ im3a, im3b };
+    const ingestionValidated3 = IngestionValidated{ .mappings = &mappings3 };
+    const elems3: [1][]const u8 = .{"e0"};
+    const validation3 = try validateIngestion(a, 2, &elems3, ingestion3);
+    try testing.expectEqualDeep(&validation3, &ingestionValidated3);
+    a.free(validation3.mappings);
+
+    const s4a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
+    const s4b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
+    const source4 = [2]Source{ s4a, s4b };
+    const t4a = Target{ .sourceName = "seg1", .elementName = "e0" };
+    const t4b = Target{ .sourceName = "seg2", .elementName = "e11" };
+    const target4 = [2]Target{ t4a, t4b };
+    const ingestion4 = Ingestion{ .inputs = &source4, .mappingPairs = &target4 };
+    const im4a = IngestionMapping{ .index = 0, .from = 0, .to = 1 };
+    const im4b = IngestionMapping{ .index = 1, .from = 1, .to = 0 };
+    const mappings4 = [2]IngestionMapping{ im4a, im4b };
+    const ingestionValidated4 = IngestionValidated{ .mappings = &mappings4 };
+    const elems4: [2][]const u8 = .{ "e11", "e0" };
+    const validation4 = try validateIngestion(a, 2, &elems4, ingestion4);
+    try testing.expectEqualDeep(&validation4, &ingestionValidated4);
+    a.free(validation4.mappings);
 }
