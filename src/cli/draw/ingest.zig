@@ -16,7 +16,8 @@ pub const IngestionValidated = struct {
 
 pub const IngestionError = error{
     WrongNumberOfInputStreams,
-    ElementMissingAfterCheck,
+    ElementInMappingInvalid,
+    InputInMappingInvalid,
 };
 
 //Handling the name of data source and its occurence number
@@ -202,11 +203,19 @@ test "ingestionParser" {
     a.free(r3.value.ok.mappingPairs);
 }
 
-//Validate Ingestion to get IngestionValidated if
-// (a) all elements in mappingPairs of Ingestion are from elements array specified
+// Validate 'Ingestion' to get 'IngestionValidated' if
+// (a) all elements in mappingPairs of 'ingestion' are from 'elements' array specified
 // (b) the number of sources is the same as the one specified in numberOfSources arg
 // (c) all sources in mappingPairs of Ingestion exist in inputs.
-// Otherwise, one of the emit error from IngestionError
+// Otherwise, one of the errors from IngestionError is emitted
+//
+// Usage and allocation information
+// if (validateIngestion(allocator, numberOfSources, elements, ingestion)) |validatedIngestion| {
+//    ...
+//    allocator.free(validatedIngestion.mappings);
+// } else |err| {
+//    ...
+// }
 pub fn validateIngestion(allocator: std.mem.Allocator, numberOfSources: u8, elements: []const []const u8, ingestion: Ingestion) !IngestionValidated {
     if (ingestion.inputs.len != numberOfSources) {
         return IngestionError.WrongNumberOfInputStreams;
@@ -221,12 +230,13 @@ pub fn validateIngestion(allocator: std.mem.Allocator, numberOfSources: u8, elem
     }
 
     var outArr = try allocator.alloc(IngestionMapping, ingestion.mappingPairs.len);
+    errdefer allocator.free(outArr);
     ix = 0;
     for (ingestion.mappingPairs) |theTarget| {
         const elemToFind = theTarget.elementName;
         const srcToFind = theTarget.sourceName;
-        const elemIx = try indexOfPos(elements, elemToFind);
-        const srcIx = try indexOfPos(srcArr, srcToFind);
+        const elemIx = try indexOfPos(IngestionValidationCheck.elementCheck, elements, elemToFind);
+        const srcIx = try indexOfPos(IngestionValidationCheck.inputCheck, srcArr, srcToFind);
         outArr[ix] = IngestionMapping{ .index = ix, .from = srcIx, .to = elemIx };
         ix += 1;
     }
@@ -234,14 +244,23 @@ pub fn validateIngestion(allocator: std.mem.Allocator, numberOfSources: u8, elem
     return IngestionValidated{ .mappings = outArr };
 }
 
-fn indexOfPos(vec: []const []const u8, elem: []const u8) !usize {
+const IngestionValidationCheck = enum {
+    elementCheck,
+    inputCheck,
+};
+
+fn indexOfPos(check: IngestionValidationCheck, vec: []const []const u8, elem: []const u8) !usize {
     for (vec, 0..) |vecElem, ix| {
         const cmp = std.mem.eql(u8, vecElem, elem);
         if (cmp) {
             return ix;
         }
     }
-    return IngestionError.ElementMissingAfterCheck;
+    const err = switch (check) {
+        .elementCheck => IngestionError.ElementInMappingInvalid,
+        .inputCheck => IngestionError.InputInMappingInvalid,
+    };
+    return err;
 }
 
 test "ingestion validation" {
