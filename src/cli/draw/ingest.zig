@@ -25,7 +25,7 @@ pub const Source = struct {
 };
 
 //Handling the mapping of the name of data source to the element that is its data target
-pub const Target = struct {
+pub const TargetPair = struct {
     sourceName: []const u8,
     elementName: []const u8,
 };
@@ -33,7 +33,7 @@ pub const Target = struct {
 //Raw, pre-validation result of parsing the ingestion
 pub const Ingestion = struct {
     inputs: []const Source,
-    mappingPairs: []const Target,
+    mappingPairs: []const TargetPair,
 };
 
 //Parsers
@@ -117,11 +117,11 @@ const many_targetNameParser = mecha.many(pairTargetNameParser, .{ .collect = tru
 const targetsParserRaw =
     mecha.combine(.{ skipOpenBracket, many_targetNameParser, skipCloseBracket });
 const targetsParserRawP = @TypeOf(targetsParserRaw);
-fn toTargetsParser(allocator: std.mem.Allocator, pairs: targetsParserRawP.T) mecha.ConvertError![]Target {
-    var arr = try allocator.alloc(Target, pairs.len);
+fn toTargetsParser(allocator: std.mem.Allocator, pairs: targetsParserRawP.T) mecha.ConvertError![]TargetPair {
+    var arr = try allocator.alloc(TargetPair, pairs.len);
     var ix: u8 = 0;
     for (pairs) |thePair| {
-        arr[ix] = Target{ .sourceName = thePair[0], .elementName = thePair[1] };
+        arr[ix] = TargetPair{ .sourceName = thePair[0], .elementName = thePair[1] };
         ix += 1;
     }
     allocator.free(pairs);
@@ -133,23 +133,23 @@ test "targetsParser" {
     const a = testing.allocator;
 
     const r1 = try targetsParser.parse(a, "(seg1 -> e0, seg2 -> e0)");
-    const exp1a = Target{ .sourceName = "seg1", .elementName = "e0" };
-    const exp1b = Target{ .sourceName = "seg2", .elementName = "e0" };
-    const exp1 = [2]Target{ exp1a, exp1b };
+    const exp1a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
+    const exp1b = TargetPair{ .sourceName = "seg2", .elementName = "e0" };
+    const exp1 = [2]TargetPair{ exp1a, exp1b };
     try testing.expectEqualDeep(&exp1, r1.value.ok[0..2]);
     a.free(r1.value.ok);
 
     const r2 = try targetsParser.parse(a, "(seg1 -> e0   )");
-    const exp2a = Target{ .sourceName = "seg1", .elementName = "e0" };
-    const exp2 = [1]Target{exp2a};
+    const exp2a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
+    const exp2 = [1]TargetPair{exp2a};
     try testing.expectEqualDeep(&exp2, r2.value.ok[0..1]);
     a.free(r2.value.ok);
 
     const r3 = try targetsParser.parse(a, "(seg1 -> e0, seg2 -> e0,   txt1 -> e11)");
-    const exp3a = Target{ .sourceName = "seg1", .elementName = "e0" };
-    const exp3b = Target{ .sourceName = "seg2", .elementName = "e0" };
-    const exp3c = Target{ .sourceName = "txt1", .elementName = "e11" };
-    const exp3 = [3]Target{ exp3a, exp3b, exp3c };
+    const exp3a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
+    const exp3b = TargetPair{ .sourceName = "seg2", .elementName = "e0" };
+    const exp3c = TargetPair{ .sourceName = "txt1", .elementName = "e11" };
+    const exp3 = [3]TargetPair{ exp3a, exp3b, exp3c };
     try testing.expectEqualDeep(&exp3, r3.value.ok[0..3]);
     a.free(r3.value.ok);
 }
@@ -168,8 +168,8 @@ test "ingestionParser" {
     const r1 = try ingestionParser.parse(a, "(seg) -> (seg -> e0)");
     const s1 = Source{ .name = &[_]u8{ 's', 'e', 'g' } };
     const source1 = [1]Source{s1};
-    const t1 = Target{ .sourceName = "seg", .elementName = "e0" };
-    const target1 = [1]Target{t1};
+    const t1 = TargetPair{ .sourceName = "seg", .elementName = "e0" };
+    const target1 = [1]TargetPair{t1};
     const exp1 = Ingestion{ .inputs = &source1, .mappingPairs = &target1 };
     try testing.expectEqualDeep(&exp1, &r1.value.ok);
     a.free(r1.value.ok.inputs);
@@ -179,9 +179,9 @@ test "ingestionParser" {
     const s2a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
     const s2b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
     const source2 = [2]Source{ s2a, s2b };
-    const t2a = Target{ .sourceName = "seg1", .elementName = "e0" };
-    const t2b = Target{ .sourceName = "seg2", .elementName = "e0" };
-    const target2 = [2]Target{ t2a, t2b };
+    const t2a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
+    const t2b = TargetPair{ .sourceName = "seg2", .elementName = "e0" };
+    const target2 = [2]TargetPair{ t2a, t2b };
     const exp2 = Ingestion{ .inputs = &source2, .mappingPairs = &target2 };
     try testing.expectEqualDeep(&exp2, &r2.value.ok);
     a.free(r2.value.ok.inputs);
@@ -192,10 +192,10 @@ test "ingestionParser" {
     const s3b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
     const s3c = Source{ .name = &[_]u8{ 't', 'x', 't', '1' } };
     const source3 = [3]Source{ s3a, s3b, s3c };
-    const t3a = Target{ .sourceName = "seg1", .elementName = "e0" };
-    const t3b = Target{ .sourceName = "seg2", .elementName = "e0" };
-    const t3c = Target{ .sourceName = "txt1", .elementName = "e11" };
-    const target3 = [3]Target{ t3a, t3b, t3c };
+    const t3a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
+    const t3b = TargetPair{ .sourceName = "seg2", .elementName = "e0" };
+    const t3c = TargetPair{ .sourceName = "txt1", .elementName = "e11" };
+    const target3 = [3]TargetPair{ t3a, t3b, t3c };
     const exp3 = Ingestion{ .inputs = &source3, .mappingPairs = &target3 };
     try testing.expectEqualDeep(&exp3, &r3.value.ok);
     a.free(r3.value.ok.inputs);
@@ -249,8 +249,8 @@ test "ingestion validation" {
 
     const s1 = Source{ .name = &[_]u8{ 's', 'e', 'g' } };
     const source1 = [1]Source{s1};
-    const t1 = Target{ .sourceName = "seg", .elementName = "e0" };
-    const target1 = [1]Target{t1};
+    const t1 = TargetPair{ .sourceName = "seg", .elementName = "e0" };
+    const target1 = [1]TargetPair{t1};
     const ingestion1 = Ingestion{ .inputs = &source1, .mappingPairs = &target1 };
     const im1 = IngestionMapping{ .index = 0, .from = 0, .to = 0 };
     const mappings1 = [1]IngestionMapping{im1};
@@ -266,9 +266,9 @@ test "ingestion validation" {
     const s3a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
     const s3b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
     const source3 = [2]Source{ s3a, s3b };
-    const t3a = Target{ .sourceName = "seg1", .elementName = "e0" };
-    const t3b = Target{ .sourceName = "seg2", .elementName = "e0" };
-    const target3 = [2]Target{ t3a, t3b };
+    const t3a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
+    const t3b = TargetPair{ .sourceName = "seg2", .elementName = "e0" };
+    const target3 = [2]TargetPair{ t3a, t3b };
     const ingestion3 = Ingestion{ .inputs = &source3, .mappingPairs = &target3 };
     const im3a = IngestionMapping{ .index = 0, .from = 0, .to = 0 };
     const im3b = IngestionMapping{ .index = 1, .from = 1, .to = 0 };
@@ -282,9 +282,9 @@ test "ingestion validation" {
     const s4a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
     const s4b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
     const source4 = [2]Source{ s4a, s4b };
-    const t4a = Target{ .sourceName = "seg1", .elementName = "e0" };
-    const t4b = Target{ .sourceName = "seg2", .elementName = "e11" };
-    const target4 = [2]Target{ t4a, t4b };
+    const t4a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
+    const t4b = TargetPair{ .sourceName = "seg2", .elementName = "e11" };
+    const target4 = [2]TargetPair{ t4a, t4b };
     const ingestion4 = Ingestion{ .inputs = &source4, .mappingPairs = &target4 };
     const im4a = IngestionMapping{ .index = 0, .from = 0, .to = 1 };
     const im4b = IngestionMapping{ .index = 1, .from = 1, .to = 0 };
