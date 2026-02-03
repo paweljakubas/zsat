@@ -5,8 +5,8 @@ const testing = std.testing;
 //final ingest pair mapping between data source to target
 pub const IngestionMapping = struct {
     index: u8,
-    from: u8,
-    to: u8,
+    from: usize,
+    to: usize,
 };
 
 //Validated ingestion
@@ -16,25 +16,8 @@ pub const IngestionValidated = struct {
 
 pub const IngestionError = error{
     WrongNumberOfInputStreams,
+    ElementMissingAfterCheck,
 };
-
-//Validate Ingestion to get IngestionValidated if all elements in mappingPairs of Ingestion are from elements arg
-//and all sources in mappingPairs of Ingestion are in inputs. Otherwise, emit error
-//_: [][]const u8,
-//pub fn validateIngestion(allocator: std.mem.Allocator, numberOfSources: u8, elements: [][]const u8, ingestion: Ingestion) IngestionError!IngestionValidated {
-//    if (ingestion.inputs.len != numberOfSources) {
-//        return .WrongNumberOfInputStreams;
-//    }
-//    var arr = try allocator.alloc(IngestionMapping, ingestion.mappingPairs.len);
-//    var ix: u8 = 0;
-//    for (ingestion.mappingPairs) |theTarget| {
-//        const elemToFind = [1][]const u8 {theTarget.elementName};
-//        arr[ix] = IngestionMapping{ .index = ix, .from = std.mem.findAny([]const u8, elements, &elemToFind, .from = std.mem.findAny([]const u8, elements, &elemToFind};
-//        ix += 1;
-//    }
-//
-//    return ingestion;
-//}
 
 //Handling the name of data source and its occurence number
 pub const Source = struct {
@@ -219,13 +202,61 @@ test "ingestionParser" {
     a.free(r3.value.ok.mappingPairs);
 }
 
-//test "ingestion validation" {
-//    const s1 = Source{ .index = 0, .name = &[_]u8{ 's', 'e', 'g' } };
-//    const source1 = [1]Source{s1};
-//    const t1 = Target{ .sourceName = "seg", .elementName = "e0" };
-//    const target1 = [1]Target{t1};
-//    const ingestion1 = Ingestion{ .inputs = &source1, .mappingPairs = &target1 };
-//    const validation1 = validateIngestion(1, ingestion1);
-//    try testing.expectEqual(validation1, ingestion1);
-//}
-//
+//Validate Ingestion to get IngestionValidated if
+// (a) all elements in mappingPairs of Ingestion are from elements array specified
+// (b) the number of sources is the same as the one specified in numberOfSources arg
+// (c) all sources in mappingPairs of Ingestion exist in inputs.
+// Otherwise, one of the emit error from IngestionError
+pub fn validateIngestion(allocator: std.mem.Allocator, numberOfSources: u8, elements: []const []const u8, ingestion: Ingestion) !IngestionValidated {
+    if (ingestion.inputs.len != numberOfSources) {
+        return IngestionError.WrongNumberOfInputStreams;
+    }
+
+    var srcArr = try allocator.alloc([]const u8, ingestion.inputs.len);
+    defer allocator.free(srcArr);
+    var ix: u8 = 0;
+    for (ingestion.inputs) |theSource| {
+        srcArr[ix] = theSource.name;
+        ix += 1;
+    }
+
+    var outArr = try allocator.alloc(IngestionMapping, ingestion.mappingPairs.len);
+    ix = 0;
+    for (ingestion.mappingPairs) |theTarget| {
+        const elemToFind = theTarget.elementName;
+        const srcToFind = theTarget.sourceName;
+        const elemIx = try indexOfPos(elements, elemToFind);
+        const srcIx = try indexOfPos(srcArr, srcToFind);
+        outArr[ix] = IngestionMapping{ .index = ix, .from = srcIx, .to = elemIx };
+        ix += 1;
+    }
+
+    return IngestionValidated{ .mappings = outArr };
+}
+
+fn indexOfPos(vec: []const []const u8, elem: []const u8) !usize {
+    for (vec, 0..) |vecElem, ix| {
+        const cmp = std.mem.eql(u8, vecElem, elem);
+        if (cmp) {
+            return ix;
+        }
+    }
+    return IngestionError.ElementMissingAfterCheck;
+}
+
+test "ingestion validation" {
+    const a = testing.allocator;
+
+    const s1 = Source{ .name = &[_]u8{ 's', 'e', 'g' } };
+    const source1 = [1]Source{s1};
+    const t1 = Target{ .sourceName = "seg", .elementName = "e0" };
+    const target1 = [1]Target{t1};
+    const ingestion1 = Ingestion{ .inputs = &source1, .mappingPairs = &target1 };
+    const im1 = IngestionMapping{ .index = 0, .from = 0, .to = 0 };
+    const mappings1 = [1]IngestionMapping{im1};
+    const ingestionValidated1 = IngestionValidated{ .mappings = &mappings1 };
+    const elems1: [1][]const u8 = .{"e0"};
+    const validation1 = try validateIngestion(a, 1, &elems1, ingestion1);
+    try testing.expectEqualDeep(&validation1, &ingestionValidated1);
+    a.free(validation1.mappings);
+}
