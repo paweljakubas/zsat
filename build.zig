@@ -42,9 +42,10 @@ pub fn build(b: *std.Build) void {
         const test_step = b.step("test", "Run unit tests");
 
         for ([_][]const u8{
-            "src/cli/draw/element.zig",
-            "src/cli/draw/ingest.zig",
             "src/cli/draw/attributes.zig",
+            "src/cli/draw/element.zig",
+            "src/cli/draw/frame.zig",
+            "src/cli/draw/ingest.zig",
         }) |test_file| {
             const unit_tests = b.addTest(.{
                 .root_module = b.createModule(.{

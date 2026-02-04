@@ -20,7 +20,7 @@ pub const IngestionError = error{
     InputInMappingInvalid,
 };
 
-//Handling the name of data source and its occurence number
+//Handling the name of data source
 pub const Source = struct {
     name: []const u8,
 };
