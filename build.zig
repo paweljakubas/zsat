@@ -43,9 +43,9 @@ pub fn build(b: *std.Build) void {
 
         for ([_][]const u8{
             "src/cli/draw/attributes.zig",
-            "src/cli/draw/styles.zig",
+            "src/cli/draw/connections.zig",
             "src/cli/draw/frame.zig",
-            "src/cli/draw/ingest.zig",
+            "src/cli/draw/styles.zig",
         }) |test_file| {
             const unit_tests = b.addTest(.{
                 .root_module = b.createModule(.{
