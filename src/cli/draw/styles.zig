@@ -1,6 +1,6 @@
 const mecha = @import("mecha");
 const std = @import("std");
-const attr = @import("attributes.zig");
+const common = @import("common.zig");
 const testing = std.testing;
 
 // style
@@ -72,7 +72,7 @@ pub const LineWidthType = struct {
 };
 
 pub const LineColorType = struct {
-    value: attr.ColorName,
+    value: common.ColorName,
 
     pub fn defaultLineColorType() LineColorType {
         return LineColorType{
@@ -158,19 +158,17 @@ const Vec2dAttributesUnion = union(enum) {
 };
 
 //Parsers
-const skipWhitespace =
-    mecha.ascii.char(' ').many(.{ .collect = false }).discard();
 const skipOpenBracket =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.ascii.char('{').discard() });
+    mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.ascii.char('{').discard() });
 const skipCloseBracket =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char('}').discard(), skipWhitespace });
+    mecha.combine(.{ common.skipWhitespace, mecha.ascii.char('}').discard(), common.skipWhitespace });
 const skipOpenRecBracket =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char('[').discard() });
+    mecha.combine(.{ common.skipWhitespace, mecha.ascii.char('[').discard() });
 const skipCloseRecBracket =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char(']').discard(), skipWhitespace });
+    mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(']').discard(), common.skipWhitespace });
 
 const styleNumberParserRaw =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char('e').discard(), mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 2 }).asStr().convert(mecha.toInt(u8, 10)) });
+    mecha.combine(.{ common.skipWhitespace, mecha.ascii.char('e').discard(), mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 2 }).asStr().convert(mecha.toInt(u8, 10)) });
 
 test "styleNumber" {
     const fa = testing.failing_allocator;
@@ -189,7 +187,7 @@ test "styleNumber" {
 }
 
 const styleTypeParserRaw =
-    mecha.combine(.{ skipWhitespace, mecha.convert(mecha.string("vec2d").asStr(), mecha.toEnum(StyleType)) });
+    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.string("vec2d").asStr(), mecha.toEnum(StyleType)) });
 const styleTypeParserRawP = @TypeOf(styleTypeParserRaw);
 fn toElementTypeUnion(_: std.mem.Allocator, res: styleTypeParserRawP.T) mecha.ConvertError!StyleValueUnion {
     return StyleValueUnion{ .styleType = res };
@@ -220,7 +218,7 @@ test "styleTypeUnion" {
 }
 
 const coordinateTypeParserRaw =
-    mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("xy"), mecha.string("polar") }).asStr(), mecha.toEnum(CoordinateType)) });
+    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("xy"), mecha.string("polar") }).asStr(), mecha.toEnum(CoordinateType)) });
 const coordinateTypeParserRawP = @TypeOf(coordinateTypeParserRaw);
 fn toCoordinateTypeUnion(_: std.mem.Allocator, res: coordinateTypeParserRawP.T) mecha.ConvertError!StyleValueUnion {
     return StyleValueUnion{ .coordinateSystem = res };
@@ -257,7 +255,7 @@ test "coordinateTypeUnion" {
 }
 
 const coordinateOrientationParserRaw =
-    mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("fixed"), mecha.string("adjusting") }).asStr(), mecha.toEnum(CoordinateOrientation)) });
+    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("fixed"), mecha.string("adjusting") }).asStr(), mecha.toEnum(CoordinateOrientation)) });
 const coordinateOrientationParserRawP = @TypeOf(coordinateOrientationParserRaw);
 fn toCoordinateOrientationUnion(_: std.mem.Allocator, res: coordinateOrientationParserRawP.T) mecha.ConvertError!StyleValueUnion {
     return StyleValueUnion{ .coordinateOrientation = res };
@@ -295,7 +293,7 @@ test "coordinateOrientationUnionParser" {
 
 //LineWidth parser
 const lineWidthTypeParserRaw =
-    mecha.combine(.{ mecha.oneOf(.{ mecha.string("lwL"), mecha.string("lwG"), mecha.string("lwN"), mecha.string("lwO"), mecha.string("lw") }), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.int(u16, .{}) });
+    mecha.combine(.{ mecha.oneOf(.{ mecha.string("lwL"), mecha.string("lwG"), mecha.string("lwN"), mecha.string("lwO"), mecha.string("lw") }), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.int(u16, .{}) });
 const lineWidthTypeParserRawP = @TypeOf(lineWidthTypeParserRaw);
 const LineWidthT = enum {
     lw,
@@ -381,7 +379,7 @@ test "LineWidthTypeParserTyped" {
 
 //LineColor parser
 const lineColorTypeParserRaw =
-    mecha.combine(.{ mecha.string("lc").discard(), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, attr.colorNameParserTyped });
+    mecha.combine(.{ mecha.string("lc").discard(), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, common.colorNameParserTyped });
 const lineColorTypeParserRawP = @TypeOf(lineColorTypeParserRaw);
 fn toLineColorType(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.ConvertError!LineColorType {
     return .{ .value = res };
@@ -407,7 +405,7 @@ test "LineWColorTypeParserTyped" {
 
 //LineOpacity parser
 const lineOpacityTypeParserRaw =
-    mecha.combine(.{ mecha.string("lo").discard(), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.int(u8, .{}) });
+    mecha.combine(.{ mecha.string("lo").discard(), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.int(u8, .{}) });
 const lineOpacityTypeParserRawP = @TypeOf(lineOpacityTypeParserRaw);
 fn toLineOpacityType(_: std.mem.Allocator, res: lineOpacityTypeParserRawP.T) mecha.ConvertError!LineOpacityType {
     return .{ .value = res };
@@ -433,7 +431,7 @@ test "LineOpacityTypeParserTyped" {
 
 //LineCap parser
 const lineCapTypeParserRaw =
-    mecha.combine(.{ mecha.string("le").discard(), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.oneOf(.{ mecha.string("none"), mecha.string("n"), mecha.string("butt"), mecha.string("b"), mecha.string("round"), mecha.string("r"), mecha.string("square"), mecha.string("s") }) });
+    mecha.combine(.{ mecha.string("le").discard(), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.oneOf(.{ mecha.string("none"), mecha.string("n"), mecha.string("butt"), mecha.string("b"), mecha.string("round"), mecha.string("r"), mecha.string("square"), mecha.string("s") }) });
 const lineCapTypeParserRawP = @TypeOf(lineCapTypeParserRaw);
 const LineCapT = enum {
     none,
@@ -511,7 +509,7 @@ test "LineCapTypeParserTyped" {
 
 //LineJoin parser
 const lineJoinTypeParserRaw =
-    mecha.combine(.{ mecha.string("lj").discard(), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.oneOf(.{ mecha.string("none"), mecha.string("n"), mecha.string("mitter"), mecha.string("m"), mecha.string("round"), mecha.string("r"), mecha.string("bevel"), mecha.string("b") }) });
+    mecha.combine(.{ mecha.string("lj").discard(), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.oneOf(.{ mecha.string("none"), mecha.string("n"), mecha.string("mitter"), mecha.string("m"), mecha.string("round"), mecha.string("r"), mecha.string("bevel"), mecha.string("b") }) });
 const lineJoinTypeParserRawP = @TypeOf(lineJoinTypeParserRaw);
 const LineJoinT = enum {
     none,
@@ -589,7 +587,7 @@ test "LineJoinTypeParserTyped" {
 
 //LineDashing parser
 const lineDashingTypeParserRaw =
-    mecha.combine(.{ mecha.oneOf(.{ mecha.string("ldL"), mecha.string("ldG"), mecha.string("ldN"), mecha.string("ldO"), mecha.string("ld") }), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.string("[").discard(), skipWhitespace, mecha.int(u16, .{}).many(.{ .collect = true, .min = 2, .separator = mecha.combine(.{ skipWhitespace, mecha.string(","), skipWhitespace }).discard() }), skipWhitespace, mecha.string("]").discard(), skipWhitespace, mecha.int(u16, .{}) });
+    mecha.combine(.{ mecha.oneOf(.{ mecha.string("ldL"), mecha.string("ldG"), mecha.string("ldN"), mecha.string("ldO"), mecha.string("ld") }), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.string("[").discard(), common.skipWhitespace, mecha.int(u16, .{}).many(.{ .collect = true, .min = 2, .separator = mecha.combine(.{ common.skipWhitespace, mecha.string(","), common.skipWhitespace }).discard() }), common.skipWhitespace, mecha.string("]").discard(), common.skipWhitespace, mecha.int(u16, .{}) });
 const lineDashingTypeParserRawP = @TypeOf(lineDashingTypeParserRaw);
 const LineDashingT = enum {
     ld,
@@ -736,7 +734,7 @@ test "vec2dAttributeUnionParser" {
     try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, r18.value.ok);
 }
 
-const vec2dAttributeSeparatorParser = mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
+const vec2dAttributeSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
 const many_vec2dAttributeUnionParser = mecha.many(vec2dAttributeUnionParser, .{ .separator = vec2dAttributeSeparatorParser });
 fn manyToVec2dAttributes(alloc: std.mem.Allocator, fields: []Vec2dAttributesUnion) mecha.ConvertError!Vec2dAttributes {
     var res = Vec2dAttributes{};
@@ -874,7 +872,7 @@ const styleValueUnionParser = mecha.oneOf(.{
     coordinateOrientationUnionParser,
     vec2dAttributesParserBracketedUnion,
 });
-const many_styleValueUnionParser = mecha.many(styleValueUnionParser, .{ .separator = skipWhitespace });
+const many_styleValueUnionParser = mecha.many(styleValueUnionParser, .{ .separator = common.skipWhitespace });
 fn manyToStyleValue(alloc: std.mem.Allocator, fields: []StyleValueUnion) mecha.ConvertError!StyleValue {
     var res = StyleValue{};
     for (fields) |field| switch (field) {

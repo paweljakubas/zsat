@@ -54,3 +54,13 @@ fn toColorNameType(_: std.mem.Allocator, res: lineColorNameParserRawP.T) mecha.C
 }
 
 pub const colorNameParserTyped = colorNameParserRaw.convert(toColorNameType);
+
+//Parsers
+pub const skipWhitespace =
+    mecha.ascii.char(' ').many(.{ .collect = false }).discard();
+pub const skipOpenBracket =
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char('(').discard(), skipWhitespace });
+pub const skipCloseBracket =
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char(')').discard(), skipWhitespace });
+pub const skipArrow =
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char('-').discard(), mecha.ascii.char('>').discard(), skipWhitespace });

@@ -1,4 +1,5 @@
 const mecha = @import("mecha");
+const common = @import("common.zig");
 const std = @import("std");
 const testing = std.testing;
 
@@ -38,24 +39,13 @@ pub const Connection = struct {
 };
 
 //Parsers
-const skipWhitespace =
-    mecha.ascii.char(' ').many(.{ .collect = false }).discard();
-const skipOpenBracket =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char('(').discard(), skipWhitespace });
-const skipCloseBracket =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char(')').discard(), skipWhitespace });
-const skipMap =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char('-').discard(), mecha.ascii.char('>').discard() });
-const skipArrow =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char('-').discard(), mecha.ascii.char('>').discard(), skipWhitespace });
-
-const ingestSeparatorParser = mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
+const ingestSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
 const ingestCharacterParser =
     mecha.oneOf(.{ mecha.ascii.range('a', 'z'), mecha.ascii.range('A', 'Z'), mecha.ascii.range('0', '9') });
 const ingestNameParser = mecha.many(ingestCharacterParser, .{ .collect = false });
 const many_sourceNameParser = mecha.many(ingestNameParser, .{ .collect = true, .separator = ingestSeparatorParser });
 const sourcesParserRaw =
-    mecha.combine(.{ skipOpenBracket, many_sourceNameParser, skipCloseBracket });
+    mecha.combine(.{ common.skipOpenBracket, many_sourceNameParser, common.skipCloseBracket });
 const sourcesParserRawP = @TypeOf(sourcesParserRaw);
 fn toSourcesParser(allocator: std.mem.Allocator, names: sourcesParserRawP.T) mecha.ConvertError![]Source {
     var arr = try allocator.alloc(Source, names.len);
@@ -100,7 +90,7 @@ test "sourcesParser" {
     a.free(r4.value.ok);
 }
 
-const pairTargetNameParser = mecha.manyN(ingestNameParser, 2, .{ .separator = skipArrow });
+const pairTargetNameParser = mecha.manyN(ingestNameParser, 2, .{ .separator = common.skipArrow });
 
 test "pairTargetNameParser" {
     const fa = testing.failing_allocator;
@@ -116,7 +106,7 @@ test "pairTargetNameParser" {
 
 const many_targetNameParser = mecha.many(pairTargetNameParser, .{ .collect = true, .separator = ingestSeparatorParser });
 const targetsParserRaw =
-    mecha.combine(.{ skipOpenBracket, many_targetNameParser, skipCloseBracket });
+    mecha.combine(.{ common.skipOpenBracket, many_targetNameParser, common.skipCloseBracket });
 const targetsParserRawP = @TypeOf(targetsParserRaw);
 fn toTargetsParser(allocator: std.mem.Allocator, pairs: targetsParserRawP.T) mecha.ConvertError![]TargetPair {
     var arr = try allocator.alloc(TargetPair, pairs.len);
@@ -156,7 +146,7 @@ test "targetsParser" {
 }
 
 const connectionParserRaw =
-    mecha.combine(.{ skipWhitespace, sourcesParser, skipArrow, targetsParser });
+    mecha.combine(.{ common.skipWhitespace, sourcesParser, common.skipArrow, targetsParser });
 const connectionParserRawP = @TypeOf(connectionParserRaw);
 fn toConnectionParser(_: std.mem.Allocator, res: connectionParserRawP.T) mecha.ConvertError!Connection {
     return Connection{ .inputs = res[0], .mappingPairs = res[1] };

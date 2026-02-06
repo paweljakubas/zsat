@@ -1,4 +1,5 @@
 const mecha = @import("mecha");
+const common = @import("common.zig");
 const std = @import("std");
 const testing = std.testing;
 
@@ -23,20 +24,13 @@ pub const RotateBy = struct {
 };
 
 //Parsers
-const skipWhitespace =
-    mecha.ascii.char(' ').many(.{ .collect = false }).discard();
-const skipOpenBracket =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char('(').discard(), skipWhitespace });
-const skipCloseBracket =
-    mecha.combine(.{ skipWhitespace, mecha.ascii.char(')').discard(), skipWhitespace });
-
-const outputSeparatorParser = mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
+const outputSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
 const outputCharacterParser =
     mecha.oneOf(.{ mecha.ascii.range('a', 'z'), mecha.ascii.range('A', 'Z'), mecha.ascii.range('0', '9') });
 const outputNameParser = mecha.many(outputCharacterParser, .{ .collect = false });
 const many_outputNameParser = mecha.many(outputNameParser, .{ .collect = true, .separator = outputSeparatorParser });
 const outputsParserRaw =
-    mecha.combine(.{ skipOpenBracket, many_outputNameParser, skipCloseBracket });
+    mecha.combine(.{ common.skipOpenBracket, many_outputNameParser, common.skipCloseBracket });
 const outputsParserRawP = @TypeOf(outputsParserRaw);
 fn toOutputsParser(allocator: std.mem.Allocator, names: outputsParserRawP.T) mecha.ConvertError![]Output {
     var arr = try allocator.alloc(Output, names.len);

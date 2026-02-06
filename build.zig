@@ -42,7 +42,7 @@ pub fn build(b: *std.Build) void {
         const test_step = b.step("test", "Run unit tests");
 
         for ([_][]const u8{
-            "src/cli/draw/attributes.zig",
+            "src/cli/draw/common.zig",
             "src/cli/draw/connections.zig",
             "src/cli/draw/outputs.zig",
             "src/cli/draw/styles.zig",
