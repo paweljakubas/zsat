@@ -43,7 +43,7 @@ pub fn build(b: *std.Build) void {
 
         for ([_][]const u8{
             "src/cli/draw/attributes.zig",
-            "src/cli/draw/element.zig",
+            "src/cli/draw/styles.zig",
             "src/cli/draw/frame.zig",
             "src/cli/draw/ingest.zig",
         }) |test_file| {

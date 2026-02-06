@@ -3,12 +3,12 @@ const std = @import("std");
 const attr = @import("attributes.zig");
 const testing = std.testing;
 
-//element
-pub const ElementType = enum {
+// style
+pub const StyleType = enum {
     vec2d,
     //Point2D,
 
-    pub fn defaultElementType() ElementType {
+    pub fn defaultStyleType() StyleType {
         return .vec2d;
     }
 };
@@ -33,23 +33,23 @@ pub const CoordinateOrientation = enum {
     }
 };
 
-pub const Element = struct {
-    elementNumber: u8,
-    elementValue: ElementValue,
+pub const Style = struct {
+    styleNumber: u8,
+    styleValue: StyleValue,
 };
 
-pub const ElementValue = struct {
-    elementType: ?ElementType = .defaultElementType(),
+pub const StyleValue = struct {
+    styleType: ?StyleType = .defaultStyleType(),
     coordinateSystem: ?CoordinateType = .defaultCoordinateType(),
     coordinateOrientation: ?CoordinateOrientation = .defaultCoordinateOrientation(),
-    elementStyle: ?Vec2dStyles = Vec2dStyles{},
+    attributes: ?Vec2dAttributes = Vec2dAttributes{},
 };
 
-const ElementValueUnion = union(enum) {
-    elementType: ElementType,
+const StyleValueUnion = union(enum) {
+    styleType: StyleType,
     coordinateSystem: CoordinateType,
     coordinateOrientation: CoordinateOrientation,
-    elementStyle: Vec2dStyles,
+    attributes: Vec2dAttributes,
 };
 
 pub const ReferenceFrame = enum {
@@ -139,7 +139,7 @@ pub const LineDashingType = struct {
     }
 };
 
-pub const Vec2dStyles = struct {
+pub const Vec2dAttributes = struct {
     lineWidth: LineWidthType = .defaultLineWidthType(),
     lineColor: LineColorType = .defaultLineColorType(),
     lineOpacity: LineOpacityType = .defaultLineOpacityType(),
@@ -148,7 +148,7 @@ pub const Vec2dStyles = struct {
     lineDashing: LineDashingType = .defaultLineDashingType(),
 };
 
-const Vec2dStylesUnion = union(enum) {
+const Vec2dAttributesUnion = union(enum) {
     lineWidth: LineWidthType,
     lineColor: LineColorType,
     lineOpacity: LineOpacityType,
@@ -169,32 +169,129 @@ const skipOpenRecBracket =
 const skipCloseRecBracket =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char(']').discard(), skipWhitespace });
 
-const elementNumberParserRaw =
+const styleNumberParserRaw =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('e').discard(), mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 2 }).asStr().convert(mecha.toInt(u8, 10)) });
 
-const elementTypeParserRaw =
-    mecha.combine(.{ skipWhitespace, mecha.convert(mecha.string("vec2d").asStr(), mecha.toEnum(ElementType)) });
-const elementTypeParserRawP = @TypeOf(elementTypeParserRaw);
-fn toElementTypeUnion(_: std.mem.Allocator, res: elementTypeParserRawP.T) mecha.ConvertError!ElementValueUnion {
-    return ElementValueUnion{ .elementType = res };
+test "styleNumber" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try styleNumberParserRaw.parse(fa, "e2");
+    try testing.expectEqual(2, r1.value.ok);
+
+    const r2 = try styleNumberParserRaw.parse(fa, " e0");
+    try testing.expectEqual(0, r2.value.ok);
+
+    const r3 = try styleNumberParserRaw.parse(fa, " e11");
+    try testing.expectEqual(11, r3.value.ok);
+
+    const r4 = try styleNumberParserRaw.parse(fa, "11");
+    try testing.expectEqual(0, r4.index);
 }
-const elementTypeUnionParser = elementTypeParserRaw.convert(toElementTypeUnion);
+
+const styleTypeParserRaw =
+    mecha.combine(.{ skipWhitespace, mecha.convert(mecha.string("vec2d").asStr(), mecha.toEnum(StyleType)) });
+const styleTypeParserRawP = @TypeOf(styleTypeParserRaw);
+fn toElementTypeUnion(_: std.mem.Allocator, res: styleTypeParserRawP.T) mecha.ConvertError!StyleValueUnion {
+    return StyleValueUnion{ .styleType = res };
+}
+const styleTypeUnionParser = styleTypeParserRaw.convert(toElementTypeUnion);
+
+test "styleType" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try styleTypeParserRaw.parse(fa, "vec2d");
+    try testing.expectEqual(.vec2d, r1.value.ok);
+
+    const r2 = try styleTypeParserRaw.parse(fa, " vec2d");
+    try testing.expectEqual(.vec2d, r2.value.ok);
+
+    const r3 = try styleTypeParserRaw.parse(fa, "dot");
+    try testing.expectEqual(0, r3.index);
+}
+
+test "styleTypeUnion" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try styleTypeUnionParser.parse(fa, "vec2d");
+    try testing.expectEqual(StyleValueUnion{ .styleType = .vec2d }, r1.value.ok);
+
+    const r2 = try styleTypeUnionParser.parse(fa, " vec2d");
+    try testing.expectEqual(StyleValueUnion{ .styleType = .vec2d }, r2.value.ok);
+}
 
 const coordinateTypeParserRaw =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("xy"), mecha.string("polar") }).asStr(), mecha.toEnum(CoordinateType)) });
 const coordinateTypeParserRawP = @TypeOf(coordinateTypeParserRaw);
-fn toCoordinateTypeUnion(_: std.mem.Allocator, res: coordinateTypeParserRawP.T) mecha.ConvertError!ElementValueUnion {
-    return ElementValueUnion{ .coordinateSystem = res };
+fn toCoordinateTypeUnion(_: std.mem.Allocator, res: coordinateTypeParserRawP.T) mecha.ConvertError!StyleValueUnion {
+    return StyleValueUnion{ .coordinateSystem = res };
 }
 const coordinateTypeUnionParser = coordinateTypeParserRaw.convert(toCoordinateTypeUnion);
+
+test "coordinateType" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try coordinateTypeParserRaw.parse(fa, "xy");
+    try testing.expectEqual(.xy, r1.value.ok);
+
+    const r2 = try coordinateTypeParserRaw.parse(fa, " xy");
+    try testing.expectEqual(.xy, r2.value.ok);
+
+    const r3 = try coordinateTypeParserRaw.parse(fa, "polar");
+    try testing.expectEqual(.polar, r3.value.ok);
+
+    const r4 = try coordinateTypeParserRaw.parse(fa, "rad");
+    try testing.expectEqual(0, r4.index);
+}
+
+test "coordinateTypeUnion" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try coordinateTypeUnionParser.parse(fa, "xy");
+    try testing.expectEqual(StyleValueUnion{ .coordinateSystem = .xy }, r1.value.ok);
+
+    const r2 = try coordinateTypeUnionParser.parse(fa, " xy");
+    try testing.expectEqual(StyleValueUnion{ .coordinateSystem = .xy }, r2.value.ok);
+
+    const r3 = try coordinateTypeUnionParser.parse(fa, "polar");
+    try testing.expectEqual(StyleValueUnion{ .coordinateSystem = .polar }, r3.value.ok);
+}
 
 const coordinateOrientationParserRaw =
     mecha.combine(.{ skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("fixed"), mecha.string("adjusting") }).asStr(), mecha.toEnum(CoordinateOrientation)) });
 const coordinateOrientationParserRawP = @TypeOf(coordinateOrientationParserRaw);
-fn toCoordinateOrientationUnion(_: std.mem.Allocator, res: coordinateOrientationParserRawP.T) mecha.ConvertError!ElementValueUnion {
-    return ElementValueUnion{ .coordinateOrientation = res };
+fn toCoordinateOrientationUnion(_: std.mem.Allocator, res: coordinateOrientationParserRawP.T) mecha.ConvertError!StyleValueUnion {
+    return StyleValueUnion{ .coordinateOrientation = res };
 }
 const coordinateOrientationUnionParser = coordinateOrientationParserRaw.convert(toCoordinateOrientationUnion);
+
+test "coordinateOrientationParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try coordinateOrientationParserRaw.parse(fa, "fixed");
+    try testing.expectEqual(.fixed, r1.value.ok);
+
+    const r2 = try coordinateOrientationParserRaw.parse(fa, " fixed");
+    try testing.expectEqual(.fixed, r2.value.ok);
+
+    const r3 = try coordinateOrientationParserRaw.parse(fa, " adjusting");
+    try testing.expectEqual(.adjusting, r3.value.ok);
+
+    const r4 = try coordinateOrientationParserRaw.parse(fa, "var");
+    try testing.expectEqual(0, r4.index);
+}
+
+test "coordinateOrientationUnionParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try coordinateOrientationUnionParser.parse(fa, "fixed");
+    try testing.expectEqual(StyleValueUnion{ .coordinateOrientation = .fixed }, r1.value.ok);
+
+    const r2 = try coordinateOrientationUnionParser.parse(fa, " fixed");
+    try testing.expectEqual(StyleValueUnion{ .coordinateOrientation = .fixed }, r2.value.ok);
+
+    const r3 = try coordinateOrientationUnionParser.parse(fa, " adjusting");
+    try testing.expectEqual(StyleValueUnion{ .coordinateOrientation = .adjusting }, r3.value.ok);
+}
 
 //LineWidth parser
 const lineWidthTypeParserRaw =
@@ -230,7 +327,7 @@ fn toLineWidthType(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.C
     }
 }
 const lineWidthTypeParserTyped = lineWidthTypeParserRaw.convert(toLineWidthType);
-fn toLineWidthUnion(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
+fn toLineWidthUnion(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
     const to = struct {
         fn to(str: []const u8) ?LineWidthT {
             return std.meta.stringToEnum(LineWidthT, str);
@@ -244,7 +341,7 @@ fn toLineWidthUnion(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.
             .lwN => .normalized,
             .lwO => .output,
         };
-        return Vec2dStylesUnion{ .lineWidth = .{
+        return Vec2dAttributesUnion{ .lineWidth = .{
             .reference = switchRes,
             .value = res[1],
         } };
@@ -254,6 +351,34 @@ fn toLineWidthUnion(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.
 }
 const lineWidthUnionParser = lineWidthTypeParserRaw.convert(toLineWidthUnion);
 
+test "LineWidthTypeParserRaw" {
+    const fa = testing.failing_allocator;
+
+    const Parser = @TypeOf(lineWidthTypeParserRaw);
+
+    const r1 = try lineWidthTypeParserRaw.parse(fa, "lw:10");
+    try testing.expectEqual(Parser.T{ "lw", 10 }, r1.value.ok);
+
+    const r2 = try lineWidthTypeParserRaw.asStr().parse(fa, "lw  :  10");
+    try testing.expectEqualStrings("lw  :  10", r2.value.ok);
+
+    const r3 = try lineWidthTypeParserRaw.parse(fa, "lwL  :  10");
+    try testing.expectEqual(Parser.T{ "lwL", 10 }, r3.value.ok);
+}
+
+test "LineWidthTypeParserTyped" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try lineWidthTypeParserTyped.parse(fa, "lw:10");
+    try testing.expectEqual(LineWidthType{ .reference = .normalized, .value = 10 }, r1.value.ok);
+
+    const r2 = try lineWidthTypeParserTyped.parse(fa, "lw  :  10");
+    try testing.expectEqual(LineWidthType{ .reference = .normalized, .value = 10 }, r2.value.ok);
+
+    const r3 = try lineWidthTypeParserTyped.parse(fa, "lwG  :  6");
+    try testing.expectEqual(LineWidthType{ .reference = .global, .value = 6 }, r3.value.ok);
+}
+
 //LineColor parser
 const lineColorTypeParserRaw =
     mecha.combine(.{ mecha.string("lc").discard(), skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, attr.colorNameParserTyped });
@@ -262,10 +387,23 @@ fn toLineColorType(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.C
     return .{ .value = res };
 }
 const lineColorTypeParserTyped = lineColorTypeParserRaw.convert(toLineColorType);
-fn toLineColorUnion(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
-    return Vec2dStylesUnion{ .lineColor = .{ .value = res } };
+fn toLineColorUnion(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
+    return Vec2dAttributesUnion{ .lineColor = .{ .value = res } };
 }
 const lineColorUnionParser = lineColorTypeParserRaw.convert(toLineColorUnion);
+
+test "LineWColorTypeParserTyped" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try lineColorTypeParserTyped.parse(fa, "lc:green");
+    try testing.expectEqual(LineColorType{ .value = .green }, r1.value.ok);
+
+    const r2 = try lineColorTypeParserTyped.parse(fa, "lc :  green");
+    try testing.expectEqual(LineColorType{ .value = .green }, r2.value.ok);
+
+    const r3 = try lineColorTypeParserTyped.parse(fa, "lc : yellow");
+    try testing.expectEqual(LineColorType{ .value = .yellow }, r3.value.ok);
+}
 
 //LineOpacity parser
 const lineOpacityTypeParserRaw =
@@ -275,10 +413,23 @@ fn toLineOpacityType(_: std.mem.Allocator, res: lineOpacityTypeParserRawP.T) mec
     return .{ .value = res };
 }
 const lineOpacityTypeParserTyped = lineOpacityTypeParserRaw.convert(toLineOpacityType);
-fn toLineOpacityUnion(_: std.mem.Allocator, res: lineOpacityTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
-    return Vec2dStylesUnion{ .lineOpacity = .{ .value = res } };
+fn toLineOpacityUnion(_: std.mem.Allocator, res: lineOpacityTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
+    return Vec2dAttributesUnion{ .lineOpacity = .{ .value = res } };
 }
 const lineOpacityUnionParser = lineOpacityTypeParserRaw.convert(toLineOpacityUnion);
+
+test "LineOpacityTypeParserTyped" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try lineOpacityTypeParserTyped.parse(fa, "lo:10");
+    try testing.expectEqual(LineOpacityType{ .value = 10 }, r1.value.ok);
+
+    const r2 = try lineOpacityTypeParserTyped.parse(fa, "lo  :  10");
+    try testing.expectEqual(LineOpacityType{ .value = 10 }, r2.value.ok);
+
+    const r3 = try lineOpacityTypeParserTyped.parse(fa, "lo  :  6");
+    try testing.expectEqual(LineOpacityType{ .value = 6 }, r3.value.ok);
+}
 
 //LineCap parser
 const lineCapTypeParserRaw =
@@ -319,7 +470,7 @@ fn toLineCapType(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.Conve
     }
 }
 const lineCapTypeParserTyped = lineCapTypeParserRaw.convert(toLineCapType);
-fn toLineCapUnion(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
+fn toLineCapUnion(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
     const to = struct {
         fn to(str: []const u8) ?LineCapT {
             return std.meta.stringToEnum(LineCapT, str);
@@ -336,7 +487,7 @@ fn toLineCapUnion(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.Conv
             .square => .square,
             .s => .square,
         };
-        return Vec2dStylesUnion{ .lineCap = .{
+        return Vec2dAttributesUnion{ .lineCap = .{
             .value = switchRes,
         } };
     } else {
@@ -344,6 +495,19 @@ fn toLineCapUnion(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.Conv
     }
 }
 const lineCapUnionParser = lineCapTypeParserRaw.convert(toLineCapUnion);
+
+test "LineCapTypeParserTyped" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try lineCapTypeParserTyped.parse(fa, "le: n");
+    try testing.expectEqual(LineCapType{ .value = .none }, r1.value.ok);
+
+    const r2 = try lineCapTypeParserTyped.parse(fa, "le  :  none");
+    try testing.expectEqual(LineCapType{ .value = .none }, r2.value.ok);
+
+    const r3 = try lineCapTypeParserTyped.parse(fa, "le  :  b");
+    try testing.expectEqual(LineCapType{ .value = .butt }, r3.value.ok);
+}
 
 //LineJoin parser
 const lineJoinTypeParserRaw =
@@ -384,7 +548,7 @@ fn toLineJoinType(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.Con
     }
 }
 const lineJoinTypeParserTyped = lineJoinTypeParserRaw.convert(toLineJoinType);
-fn toLineJoinUnion(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
+fn toLineJoinUnion(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
     const to = struct {
         fn to(str: []const u8) ?LineJoinT {
             return std.meta.stringToEnum(LineJoinT, str);
@@ -401,7 +565,7 @@ fn toLineJoinUnion(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.Co
             .bevel => .bevel,
             .b => .bevel,
         };
-        return Vec2dStylesUnion{ .lineJoin = .{
+        return Vec2dAttributesUnion{ .lineJoin = .{
             .value = switchRes,
         } };
     } else {
@@ -409,6 +573,19 @@ fn toLineJoinUnion(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.Co
     }
 }
 const lineJoinUnionParser = lineJoinTypeParserRaw.convert(toLineJoinUnion);
+
+test "LineJoinTypeParserTyped" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try lineJoinTypeParserTyped.parse(fa, "lj: n");
+    try testing.expectEqual(LineJoinType{ .value = .none }, r1.value.ok);
+
+    const r2 = try lineJoinTypeParserTyped.parse(fa, "lj  :  none");
+    try testing.expectEqual(LineJoinType{ .value = .none }, r2.value.ok);
+
+    const r3 = try lineJoinTypeParserTyped.parse(fa, "lj  :  b");
+    try testing.expectEqual(LineJoinType{ .value = .bevel }, r3.value.ok);
+}
 
 //LineDashing parser
 const lineDashingTypeParserRaw =
@@ -445,7 +622,7 @@ fn toLineDashingType(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mec
     }
 }
 const lineDashingTypeParserTyped = lineDashingTypeParserRaw.convert(toLineDashingType);
-fn toLineDashingUnion(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mecha.ConvertError!Vec2dStylesUnion {
+fn toLineDashingUnion(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
     const to = struct {
         fn to(str: []const u8) ?LineDashingT {
             return std.meta.stringToEnum(LineDashingT, str);
@@ -459,7 +636,7 @@ fn toLineDashingUnion(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) me
             .ldN => .normalized,
             .ldO => .output,
         };
-        return Vec2dStylesUnion{ .lineDashing = .{
+        return Vec2dAttributesUnion{ .lineDashing = .{
             .reference = switchRes,
             .onOff = res[1],
             .offset = res[2],
@@ -469,242 +646,6 @@ fn toLineDashingUnion(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) me
     }
 }
 const lineDashingUnionParser = lineDashingTypeParserRaw.convert(toLineDashingUnion);
-
-//Vec2dStyles parser
-const vec2dStyleUnionParser = mecha.oneOf(.{
-    lineWidthUnionParser,
-    lineColorUnionParser,
-    lineOpacityUnionParser,
-    lineCapUnionParser,
-    lineJoinUnionParser,
-    lineDashingUnionParser,
-});
-
-const vec2dStyleSeparatorParser = mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
-const many_vec2dStyleUnionParser = mecha.many(vec2dStyleUnionParser, .{ .separator = vec2dStyleSeparatorParser });
-fn manyToVec2dStyles(alloc: std.mem.Allocator, fields: []Vec2dStylesUnion) mecha.ConvertError!Vec2dStyles {
-    var res = Vec2dStyles{};
-    for (fields) |field| switch (field) {
-        .lineWidth => |f| res.lineWidth = f,
-        .lineColor => |f| res.lineColor = f,
-        .lineOpacity => |f| res.lineOpacity = f,
-        .lineCap => |f| res.lineCap = f,
-        .lineJoin => |f| res.lineJoin = f,
-        .lineDashing => |f| res.lineDashing = f,
-    };
-
-    alloc.free(fields);
-    return res;
-}
-const vec2dStylesParser = many_vec2dStyleUnionParser.convert(manyToVec2dStyles);
-const vec2dStylesParserBracketed = mecha.combine(.{ skipOpenRecBracket, vec2dStylesParser, skipCloseRecBracket });
-const vec2dStylesParserBracketedP = @TypeOf(vec2dStylesParserBracketed);
-fn toVec2dStylesParserBracketedUnion(_: std.mem.Allocator, res: vec2dStylesParserBracketedP.T) mecha.ConvertError!ElementValueUnion {
-    return ElementValueUnion{ .elementStyle = res };
-}
-const vec2dStylesParserBracketedUnion = vec2dStylesParserBracketed.convert(toVec2dStylesParserBracketedUnion);
-
-//Element parser
-const elementValueUnionParser = mecha.oneOf(.{
-    elementTypeUnionParser,
-    coordinateTypeUnionParser,
-    coordinateOrientationUnionParser,
-    vec2dStylesParserBracketedUnion,
-});
-const many_elementValueUnionParser = mecha.many(elementValueUnionParser, .{ .separator = skipWhitespace });
-fn manyToElementValue(alloc: std.mem.Allocator, fields: []ElementValueUnion) mecha.ConvertError!ElementValue {
-    var res = ElementValue{};
-    for (fields) |field| switch (field) {
-        .elementType => |f| res.elementType = f,
-        .coordinateSystem => |f| res.coordinateSystem = f,
-        .coordinateOrientation => |f| res.coordinateOrientation = f,
-        .elementStyle => |f| res.elementStyle = f,
-    };
-
-    alloc.free(fields);
-    return res;
-}
-const elementValueParser = many_elementValueUnionParser.convert(manyToElementValue);
-
-const elementParser =
-    mecha.combine(.{ elementNumberParserRaw, skipOpenBracket, elementValueParser, skipCloseBracket }).map(mecha.toStruct(Element));
-
-test "elementNumber" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try elementNumberParserRaw.parse(fa, "e2");
-    try testing.expectEqual(2, r1.value.ok);
-
-    const r2 = try elementNumberParserRaw.parse(fa, " e0");
-    try testing.expectEqual(0, r2.value.ok);
-
-    const r3 = try elementNumberParserRaw.parse(fa, " e11");
-    try testing.expectEqual(11, r3.value.ok);
-
-    const r4 = try elementNumberParserRaw.parse(fa, "11");
-    try testing.expectEqual(0, r4.index);
-}
-
-test "elementType" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try elementTypeParserRaw.parse(fa, "vec2d");
-    try testing.expectEqual(.vec2d, r1.value.ok);
-
-    const r2 = try elementTypeParserRaw.parse(fa, " vec2d");
-    try testing.expectEqual(.vec2d, r2.value.ok);
-
-    const r3 = try elementTypeParserRaw.parse(fa, "dot");
-    try testing.expectEqual(0, r3.index);
-}
-
-test "elementTypeUnion" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try elementTypeUnionParser.parse(fa, "vec2d");
-    try testing.expectEqual(ElementValueUnion{ .elementType = .vec2d }, r1.value.ok);
-
-    const r2 = try elementTypeUnionParser.parse(fa, " vec2d");
-    try testing.expectEqual(ElementValueUnion{ .elementType = .vec2d }, r2.value.ok);
-}
-
-test "coordinateType" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try coordinateTypeParserRaw.parse(fa, "xy");
-    try testing.expectEqual(.xy, r1.value.ok);
-
-    const r2 = try coordinateTypeParserRaw.parse(fa, " xy");
-    try testing.expectEqual(.xy, r2.value.ok);
-
-    const r3 = try coordinateTypeParserRaw.parse(fa, "polar");
-    try testing.expectEqual(.polar, r3.value.ok);
-
-    const r4 = try coordinateTypeParserRaw.parse(fa, "rad");
-    try testing.expectEqual(0, r4.index);
-}
-
-test "coordinateTypeUnion" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try coordinateTypeUnionParser.parse(fa, "xy");
-    try testing.expectEqual(ElementValueUnion{ .coordinateSystem = .xy }, r1.value.ok);
-
-    const r2 = try coordinateTypeUnionParser.parse(fa, " xy");
-    try testing.expectEqual(ElementValueUnion{ .coordinateSystem = .xy }, r2.value.ok);
-
-    const r3 = try coordinateTypeUnionParser.parse(fa, "polar");
-    try testing.expectEqual(ElementValueUnion{ .coordinateSystem = .polar }, r3.value.ok);
-}
-
-test "coordinateOrientationParser" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try coordinateOrientationParserRaw.parse(fa, "fixed");
-    try testing.expectEqual(.fixed, r1.value.ok);
-
-    const r2 = try coordinateOrientationParserRaw.parse(fa, " fixed");
-    try testing.expectEqual(.fixed, r2.value.ok);
-
-    const r3 = try coordinateOrientationParserRaw.parse(fa, " adjusting");
-    try testing.expectEqual(.adjusting, r3.value.ok);
-
-    const r4 = try coordinateOrientationParserRaw.parse(fa, "var");
-    try testing.expectEqual(0, r4.index);
-}
-
-test "coordinateOrientationUnionParser" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try coordinateOrientationUnionParser.parse(fa, "fixed");
-    try testing.expectEqual(ElementValueUnion{ .coordinateOrientation = .fixed }, r1.value.ok);
-
-    const r2 = try coordinateOrientationUnionParser.parse(fa, " fixed");
-    try testing.expectEqual(ElementValueUnion{ .coordinateOrientation = .fixed }, r2.value.ok);
-
-    const r3 = try coordinateOrientationUnionParser.parse(fa, " adjusting");
-    try testing.expectEqual(ElementValueUnion{ .coordinateOrientation = .adjusting }, r3.value.ok);
-}
-
-test "LineWidthTypeParserRaw" {
-    const fa = testing.failing_allocator;
-
-    const Parser = @TypeOf(lineWidthTypeParserRaw);
-
-    const r1 = try lineWidthTypeParserRaw.parse(fa, "lw:10");
-    try testing.expectEqual(Parser.T{ "lw", 10 }, r1.value.ok);
-
-    const r2 = try lineWidthTypeParserRaw.asStr().parse(fa, "lw  :  10");
-    try testing.expectEqualStrings("lw  :  10", r2.value.ok);
-
-    const r3 = try lineWidthTypeParserRaw.parse(fa, "lwL  :  10");
-    try testing.expectEqual(Parser.T{ "lwL", 10 }, r3.value.ok);
-}
-
-test "LineWidthTypeParserTyped" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try lineWidthTypeParserTyped.parse(fa, "lw:10");
-    try testing.expectEqual(LineWidthType{ .reference = .normalized, .value = 10 }, r1.value.ok);
-
-    const r2 = try lineWidthTypeParserTyped.parse(fa, "lw  :  10");
-    try testing.expectEqual(LineWidthType{ .reference = .normalized, .value = 10 }, r2.value.ok);
-
-    const r3 = try lineWidthTypeParserTyped.parse(fa, "lwG  :  6");
-    try testing.expectEqual(LineWidthType{ .reference = .global, .value = 6 }, r3.value.ok);
-}
-
-test "LineWColorTypeParserTyped" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try lineColorTypeParserTyped.parse(fa, "lc:green");
-    try testing.expectEqual(LineColorType{ .value = .green }, r1.value.ok);
-
-    const r2 = try lineColorTypeParserTyped.parse(fa, "lc :  green");
-    try testing.expectEqual(LineColorType{ .value = .green }, r2.value.ok);
-
-    const r3 = try lineColorTypeParserTyped.parse(fa, "lc : yellow");
-    try testing.expectEqual(LineColorType{ .value = .yellow }, r3.value.ok);
-}
-
-test "LineOpacityTypeParserTyped" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try lineOpacityTypeParserTyped.parse(fa, "lo:10");
-    try testing.expectEqual(LineOpacityType{ .value = 10 }, r1.value.ok);
-
-    const r2 = try lineOpacityTypeParserTyped.parse(fa, "lo  :  10");
-    try testing.expectEqual(LineOpacityType{ .value = 10 }, r2.value.ok);
-
-    const r3 = try lineOpacityTypeParserTyped.parse(fa, "lo  :  6");
-    try testing.expectEqual(LineOpacityType{ .value = 6 }, r3.value.ok);
-}
-
-test "LineCapTypeParserTyped" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try lineCapTypeParserTyped.parse(fa, "le: n");
-    try testing.expectEqual(LineCapType{ .value = .none }, r1.value.ok);
-
-    const r2 = try lineCapTypeParserTyped.parse(fa, "le  :  none");
-    try testing.expectEqual(LineCapType{ .value = .none }, r2.value.ok);
-
-    const r3 = try lineCapTypeParserTyped.parse(fa, "le  :  b");
-    try testing.expectEqual(LineCapType{ .value = .butt }, r3.value.ok);
-}
-
-test "LineJoinTypeParserTyped" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try lineJoinTypeParserTyped.parse(fa, "lj: n");
-    try testing.expectEqual(LineJoinType{ .value = .none }, r1.value.ok);
-
-    const r2 = try lineJoinTypeParserTyped.parse(fa, "lj  :  none");
-    try testing.expectEqual(LineJoinType{ .value = .none }, r2.value.ok);
-
-    const r3 = try lineJoinTypeParserTyped.parse(fa, "lj  :  b");
-    try testing.expectEqual(LineJoinType{ .value = .bevel }, r3.value.ok);
-}
 
 test "LineDashingTypeParserTyped" {
     const a = testing.allocator;
@@ -722,102 +663,136 @@ test "LineDashingTypeParserTyped" {
     try testing.expectEqualDeep(LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 }, r3.value.ok);
 }
 
-test "vec2dStyleUnionParser" {
+//Vec2dAttributes parser
+const vec2dAttributeUnionParser = mecha.oneOf(.{
+    lineWidthUnionParser,
+    lineColorUnionParser,
+    lineOpacityUnionParser,
+    lineCapUnionParser,
+    lineJoinUnionParser,
+    lineDashingUnionParser,
+});
+
+test "vec2dAttributeUnionParser" {
     const fa = testing.failing_allocator;
 
-    const r1 = try vec2dStyleUnionParser.parse(fa, "lw:10");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, r1.value.ok);
+    const r1 = try vec2dAttributeUnionParser.parse(fa, "lw:10");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, r1.value.ok);
 
-    const r2 = try vec2dStyleUnionParser.parse(fa, "lw  :  10");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, r2.value.ok);
+    const r2 = try vec2dAttributeUnionParser.parse(fa, "lw  :  10");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, r2.value.ok);
 
-    const r3 = try vec2dStyleUnionParser.parse(fa, "lwG  :  6");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineWidth = .{ .reference = .global, .value = 6 } }, r3.value.ok);
+    const r3 = try vec2dAttributeUnionParser.parse(fa, "lwG  :  6");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineWidth = .{ .reference = .global, .value = 6 } }, r3.value.ok);
 
-    const r4 = try vec2dStyleUnionParser.parse(fa, "lc:green");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineColor = .{ .value = .green } }, r4.value.ok);
+    const r4 = try vec2dAttributeUnionParser.parse(fa, "lc:green");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineColor = .{ .value = .green } }, r4.value.ok);
 
-    const r5 = try vec2dStyleUnionParser.parse(fa, "lc :  green");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineColor = .{ .value = .green } }, r5.value.ok);
+    const r5 = try vec2dAttributeUnionParser.parse(fa, "lc :  green");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineColor = .{ .value = .green } }, r5.value.ok);
 
-    const r6 = try vec2dStyleUnionParser.parse(fa, "lc : yellow");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineColor = .{ .value = .yellow } }, r6.value.ok);
+    const r6 = try vec2dAttributeUnionParser.parse(fa, "lc : yellow");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineColor = .{ .value = .yellow } }, r6.value.ok);
 
-    const r7 = try vec2dStyleUnionParser.parse(fa, "lo:10");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineOpacity = .{ .value = 10 } }, r7.value.ok);
+    const r7 = try vec2dAttributeUnionParser.parse(fa, "lo:10");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineOpacity = .{ .value = 10 } }, r7.value.ok);
 
-    const r8 = try vec2dStyleUnionParser.parse(fa, "lo  :  10");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineOpacity = .{ .value = 10 } }, r8.value.ok);
+    const r8 = try vec2dAttributeUnionParser.parse(fa, "lo  :  10");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineOpacity = .{ .value = 10 } }, r8.value.ok);
 
-    const r9 = try vec2dStyleUnionParser.parse(fa, "lo  :  6");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineOpacity = .{ .value = 6 } }, r9.value.ok);
+    const r9 = try vec2dAttributeUnionParser.parse(fa, "lo  :  6");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineOpacity = .{ .value = 6 } }, r9.value.ok);
 
-    const r10 = try vec2dStyleUnionParser.parse(fa, "le: n");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineCap = .{ .value = .none } }, r10.value.ok);
+    const r10 = try vec2dAttributeUnionParser.parse(fa, "le: n");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineCap = .{ .value = .none } }, r10.value.ok);
 
-    const r11 = try vec2dStyleUnionParser.parse(fa, "le  :  none");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineCap = .{ .value = .none } }, r11.value.ok);
+    const r11 = try vec2dAttributeUnionParser.parse(fa, "le  :  none");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineCap = .{ .value = .none } }, r11.value.ok);
 
-    const r12 = try vec2dStyleUnionParser.parse(fa, "le  :  b");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineCap = .{ .value = .butt } }, r12.value.ok);
+    const r12 = try vec2dAttributeUnionParser.parse(fa, "le  :  b");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineCap = .{ .value = .butt } }, r12.value.ok);
 
-    const r13 = try vec2dStyleUnionParser.parse(fa, "lj: n");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineJoin = .{ .value = .none } }, r13.value.ok);
+    const r13 = try vec2dAttributeUnionParser.parse(fa, "lj: n");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineJoin = .{ .value = .none } }, r13.value.ok);
 
-    const r14 = try vec2dStyleUnionParser.parse(fa, "lj  :  none");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineJoin = .{ .value = .none } }, r14.value.ok);
+    const r14 = try vec2dAttributeUnionParser.parse(fa, "lj  :  none");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineJoin = .{ .value = .none } }, r14.value.ok);
 
-    const r15 = try vec2dStyleUnionParser.parse(fa, "lj  :  b");
-    try testing.expectEqual(Vec2dStylesUnion{ .lineJoin = .{ .value = .bevel } }, r15.value.ok);
+    const r15 = try vec2dAttributeUnionParser.parse(fa, "lj  :  b");
+    try testing.expectEqual(Vec2dAttributesUnion{ .lineJoin = .{ .value = .bevel } }, r15.value.ok);
 
     const a = testing.allocator;
 
-    const r16 = try vec2dStyleUnionParser.parse(a, "ld: [2 , 3] 1");
+    const r16 = try vec2dAttributeUnionParser.parse(a, "ld: [2 , 3] 1");
     defer a.free(r16.value.ok.lineDashing.onOff);
-    try testing.expectEqualDeep(Vec2dStylesUnion{ .lineDashing = .{ .reference = .normalized, .onOff = &[2]u16{ 2, 3 }, .offset = 1 } }, r16.value.ok);
+    try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .normalized, .onOff = &[2]u16{ 2, 3 }, .offset = 1 } }, r16.value.ok);
 
-    const r17 = try vec2dStyleUnionParser.parse(a, "ld  :  [2   ,    3]    1");
+    const r17 = try vec2dAttributeUnionParser.parse(a, "ld  :  [2   ,    3]    1");
     defer a.free(r17.value.ok.lineDashing.onOff);
-    try testing.expectEqualDeep(Vec2dStylesUnion{ .lineDashing = .{ .reference = .normalized, .onOff = &[_]u16{ 2, 3 }, .offset = 1 } }, r17.value.ok);
+    try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .normalized, .onOff = &[_]u16{ 2, 3 }, .offset = 1 } }, r17.value.ok);
 
-    const r18 = try vec2dStyleUnionParser.parse(a, "ldG  :  [ 2,3,10] 0");
+    const r18 = try vec2dAttributeUnionParser.parse(a, "ldG  :  [ 2,3,10] 0");
     defer a.free(r18.value.ok.lineDashing.onOff);
-    try testing.expectEqualDeep(Vec2dStylesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, r18.value.ok);
+    try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, r18.value.ok);
 }
 
-test "many_vec2dStyleUnionParser" {
+const vec2dAttributeSeparatorParser = mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
+const many_vec2dAttributeUnionParser = mecha.many(vec2dAttributeUnionParser, .{ .separator = vec2dAttributeSeparatorParser });
+fn manyToVec2dAttributes(alloc: std.mem.Allocator, fields: []Vec2dAttributesUnion) mecha.ConvertError!Vec2dAttributes {
+    var res = Vec2dAttributes{};
+    for (fields) |field| switch (field) {
+        .lineWidth => |f| res.lineWidth = f,
+        .lineColor => |f| res.lineColor = f,
+        .lineOpacity => |f| res.lineOpacity = f,
+        .lineCap => |f| res.lineCap = f,
+        .lineJoin => |f| res.lineJoin = f,
+        .lineDashing => |f| res.lineDashing = f,
+    };
+
+    alloc.free(fields);
+    return res;
+}
+const vec2dAttributesParser = many_vec2dAttributeUnionParser.convert(manyToVec2dAttributes);
+const vec2dAttributesParserBracketed = mecha.combine(.{ skipOpenRecBracket, vec2dAttributesParser, skipCloseRecBracket });
+const vec2dAttributesParserBracketedP = @TypeOf(vec2dAttributesParserBracketed);
+fn toVec2dAttributesParserBracketedUnion(_: std.mem.Allocator, res: vec2dAttributesParserBracketedP.T) mecha.ConvertError!StyleValueUnion {
+    return StyleValueUnion{ .attributes = res };
+}
+const vec2dAttributesParserBracketedUnion = vec2dAttributesParserBracketed.convert(toVec2dAttributesParserBracketedUnion);
+
+test "many_vec2dAttributeUnionParser" {
     const a = testing.allocator;
 
-    const r1 = try many_vec2dStyleUnionParser.parse(a, "lw:10");
+    const r1 = try many_vec2dAttributeUnionParser.parse(a, "lw:10");
     defer a.free(r1.value.ok);
-    try testing.expectEqualDeep(&[1]Vec2dStylesUnion{Vec2dStylesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }}, r1.value.ok);
+    try testing.expectEqualDeep(&[1]Vec2dAttributesUnion{Vec2dAttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }}, r1.value.ok);
 
-    const r2 = try many_vec2dStyleUnionParser.parse(a, "lo  :  6");
+    const r2 = try many_vec2dAttributeUnionParser.parse(a, "lo  :  6");
     defer a.free(r2.value.ok);
-    try testing.expectEqualDeep(&[1]Vec2dStylesUnion{Vec2dStylesUnion{ .lineOpacity = .{ .value = 6 } }}, r2.value.ok);
+    try testing.expectEqualDeep(&[1]Vec2dAttributesUnion{Vec2dAttributesUnion{ .lineOpacity = .{ .value = 6 } }}, r2.value.ok);
 
-    const r3 = try many_vec2dStyleUnionParser.parse(a, "lw:10 , lo  :  6");
+    const r3 = try many_vec2dAttributeUnionParser.parse(a, "lw:10 , lo  :  6");
     defer a.free(r3.value.ok);
-    try testing.expectEqualDeep(&[2]Vec2dStylesUnion{ Vec2dStylesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, Vec2dStylesUnion{ .lineOpacity = .{ .value = 6 } } }, r3.value.ok);
+    try testing.expectEqualDeep(&[2]Vec2dAttributesUnion{ Vec2dAttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, Vec2dAttributesUnion{ .lineOpacity = .{ .value = 6 } } }, r3.value.ok);
 
-    const r4 = try many_vec2dStyleUnionParser.parse(a, "ldG  :  [ 2,3,10] 0");
+    const r4 = try many_vec2dAttributeUnionParser.parse(a, "ldG  :  [ 2,3,10] 0");
     const r4_dashing = r4.value.ok[0];
     defer a.free(r4_dashing.lineDashing.onOff);
     defer a.free(r4.value.ok);
-    try testing.expectEqualDeep(&[1]Vec2dStylesUnion{Vec2dStylesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }}, r4.value.ok);
+    try testing.expectEqualDeep(&[1]Vec2dAttributesUnion{Vec2dAttributesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }}, r4.value.ok);
 
-    const r5 = try many_vec2dStyleUnionParser.parse(a, "lw:10 ,ldG  :  [ 2,3,10] 0, lo  :  6");
+    const r5 = try many_vec2dAttributeUnionParser.parse(a, "lw:10 ,ldG  :  [ 2,3,10] 0, lo  :  6");
     const r5_dashing = r5.value.ok[1];
     defer a.free(r5_dashing.lineDashing.onOff);
     defer a.free(r5.value.ok);
-    try testing.expectEqualDeep(&[3]Vec2dStylesUnion{ Vec2dStylesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, Vec2dStylesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, Vec2dStylesUnion{ .lineOpacity = .{ .value = 6 } } }, r5.value.ok);
+    try testing.expectEqualDeep(&[3]Vec2dAttributesUnion{ Vec2dAttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, Vec2dAttributesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, Vec2dAttributesUnion{ .lineOpacity = .{ .value = 6 } } }, r5.value.ok);
 }
 
-test "vec2dStylesParser" {
+test "vec2dAttributesParser" {
     const a = testing.allocator;
 
-    const r1 = try vec2dStylesParser.parse(a, "lw:10");
-    const styles1 = Vec2dStyles{
+    const r1 = try vec2dAttributesParser.parse(a, "lw:10");
+    const styles1 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = .defaultLineOpacityType(),
@@ -827,8 +802,8 @@ test "vec2dStylesParser" {
     };
     try testing.expectEqual(styles1, r1.value.ok);
 
-    const r2 = try vec2dStylesParser.parse(a, "lw:10, lo  :  6");
-    const styles2 = Vec2dStyles{
+    const r2 = try vec2dAttributesParser.parse(a, "lw:10, lo  :  6");
+    const styles2 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -838,8 +813,8 @@ test "vec2dStylesParser" {
     };
     try testing.expectEqual(styles2, r2.value.ok);
 
-    const r3 = try vec2dStylesParser.parse(a, "ldG  :  [ 2,3,10] 0,lw:10, lo  :  6");
-    const styles3 = Vec2dStyles{
+    const r3 = try vec2dAttributesParser.parse(a, "ldG  :  [ 2,3,10] 0,lw:10, lo  :  6");
+    const styles3 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -851,11 +826,11 @@ test "vec2dStylesParser" {
     try testing.expectEqualDeep(styles3, r3.value.ok);
 }
 
-test "vec2dStylesParserUnion" {
+test "vec2dAttributesParserUnion" {
     const a = testing.allocator;
 
-    const r1 = try vec2dStylesParserBracketedUnion.parse(a, "[lw:10]");
-    const styles1 = Vec2dStyles{
+    const r1 = try vec2dAttributesParserBracketedUnion.parse(a, "[lw:10]");
+    const styles1 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = .defaultLineOpacityType(),
@@ -863,11 +838,11 @@ test "vec2dStylesParserUnion" {
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = .defaultLineDashingType(),
     };
-    const exp_value1 = ElementValueUnion{ .elementStyle = styles1 };
+    const exp_value1 = StyleValueUnion{ .attributes = styles1 };
     try testing.expectEqual(exp_value1, r1.value.ok);
 
-    const r2 = try vec2dStylesParserBracketedUnion.parse(a, "[lw:10, lo  :  6]");
-    const styles2 = Vec2dStyles{
+    const r2 = try vec2dAttributesParserBracketedUnion.parse(a, "[lw:10, lo  :  6]");
+    const styles2 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -875,11 +850,11 @@ test "vec2dStylesParserUnion" {
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = .defaultLineDashingType(),
     };
-    const exp_value2 = ElementValueUnion{ .elementStyle = styles2 };
+    const exp_value2 = StyleValueUnion{ .attributes = styles2 };
     try testing.expectEqual(exp_value2, r2.value.ok);
 
-    const r3 = try vec2dStylesParserBracketedUnion.parse(a, "[ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]");
-    const styles3 = Vec2dStyles{
+    const r3 = try vec2dAttributesParserBracketedUnion.parse(a, "[ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]");
+    const styles3 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -887,16 +862,38 @@ test "vec2dStylesParserUnion" {
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
     };
-    const exp_value3 = ElementValueUnion{ .elementStyle = styles3 };
-    defer a.free(r3.value.ok.elementStyle.lineDashing.onOff);
+    const exp_value3 = StyleValueUnion{ .attributes = styles3 };
+    defer a.free(r3.value.ok.attributes.lineDashing.onOff);
     try testing.expectEqualDeep(exp_value3, r3.value.ok);
 }
 
-test "elementValueParser" {
+//Style parser
+const styleValueUnionParser = mecha.oneOf(.{
+    styleTypeUnionParser,
+    coordinateTypeUnionParser,
+    coordinateOrientationUnionParser,
+    vec2dAttributesParserBracketedUnion,
+});
+const many_styleValueUnionParser = mecha.many(styleValueUnionParser, .{ .separator = skipWhitespace });
+fn manyToStyleValue(alloc: std.mem.Allocator, fields: []StyleValueUnion) mecha.ConvertError!StyleValue {
+    var res = StyleValue{};
+    for (fields) |field| switch (field) {
+        .styleType => |f| res.styleType = f,
+        .coordinateSystem => |f| res.coordinateSystem = f,
+        .coordinateOrientation => |f| res.coordinateOrientation = f,
+        .attributes => |f| res.attributes = f,
+    };
+
+    alloc.free(fields);
+    return res;
+}
+const styleValueParser = many_styleValueUnionParser.convert(manyToStyleValue);
+
+test "styleValueParser" {
     const a = testing.allocator;
 
-    const r0 = try elementValueParser.parse(a, "vec2d polar");
-    const styles0 = Vec2dStyles{
+    const r0 = try styleValueParser.parse(a, "vec2d polar");
+    const styles0 = Vec2dAttributes{
         .lineWidth = .defaultLineWidthType(),
         .lineColor = .defaultLineColorType(),
         .lineOpacity = .defaultLineOpacityType(),
@@ -904,16 +901,16 @@ test "elementValueParser" {
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = .defaultLineDashingType(),
     };
-    const exp_value0 = ElementValue{
-        .elementType = .vec2d,
+    const exp_value0 = StyleValue{
+        .styleType = .vec2d,
         .coordinateSystem = .polar,
         .coordinateOrientation = .fixed,
-        .elementStyle = styles0,
+        .attributes = styles0,
     };
     try testing.expectEqual(exp_value0, r0.value.ok);
 
-    const r1 = try elementValueParser.parse(a, "[lw:10]");
-    const styles1 = Vec2dStyles{
+    const r1 = try styleValueParser.parse(a, "[lw:10]");
+    const styles1 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = .defaultLineOpacityType(),
@@ -921,16 +918,16 @@ test "elementValueParser" {
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = .defaultLineDashingType(),
     };
-    const exp_value1 = ElementValue{
-        .elementType = .vec2d,
+    const exp_value1 = StyleValue{
+        .styleType = .vec2d,
         .coordinateSystem = .xy,
         .coordinateOrientation = .fixed,
-        .elementStyle = styles1,
+        .attributes = styles1,
     };
     try testing.expectEqual(exp_value1, r1.value.ok);
 
-    const r2 = try elementValueParser.parse(a, "vec2d  [lw:10, lo  :  6]");
-    const styles2 = Vec2dStyles{
+    const r2 = try styleValueParser.parse(a, "vec2d  [lw:10, lo  :  6]");
+    const styles2 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -938,16 +935,16 @@ test "elementValueParser" {
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = .defaultLineDashingType(),
     };
-    const exp_value2 = ElementValue{
-        .elementType = .vec2d,
+    const exp_value2 = StyleValue{
+        .styleType = .vec2d,
         .coordinateSystem = .xy,
         .coordinateOrientation = .fixed,
-        .elementStyle = styles2,
+        .attributes = styles2,
     };
     try testing.expectEqual(exp_value2, r2.value.ok);
 
-    const r3 = try elementValueParser.parse(a, "vec2d polar [ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]");
-    const styles3 = Vec2dStyles{
+    const r3 = try styleValueParser.parse(a, "vec2d polar [ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]");
+    const styles3 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -955,22 +952,25 @@ test "elementValueParser" {
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
     };
-    const exp_value3 = ElementValue{
-        .elementType = .vec2d,
+    const exp_value3 = StyleValue{
+        .styleType = .vec2d,
         .coordinateSystem = .polar,
         .coordinateOrientation = .fixed,
-        .elementStyle = styles3,
+        .attributes = styles3,
     };
-    const elementStyleVal = r3.value.ok.elementStyle.?;
-    defer a.free(elementStyleVal.lineDashing.onOff);
+    const attributesVal = r3.value.ok.attributes.?;
+    defer a.free(attributesVal.lineDashing.onOff);
     try testing.expectEqualDeep(exp_value3, r3.value.ok);
 }
 
-test "elementParser" {
+const styleParser =
+    mecha.combine(.{ styleNumberParserRaw, skipOpenBracket, styleValueParser, skipCloseBracket }).map(mecha.toStruct(Style));
+
+test "styleParser" {
     const a = testing.allocator;
 
-    const r0 = try elementParser.parse(a, "e0:{vec2d polar}");
-    const styles0 = Vec2dStyles{
+    const r0 = try styleParser.parse(a, "e0:{vec2d polar}");
+    const styles0 = Vec2dAttributes{
         .lineWidth = .defaultLineWidthType(),
         .lineColor = .defaultLineColorType(),
         .lineOpacity = .defaultLineOpacityType(),
@@ -978,20 +978,20 @@ test "elementParser" {
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = .defaultLineDashingType(),
     };
-    const exp_value0 = ElementValue{
-        .elementType = .vec2d,
+    const exp_value0 = StyleValue{
+        .styleType = .vec2d,
         .coordinateSystem = .polar,
         .coordinateOrientation = .fixed,
-        .elementStyle = styles0,
+        .attributes = styles0,
     };
-    const exp_element0 = Element{
-        .elementNumber = 0,
-        .elementValue = exp_value0,
+    const exp_element0 = Style{
+        .styleNumber = 0,
+        .styleValue = exp_value0,
     };
     try testing.expectEqual(exp_element0, r0.value.ok);
 
-    const r1 = try elementParser.parse(a, "e8: {[lw:10]}");
-    const styles1 = Vec2dStyles{
+    const r1 = try styleParser.parse(a, "e8: {[lw:10]}");
+    const styles1 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = .defaultLineOpacityType(),
@@ -999,20 +999,20 @@ test "elementParser" {
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = .defaultLineDashingType(),
     };
-    const exp_value1 = ElementValue{
-        .elementType = .vec2d,
+    const exp_value1 = StyleValue{
+        .styleType = .vec2d,
         .coordinateSystem = .xy,
         .coordinateOrientation = .fixed,
-        .elementStyle = styles1,
+        .attributes = styles1,
     };
-    const exp_element1 = Element{
-        .elementNumber = 8,
-        .elementValue = exp_value1,
+    const exp_element1 = Style{
+        .styleNumber = 8,
+        .styleValue = exp_value1,
     };
     try testing.expectEqual(exp_element1, r1.value.ok);
 
-    const r2 = try elementParser.parse(a, " e8: {  vec2d  [lw:10, lo  :  6]}");
-    const styles2 = Vec2dStyles{
+    const r2 = try styleParser.parse(a, " e8: {  vec2d  [lw:10, lo  :  6]}");
+    const styles2 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -1020,20 +1020,20 @@ test "elementParser" {
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = .defaultLineDashingType(),
     };
-    const exp_value2 = ElementValue{
-        .elementType = .vec2d,
+    const exp_value2 = StyleValue{
+        .styleType = .vec2d,
         .coordinateSystem = .xy,
         .coordinateOrientation = .fixed,
-        .elementStyle = styles2,
+        .attributes = styles2,
     };
-    const exp_element2 = Element{
-        .elementNumber = 8,
-        .elementValue = exp_value2,
+    const exp_element2 = Style{
+        .styleNumber = 8,
+        .styleValue = exp_value2,
     };
     try testing.expectEqual(exp_element2, r2.value.ok);
 
-    const r3 = try elementParser.parse(a, "e11: { vec2d polar [ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]}");
-    const styles3 = Vec2dStyles{
+    const r3 = try styleParser.parse(a, "e11: { vec2d polar [ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]}");
+    const styles3 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -1041,17 +1041,17 @@ test "elementParser" {
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
     };
-    const exp_value3 = ElementValue{
-        .elementType = .vec2d,
+    const exp_value3 = StyleValue{
+        .styleType = .vec2d,
         .coordinateSystem = .polar,
         .coordinateOrientation = .fixed,
-        .elementStyle = styles3,
+        .attributes = styles3,
     };
-    const exp_element3 = Element{
-        .elementNumber = 11,
-        .elementValue = exp_value3,
+    const exp_element3 = Style{
+        .styleNumber = 11,
+        .styleValue = exp_value3,
     };
-    const elementStyleVal = r3.value.ok.elementValue.elementStyle.?;
-    defer a.free(elementStyleVal.lineDashing.onOff);
+    const attributesVal = r3.value.ok.styleValue.attributes.?;
+    defer a.free(attributesVal.lineDashing.onOff);
     try testing.expectEqualDeep(exp_element3, r3.value.ok);
 }

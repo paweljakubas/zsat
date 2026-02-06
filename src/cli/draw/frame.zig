@@ -18,7 +18,7 @@ pub const RotateTo = struct {
 
 //Rotate by phi
 //By default counter-clock wise, vector is
-pub const RotateTo = struct {
+pub const RotateBy = struct {
     phi: u16,
 };
 
