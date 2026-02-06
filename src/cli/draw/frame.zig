@@ -9,6 +9,19 @@ pub const Output = struct {
     name: []const u8,
 };
 
+//Rotate to phi using a given coordination system
+//For xy coordinate system it is going to be counter-clock wise to x axis by default
+pub const RotateTo = struct {
+    phi: u16, //in degrees
+    clockwise: bool = false,
+};
+
+//Rotate by phi
+//By default counter-clock wise, vector is
+pub const RotateTo = struct {
+    phi: u16,
+};
+
 //Parsers
 const skipWhitespace =
     mecha.ascii.char(' ').many(.{ .collect = false }).discard();

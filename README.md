@@ -15,7 +15,7 @@ or countless libraries in Python/R/Julia ecosystems.
 
 But they lack five features that are crucial for my workflow:
 - they are not integrated with modern terminal emulators that have graphics support
-- the paradigm of plot/animation construction in the current tools is not satisfactory for the person that has worked with a great [haskell diagrams](https://archives.haskell.org/projects.haskell.org/diagrams/) library, is in pursuit of total control and expliciteness and into math
+- the paradigm of plot/animation construction in the current tools is not satisfactory for the person that has worked with a great [haskell diagrams](https://archives.haskell.org/projects.haskell.org/diagrams/) library, is in pursuit of total control and expliciteness and fond of math
 - they are far away in terms of succinctness of data manipulation that one can realize in array languages like APL or J (of which I am a huge fan), and the elegance of Haskell
 - it usually takes a long time to produce a satisfactory animation using existent tools and the intermediate feedback loop is too slow for me
 - it is not so staightforward to save customized templates that could be reused later and thanks to that accelerate the workflow
@@ -24,33 +24,23 @@ Hence, my humble attempt to address those pain points as the goals of this proje
 
 I also treat this as an opportunity to learn and practice Zig, a truely wonderful general programming language with an angle to be performant, explicit and low-level.
 
-**zsat** must have had picked maximum two out of three choices of _flexibility_, _power_ and _simplicity_.
-And, by a design, __flexibility__ and __power__ was chosen over _simplicity_.
+**zsat** must have had picked maximum two out of three choices from _flexibility_, _power_ and _simplicity_.
+And, by a design, both __flexibility__ and __power__ were chosen over _simplicity_.
 Meaning, if you are in pursuit of the simplicity **zsat** might not be the best choice.
 
 ## Backend
-At this moment the only backend possible is based on haskell's diagrams library, meaning one needs
-
-```
-- ghc
-- cabal
-```
-
-installed in the local system. Please run `zsat setup show` to inspect if you are ready in backend sense.
-
-The plan is to use `z2d` and `blender2d` as another two possible backends in the future.
+The tool uses `z2d` under the hood to create 'png' panes which are later merged using `ffmpeg`.
+Hence, **ffmpeg** is required.
 
 ## Front end
 If one wants PNG or GIF file as an output then no front end is required.
 You are good, but you will need to open the plot/run animation separately - for example, in separate window.
-In order to have it add `--output/-o FILE` to the `zsat` command.
 
 If one wants to have a full experience I advocated for, and enlisted as one of the five crucial features in the Rationale section above,
 then terminal emulator that implements [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) is required.
 The terminals supporting **kitty graphics protocol** includes Kitty, WezTerm and Ghostty, to name a few.
-
-At this moment `zsat` enables using a tool supporting the protocol via [blackcat](https://github.com/j-c-m/blackcat) under the hood.
-Meaning **blackcat** is required to be installed (of course, modulo ones uses `--output` flag and aims to get png/gif files).
+`zsat` enables using a tool supporting the protocol via [blackcat](https://github.com/j-c-m/blackcat) under the hood.
+Meaning **blackcat** is also required to be installed.
 
 ## Current state of the tool
 
