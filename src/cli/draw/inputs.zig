@@ -152,3 +152,37 @@ test "floatFromScientific" {
     const r6 = try floatFromScientific.parse(fa, "7.51E-09");
     try testing.expectEqual(0.00000000751, r6.value.ok);
 }
+
+test "floatParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try floatParser.parse(fa, "2e+1");
+    try testing.expectEqual(20.0, r1.value.ok);
+
+    const r2 = try floatParser.parse(fa, "9.87E+02");
+    try testing.expectEqual(987, r2.value.ok);
+
+    const r3 = try floatParser.parse(fa, "4.321768e+003");
+    try testing.expectEqual(4321.768, r3.value.ok);
+
+    const r4 = try floatParser.parse(fa, "-5.3e+004");
+    try testing.expectEqual(-53000, r4.value.ok);
+
+    const r5 = try floatParser.parse(fa, "2e-1");
+    try testing.expectEqual(0.2, r5.value.ok);
+
+    const r6 = try floatParser.parse(fa, "7.51E-09");
+    try testing.expectEqual(0.00000000751, r6.value.ok);
+
+    const r7 = try floatFromFraction.parse(fa, "1.11");
+    try testing.expectEqual(1.11, r7.value.ok);
+
+    const r8 = try floatFromFraction.parse(fa, "-10.01");
+    try testing.expectEqual(-10.01, r8.value.ok);
+
+    const r9 = try floatFromFraction.parse(fa, "1");
+    try testing.expectEqual(1.0, r9.value.ok);
+
+    const r10 = try floatFromFraction.parse(fa, "-10");
+    try testing.expectEqual(-10.00, r10.value.ok);
+}
