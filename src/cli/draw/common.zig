@@ -62,5 +62,11 @@ pub const skipOpenBracket =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('(').discard(), skipWhitespace });
 pub const skipCloseBracket =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char(')').discard(), skipWhitespace });
+pub const skipOpenBrace =
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char('{').discard(), skipWhitespace });
+pub const skipCloseBrace =
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char('}').discard(), skipWhitespace });
 pub const skipArrow =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('-').discard(), mecha.ascii.char('>').discard(), skipWhitespace });
+pub const skipComma =
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });

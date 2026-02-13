@@ -171,17 +171,38 @@ test "floatParser" {
     const r6 = try floatParser.parse(fa, "7.51E-09");
     try testing.expectEqual(0.00000000751, r6.value.ok);
 
-    const r7 = try floatFromFraction.parse(fa, "1.11");
+    const r7 = try floatParser.parse(fa, "1.11");
     try testing.expectEqual(1.11, r7.value.ok);
 
-    const r8 = try floatFromFraction.parse(fa, "-10.01");
+    const r8 = try floatParser.parse(fa, "-10.01");
     try testing.expectEqual(-10.01, r8.value.ok);
 
-    const r9 = try floatFromFraction.parse(fa, "1");
+    const r9 = try floatParser.parse(fa, "1");
     try testing.expectEqual(1.0, r9.value.ok);
 
-    const r10 = try floatFromFraction.parse(fa, "-10");
+    const r10 = try floatParser.parse(fa, "-10");
     try testing.expectEqual(-10.00, r10.value.ok);
 }
 
-//const inputSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
+const pointParserRaw = mecha.combine(.{ common.skipOpenBrace, common.skipOpenBracket, floatParser, common.skipComma, floatParser, common.skipCloseBracket, common.skipCloseBrace });
+const pointParserRawP = @TypeOf(pointParserRaw);
+fn toPointParser(_: std.mem.Allocator, res: pointParserRawP.T) mecha.ConvertError!Point {
+    return Point{ .x = res[0], .y = res[1] };
+}
+const pointParser = pointParserRaw.convert(toPointParser);
+
+test "pointParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try pointParser.parse(fa, "{(2,1.1)}");
+    const p1 = Point{ .x = 2.0, .y = 1.1 };
+    try testing.expectEqual(p1, r1.value.ok);
+
+    const r2 = try floatParser.parse(fa, "{ (2,-1.1) }");
+    const p2 = Point{ .x = 2.0, .y = -1.1 };
+    try testing.expectEqual(p2, r2.value.ok);
+
+    const r3 = try floatParser.parse(fa, "{ (2e+003 , -1.1) }");
+    const p3 = Point{ .x = 2000.0, .y = -1.1 };
+    try testing.expectEqual(p3, r3.value.ok);
+}
