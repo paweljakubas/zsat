@@ -41,7 +41,30 @@ const digits = mecha.combine(.{
 
 const zeronine = mecha.utf8.range('0', '9');
 const onenine = mecha.utf8.range('1', '9');
+
 const fraction = mecha.combine(.{ integer, mecha.utf8.char('.'), digits });
+const fractionWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), fraction });
+const floatFromFraction = fractionWithSign.map(struct {
+    fn toF32(a: anytype) !f32 {
+        var buf: [32]u8 = undefined;
+        var i: usize = 0;
+        if (a[0]) |_| {
+            buf[i] = '-';
+            i += 1;
+        }
+        for (a[1][0]) |c| {
+            buf[i] = @intCast(c);
+            i += 1;
+        }
+        buf[i] = '.';
+        i += 1;
+        for (a[1][2]) |c| {
+            buf[i] = @intCast(c);
+            i += 1;
+        }
+        return try std.fmt.parseFloat(f32, buf[0..i]);
+    }
+}.toF32);
 
 //const scientific = mecha.combine(.{ integer, mecha.utf8.char('.'), digits, exponent });
 //const exponent = mecha.combine(.{
@@ -57,13 +80,21 @@ const fraction = mecha.combine(.{ integer, mecha.utf8.char('.'), digits });
 //const inputSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
 
 test "floatFromInteger" {
-    var buf: [4096]u8 = undefined;
-    var fba = std.heap.FixedBufferAllocator.init(&buf);
-    const allocator = fba.allocator();
+    const fa = testing.failing_allocator;
 
-    const r1 = try floatFromInteger.parse(allocator, "1");
+    const r1 = try floatFromInteger.parse(fa, "1");
     try testing.expectEqual(1.0, r1.value.ok);
 
-    const r2 = try floatFromInteger.parse(allocator, "-10");
+    const r2 = try floatFromInteger.parse(fa, "-10");
     try testing.expectEqual(-10.0, r2.value.ok);
+}
+
+test "floatFromFraction" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try floatFromFraction.parse(fa, "1.11");
+    try testing.expectEqual(1.11, r1.value.ok);
+
+    const r2 = try floatFromFraction.parse(fa, "-10.01");
+    try testing.expectEqual(-10.01, r2.value.ok);
 }
