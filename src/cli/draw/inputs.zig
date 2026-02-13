@@ -198,11 +198,41 @@ test "pointParser" {
     const p1 = Point{ .x = 2.0, .y = 1.1 };
     try testing.expectEqual(p1, r1.value.ok);
 
-    const r2 = try floatParser.parse(fa, "{ (2,-1.1) }");
+    const r2 = try pointParser.parse(fa, "{ (2,-1.1) }");
     const p2 = Point{ .x = 2.0, .y = -1.1 };
     try testing.expectEqual(p2, r2.value.ok);
 
-    const r3 = try floatParser.parse(fa, "{ (2e+003 , -1.1) }");
+    const r3 = try pointParser.parse(fa, "{ (2e+003 , -1.1) }");
     const p3 = Point{ .x = 2000.0, .y = -1.1 };
     try testing.expectEqual(p3, r3.value.ok);
+}
+
+const pointsParserRaw = mecha.combine(.{
+    common.skipOpenBrace,
+    pointParser.many(.{ .collect = true, .separator = common.skipComma }),
+    common.skipCloseBrace,
+});
+const pointsParserRawP = @TypeOf(pointsParserRaw);
+fn toPointsParser(_: std.mem.Allocator, res: pointsParserRawP.T) mecha.ConvertError![]Point {
+    return res[1];
+}
+const pointsParser = pointsParserRaw.convert(toPointsParser);
+
+test "pointsParser" {
+    const a = testing.allocator;
+
+    const r1 = try pointsParser.parse(a, "{(2,1.1)}");
+    const p1 = Point{ .x = 2.0, .y = 1.1 };
+    try testing.expectEqual([1]Point{p1}, r1.value.ok[0..1]);
+
+    const r2 = try pointsParser.parse(a, "{(2,1.1), (-2, -1.1)}");
+    const p2a = Point{ .x = 2.0, .y = 1.1 };
+    const p2b = Point{ .x = -2.0, .y = -1.1 };
+    try testing.expectEqual([2]Point{ p2a, p2b }, r2.value.ok[0..2]);
+
+    const r3 = try pointsParser.parse(a, "{(0,1.0), (0,-1.0), (1.0, 0),}");
+    const p3a = Point{ .x = 0.0, .y = 1.0 };
+    const p3b = Point{ .x = 0.0, .y = -1.0 };
+    const p3c = Point{ .x = 1.0, .y = 0.0 };
+    try testing.expectEqual([3]Point{ p3a, p3b, p3c }, r3.value.ok[0..3]);
 }
