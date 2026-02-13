@@ -10,6 +10,12 @@ pub const Point = struct {
 };
 
 //Parsers
+const digits = mecha.combine(.{
+    zeronine.many(.{ .collect = false, .min = 1, .max = 8 }),
+});
+const zeronine = mecha.utf8.range('0', '9');
+const onenine = mecha.utf8.range('1', '9');
+
 const integer = mecha.combine(.{
     onenine,
     zeronine.many(.{ .collect = false, .min = 1, .max = 8 }).opt(),
@@ -31,12 +37,15 @@ const floatFromInteger = integerWithSign.map(struct {
     }
 }.toF32);
 
-const digits = mecha.combine(.{
-    zeronine.many(.{ .collect = false, .min = 1, .max = 8 }),
-});
+test "floatFromInteger" {
+    const fa = testing.failing_allocator;
 
-const zeronine = mecha.utf8.range('0', '9');
-const onenine = mecha.utf8.range('1', '9');
+    const r1 = try floatFromInteger.parse(fa, "1");
+    try testing.expectEqual(1.0, r1.value.ok);
+
+    const r2 = try floatFromInteger.parse(fa, "-10");
+    try testing.expectEqual(-10.0, r2.value.ok);
+}
 
 const fraction = mecha.combine(.{ integer, mecha.utf8.char('.'), digits });
 const fractionWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), fraction });
@@ -61,6 +70,16 @@ const floatFromFraction = fractionWithSign.map(struct {
         return try std.fmt.parseFloat(f32, buf[0..i]);
     }
 }.toF32);
+
+test "floatFromFraction" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try floatFromFraction.parse(fa, "1.11");
+    try testing.expectEqual(1.11, r1.value.ok);
+
+    const r2 = try floatFromFraction.parse(fa, "-10.01");
+    try testing.expectEqual(-10.01, r2.value.ok);
+}
 
 const exponent = mecha.combine(.{
     mecha.oneOf(.{ mecha.utf8.char('E'), mecha.utf8.char('e') }),
@@ -103,34 +122,6 @@ const floatFromScientific = scientificWithSign.map(struct {
     }
 }.toF32);
 
-const floatParser = mecha.oneOf(.{
-    floatFromInteger,
-    floatFromFraction,
-    floatFromScientific,
-});
-
-//const inputSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
-
-test "floatFromInteger" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try floatFromInteger.parse(fa, "1");
-    try testing.expectEqual(1.0, r1.value.ok);
-
-    const r2 = try floatFromInteger.parse(fa, "-10");
-    try testing.expectEqual(-10.0, r2.value.ok);
-}
-
-test "floatFromFraction" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try floatFromFraction.parse(fa, "1.11");
-    try testing.expectEqual(1.11, r1.value.ok);
-
-    const r2 = try floatFromFraction.parse(fa, "-10.01");
-    try testing.expectEqual(-10.01, r2.value.ok);
-}
-
 test "floatFromScientific" {
     const fa = testing.failing_allocator;
 
@@ -152,6 +143,12 @@ test "floatFromScientific" {
     const r6 = try floatFromScientific.parse(fa, "7.51E-09");
     try testing.expectEqual(0.00000000751, r6.value.ok);
 }
+
+const floatParser = mecha.oneOf(.{
+    floatFromInteger,
+    floatFromFraction,
+    floatFromScientific,
+});
 
 test "floatParser" {
     const fa = testing.failing_allocator;
@@ -186,3 +183,5 @@ test "floatParser" {
     const r10 = try floatFromFraction.parse(fa, "-10");
     try testing.expectEqual(-10.00, r10.value.ok);
 }
+
+//const inputSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
