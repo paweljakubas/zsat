@@ -10,10 +10,6 @@ pub const Point = struct {
 };
 
 //Parsers
-//const float = mecha.oneOf(.{
-//  mecha.combine(.{ mecha.utf8.char('-').opt(), scientific }),
-//});
-
 const integer = mecha.combine(.{
     onenine,
     zeronine.many(.{ .collect = false, .min = 1, .max = 8 }).opt(),
@@ -66,16 +62,52 @@ const floatFromFraction = fractionWithSign.map(struct {
     }
 }.toF32);
 
-//const scientific = mecha.combine(.{ integer, mecha.utf8.char('.'), digits, exponent });
-//const exponent = mecha.combine(.{
-//    mecha.oneOf(.{ mecha.utf8.char('E'), mecha.utf8.char('e') }),
-//    sign,
-//    digits,
-//});
-//const sign = mecha.oneOf(.{
-//    mecha.utf8.char('+'),
-//    mecha.utf8.char('-'),
-//});
+const exponent = mecha.combine(.{
+    mecha.oneOf(.{ mecha.utf8.char('E'), mecha.utf8.char('e') }),
+    sign,
+    digits,
+});
+const sign = mecha.oneOf(.{
+    mecha.utf8.char('+'),
+    mecha.utf8.char('-'),
+});
+const scientific = mecha.combine(.{ integer, mecha.utf8.char('.'), digits, exponent });
+const scientificWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), scientific });
+const floatFromScientific = scientificWithSign.map(struct {
+    fn toF32(a: anytype) !f32 {
+        var buf: [32]u8 = undefined;
+        var i: usize = 0;
+        if (a[0]) |_| {
+            buf[i] = '-';
+            i += 1;
+        }
+        for (a[1][0]) |c| {
+            buf[i] = @intCast(c);
+            i += 1;
+        }
+        buf[i] = '.';
+        i += 1;
+        for (a[1][2]) |c| {
+            buf[i] = @intCast(c);
+            i += 1;
+        }
+        buf[i] = @intCast(a[1][3][0]);
+        i += 1;
+        buf[i] = @intCast(a[1][3][1]);
+        i += 1;
+        for (a[1][3][2]) |c| {
+            buf[i] = @intCast(c);
+            i += 1;
+        }
+        return try std.fmt.parseFloat(f32, buf[0..i]);
+    }
+}.toF32);
+
+const floatParser = mecha.oneOf(.{
+    floatFromInteger,
+    floatFromFraction,
+    floatFromScientific,
+});
 
 //const inputSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
 
@@ -97,4 +129,26 @@ test "floatFromFraction" {
 
     const r2 = try floatFromFraction.parse(fa, "-10.01");
     try testing.expectEqual(-10.01, r2.value.ok);
+}
+
+test "floatFromScientific" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try floatFromScientific.parse(fa, "2e+1");
+    try testing.expectEqual(20.0, r1.value.ok);
+
+    const r2 = try floatFromScientific.parse(fa, "9.87E+02");
+    try testing.expectEqual(987, r2.value.ok);
+
+    const r3 = try floatFromScientific.parse(fa, "4.321768e+003");
+    try testing.expectEqual(4321.768, r3.value.ok);
+
+    const r4 = try floatFromScientific.parse(fa, "-5.3e+004");
+    try testing.expectEqual(-53000, r4.value.ok);
+
+    const r5 = try floatFromScientific.parse(fa, "2e-1");
+    try testing.expectEqual(0.2, r5.value.ok);
+
+    const r6 = try floatFromScientific.parse(fa, "7.51E-09");
+    try testing.expectEqual(0.00000000751, r6.value.ok);
 }
