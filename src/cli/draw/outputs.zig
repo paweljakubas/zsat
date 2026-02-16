@@ -23,7 +23,7 @@ pub const ElementReference = union(enum) {
 };
 
 pub const ElementFraction = struct {
-    fromStart: i16,
+    fromStart: i16, //in % from the start of the reference element
     element: ElementReference,
 };
 
@@ -185,4 +185,8 @@ test "elementFractionParser" {
     const r7 = try elementFractionParser.parse(fa, " -33 % dot1 ");
     const o7 = ElementFraction{ .fromStart = -33, .element = ElementReference{ .other = "dot1" } };
     try testing.expectEqualDeep(o7, r7.value.ok);
+
+    const r8 = try elementFractionParser.parse(fa, " -033 % dot1 ");
+    const o8 = ElementFraction{ .fromStart = -33, .element = ElementReference{ .other = "dot1" } };
+    try testing.expectEqualDeep(o8, r8.value.ok);
 }
