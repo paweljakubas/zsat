@@ -40,10 +40,7 @@ pub const Connection = struct {
 
 //Parsers
 const ingestSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
-const ingestCharacterParser =
-    mecha.oneOf(.{ mecha.ascii.range('a', 'z'), mecha.ascii.range('A', 'Z'), mecha.ascii.range('0', '9') });
-const ingestNameParser = mecha.many(ingestCharacterParser, .{ .collect = false });
-const many_sourceNameParser = mecha.many(ingestNameParser, .{ .collect = true, .separator = ingestSeparatorParser });
+const many_sourceNameParser = mecha.many(common.nameParser, .{ .collect = true, .separator = ingestSeparatorParser });
 const sourcesParserRaw =
     mecha.combine(.{ common.skipOpenBracket, many_sourceNameParser, common.skipCloseBracket });
 const sourcesParserRawP = @TypeOf(sourcesParserRaw);
@@ -90,7 +87,7 @@ test "sourcesParser" {
     a.free(r4.value.ok);
 }
 
-const pairTargetNameParser = mecha.manyN(ingestNameParser, 2, .{ .separator = common.skipArrow });
+const pairTargetNameParser = mecha.manyN(common.nameParser, 2, .{ .separator = common.skipArrow });
 
 test "pairTargetNameParser" {
     const fa = testing.failing_allocator;

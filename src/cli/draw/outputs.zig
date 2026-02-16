@@ -1,5 +1,6 @@
 const mecha = @import("mecha");
 const common = @import("common.zig");
+const inputs = @import("inputs.zig");
 const std = @import("std");
 const testing = std.testing;
 
@@ -10,17 +11,28 @@ pub const Output = struct {
     name: []const u8,
 };
 
-//Rotate to phi using a given coordination system
-//For xy coordinate system it is going to be counter-clock wise to x axis by default
-pub const RotateTo = struct {
-    phi: u16, //in degrees
-    clockwise: bool = false,
-};
-
 //Rotate by phi
 //By default counter-clock wise, vector is
 pub const RotateBy = struct {
-    phi: u16,
+    phi: i16,
+};
+
+pub const ElementReference = union(enum) {
+    self,
+    other: []const u8,
+};
+
+pub const ElementFraction = struct {
+    fromStart: i16,
+    element: ElementReference,
+};
+
+const GeneralPoint = union(enum) {
+    point: [1]inputs.Point,
+    start: ElementReference,
+    end: ElementReference,
+    mid: ElementReference,
+    fraction: ElementFraction,
 };
 
 //Parsers
@@ -73,4 +85,47 @@ test "outputsParser" {
     const output4 = [3]Output{ o4a, o4b, o4c };
     try testing.expectEqualDeep(&output4, r4.value.ok[0..3]);
     a.free(r4.value.ok);
+}
+
+//const generalPointParser =
+//
+//test "outputsParser" {
+//    const a = testing.allocator;
+//
+//    const r1 = try outputsParser.parse(a, "{(1,3)}");
+//    const p1 =
+//    const o1 = GeneralPoint{ .name = ;
+//}
+//
+//
+
+const selfParser = mecha.string("self").map(struct {
+    fn toSelf(a: anytype) mecha.ConvertError!ElementReference {
+        _ = a;
+        return .self;
+    }
+}.toSelf);
+
+const otherParser = common.nameParser.map(struct {
+    fn toOther(a: anytype) mecha.ConvertError!ElementReference {
+        return ElementReference{ .other = a };
+    }
+}.toOther);
+
+const elementReferenceParser = mecha.oneOf(.{
+    selfParser,
+    otherParser,
+});
+
+test "elementReferenceParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try elementReferenceParser.parse(fa, "self");
+    try testing.expectEqual(.self, r1.value.ok);
+
+    const r2 = try elementReferenceParser.parse(fa, "v2");
+    try testing.expectEqual(ElementReference{ .other = "v2" }, r2.value.ok);
+
+    const r3 = try elementReferenceParser.parse(fa, "line211");
+    try testing.expectEqual(ElementReference{ .other = "line211" }, r3.value.ok);
 }
