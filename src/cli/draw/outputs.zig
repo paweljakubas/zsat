@@ -129,3 +129,60 @@ test "elementReferenceParser" {
     const r3 = try elementReferenceParser.parse(fa, "line211");
     try testing.expectEqual(ElementReference{ .other = "line211" }, r3.value.ok);
 }
+
+const signedDigits = mecha.combine(.{
+    mecha.utf8.char('-').opt(),
+    mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1 }).asStr(),
+}).map(struct {
+    fn toSigned(a: anytype) mecha.ConvertError!i16 {
+        const sign: i16 = if (a[0]) |_| -1 else 1;
+        const num = std.fmt.parseInt(i16, a[1], 10) catch return error.ConversionFailed;
+        return num * sign;
+    }
+}.toSigned);
+
+const elementFractionParser = mecha.combine(.{
+    common.skipWhitespace,
+    signedDigits,
+    common.skipWhitespace,
+    mecha.utf8.char('%').discard(),
+    common.skipWhitespace,
+    elementReferenceParser,
+    common.skipWhitespace,
+}).map(struct {
+    fn toElementFraction(a: anytype) mecha.ConvertError!ElementFraction {
+        return ElementFraction{ .fromStart = try a[0], .element = try a[1] };
+    }
+}.toElementFraction);
+
+test "elementFractionParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try elementFractionParser.parse(fa, "0% self");
+    const o1 = ElementFraction{ .fromStart = 0, .element = .self };
+    try testing.expectEqualDeep(o1, r1.value.ok);
+
+    const r2 = try elementFractionParser.parse(fa, "10% self");
+    const o2 = ElementFraction{ .fromStart = 10, .element = .self };
+    try testing.expectEqualDeep(o2, r2.value.ok);
+
+    const r3 = try elementFractionParser.parse(fa, "-10% self");
+    const o3 = ElementFraction{ .fromStart = -10, .element = .self };
+    try testing.expectEqualDeep(o3, r3.value.ok);
+
+    const r4 = try elementFractionParser.parse(fa, "0% v333");
+    const o4 = ElementFraction{ .fromStart = 0, .element = ElementReference{ .other = "v333" } };
+    try testing.expectEqualDeep(o4, r4.value.ok);
+
+    const r5 = try elementFractionParser.parse(fa, "101% some");
+    const o5 = ElementFraction{ .fromStart = 101, .element = ElementReference{ .other = "some" } };
+    try testing.expectEqualDeep(o5, r5.value.ok);
+
+    const r6 = try elementFractionParser.parse(fa, "-33% dot1");
+    const o6 = ElementFraction{ .fromStart = -33, .element = ElementReference{ .other = "dot1" } };
+    try testing.expectEqualDeep(o6, r6.value.ok);
+
+    const r7 = try elementFractionParser.parse(fa, " -33 % dot1 ");
+    const o7 = ElementFraction{ .fromStart = -33, .element = ElementReference{ .other = "dot1" } };
+    try testing.expectEqualDeep(o7, r7.value.ok);
+}
