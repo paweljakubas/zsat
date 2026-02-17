@@ -18,9 +18,8 @@ pub const RotationArg = struct {
     point: GeneralPoint,
 };
 
-//Data needs to be specified
-pub const RotateBy = struct {
-    output: Output, //should probably be here data shape which could be output, TODO
+//Needs to be called with proper data
+pub const RotatePartial = struct {
     elementWise: []RotationArg, //each rotation arg works on each element of [elem1, elem2,...]
 };
 
@@ -330,6 +329,11 @@ const rotationArgParser = mecha.combine(.{
     common.skipOpenBracket,
     common.floatFromDecimal,
     common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("around"),
+        mecha.string("a"),
+    }).discard(),
+    common.skipWhitespace,
     generalPointParser,
     common.skipCloseBracket,
 }).convert(struct {
@@ -341,36 +345,84 @@ const rotationArgParser = mecha.combine(.{
 test "rotationArgParser" {
     const fa = testing.failing_allocator;
 
-    const r1 = try rotationArgParser.parse(fa, "(90 (0% self))");
+    const r1 = try rotationArgParser.parse(fa, "(90 around (0% self))");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const p1 = GeneralPoint{ .fraction = f1 };
     const o1 = RotationArg{ .phi = 90.0, .point = p1 };
     try testing.expectEqualDeep(o1, r1.value.ok);
 
-    const r2 = try rotationArgParser.parse(fa, "(-120 (10% self))");
+    const r2 = try rotationArgParser.parse(fa, "(-120 a (10% self))");
     const f2 = ElementFraction{ .fromStart = 10, .element = .self };
     const p2 = GeneralPoint{ .fraction = f2 };
     const o2 = RotationArg{ .phi = -120.0, .point = p2 };
     try testing.expectEqualDeep(o2, r2.value.ok);
 
-    const r3 = try rotationArgParser.parse(fa, "(0 ( beg self))");
+    const r3 = try rotationArgParser.parse(fa, "(0 a ( beg self))");
     const p3 = GeneralPoint{ .beginning = .self };
     const o3 = RotationArg{ .phi = 0.0, .point = p3 };
     try testing.expectEqualDeep(o3, r3.value.ok);
 
-    const r4 = try rotationArgParser.parse(fa, "(-30.5 (beginning dot1))");
+    const r4 = try rotationArgParser.parse(fa, "(-30.5 around (beginning dot1))");
     const p4 = GeneralPoint{ .beginning = ElementReference{ .other = "dot1" } };
     const o4 = RotationArg{ .phi = -30.5, .point = p4 };
     try testing.expectEqualDeep(o4, r4.value.ok);
 
-    const r5 = try rotationArgParser.parse(fa, "(45 (middle vec1))");
+    const r5 = try rotationArgParser.parse(fa, "(45 around (middle vec1))");
     const p5 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
     const o5 = RotationArg{ .phi = 45.0, .point = p5 };
     try testing.expectEqualDeep(o5, r5.value.ok);
 
-    const r6 = try rotationArgParser.parse(fa, "(-1234.9 {(-12,2.1)} ) ");
+    const r6 = try rotationArgParser.parse(fa, "(-1234.9 around {(-12,2.1)} ) ");
     const p6 = inputs.Point{ .x = -12.0, .y = 2.1 };
     const gp6 = GeneralPoint{ .point = p6 };
     const o6 = RotationArg{ .phi = -1234.9, .point = gp6 };
     try testing.expectEqualDeep(o6, r6.value.ok);
+}
+
+const rotatePartialParserRaw = mecha.combine(.{
+    common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("rotate"),
+        mecha.string("r"),
+    }).discard(),
+    common.skipWhitespace,
+    common.skipOpenSquare,
+    rotationArgParser.many(.{ .collect = true, .separator = common.skipComma }),
+    common.skipCloseSquare,
+});
+const rotatePartialParserRawP = @TypeOf(rotatePartialParserRaw);
+fn toRotatePartial(_: std.mem.Allocator, res: rotatePartialParserRawP.T) mecha.ConvertError!RotatePartial {
+    return RotatePartial{ .elementWise = res };
+}
+const rotatePartialParser = rotatePartialParserRaw.convert(toRotatePartial);
+
+test "rotatePartialParser" {
+    const a = testing.allocator;
+
+    const r1 = try rotatePartialParser.parse(a, "rotate [(90 a (0% self))]");
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const p1 = GeneralPoint{ .fraction = f1 };
+    const r1arg = RotationArg{ .phi = 90.0, .point = p1 };
+    try testing.expectEqual(@as(usize, 1), r1.value.ok.elementWise.len);
+    try testing.expectEqualDeep(r1arg, r1.value.ok.elementWise[0]);
+    a.free(r1.value.ok.elementWise);
+
+    const r2 = try rotatePartialParser.parse(a, "r [(-120 a (10% self))]");
+    const f2 = ElementFraction{ .fromStart = 10, .element = .self };
+    const p2 = GeneralPoint{ .fraction = f2 };
+    const r2arg = RotationArg{ .phi = -120.0, .point = p2 };
+    try testing.expectEqual(@as(usize, 1), r2.value.ok.elementWise.len);
+    try testing.expectEqualDeep(r2arg, r2.value.ok.elementWise[0]);
+    a.free(r2.value.ok.elementWise);
+
+    const r3 = try rotatePartialParser.parse(a, " rotate [(0 around ( beg self)), (-1234.9 a {(-12,2.1)} )]");
+    const p3a = GeneralPoint{ .beginning = .self };
+    const r3a = RotationArg{ .phi = 0.0, .point = p3a };
+    const p3b = inputs.Point{ .x = -12.0, .y = 2.1 };
+    const gp3 = GeneralPoint{ .point = p3b };
+    const r3b = RotationArg{ .phi = -1234.9, .point = gp3 };
+    try testing.expectEqual(@as(usize, 2), r3.value.ok.elementWise.len);
+    try testing.expectEqualDeep(r3a, r3.value.ok.elementWise[0]);
+    try testing.expectEqualDeep(r3b, r3.value.ok.elementWise[1]);
+    a.free(r3.value.ok.elementWise);
 }
