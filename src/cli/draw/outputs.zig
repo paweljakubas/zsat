@@ -317,7 +317,7 @@ test "generalPointParser" {
     const o10 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
     try testing.expectEqualDeep(o10, r10.value.ok);
 
-    const r11 = try generalPointParser.parse(fa, "{-12,2.1)} ");
+    const r11 = try generalPointParser.parse(fa, "{(-12,2.1)} ");
     const p11 = Point{ .x = -12.0, .y = 2.1 };
     const o11 = GeneralPoint{ .point = [1]Point{p11} };
     try testing.expectEqualDeep(o11, r11.value.ok);

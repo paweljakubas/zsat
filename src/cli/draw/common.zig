@@ -86,8 +86,13 @@ const integer = mecha.combine(.{
     zeronine.many(.{ .collect = false, .min = 1, .max = 8 }).opt(),
 });
 const integerWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), integer });
-const integerWithSignStr = integerWithSign.asStr();
-pub const floatFromInteger = integerWithSignStr.convert(mecha.toFloat(f32));
+const floatWithDecimal = mecha.combine(.{
+    integerWithSign,
+    mecha.utf8.char('.').opt(),
+    zeronine.many(.{ .collect = false, .min = 1 }).opt(),
+});
+const floatWithDecimalStr = floatWithDecimal.asStr();
+pub const floatFromInteger = floatWithDecimalStr.convert(mecha.toFloat(f32));
 
 test "floatFromInteger" {
     const fa = testing.failing_allocator;
