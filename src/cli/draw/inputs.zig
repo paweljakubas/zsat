@@ -9,6 +9,11 @@ pub const Point = struct {
     y: f32,
 };
 
+pub const Vector = struct {
+    x: f32,
+    y: f32,
+};
+
 const sign = mecha.oneOf(.{
     mecha.utf8.char('+'),
     mecha.utf8.char('-'),
@@ -116,16 +121,11 @@ test "pointParser" {
     try testing.expectEqual(p3, r3.value.ok);
 }
 
-const pointsParserRaw = mecha.combine(.{
+const pointsParser = mecha.combine(.{
     common.skipOpenBrace,
     pointParser.many(.{ .collect = true, .separator = common.skipComma }),
     common.skipCloseBrace,
 });
-const pointsParserRawP = @TypeOf(pointsParserRaw);
-fn toPointsParser(_: std.mem.Allocator, res: pointsParserRawP.T) mecha.ConvertError![]Point {
-    return res;
-}
-const pointsParser = pointsParserRaw.convert(toPointsParser);
 
 test "pointsParser" {
     const a = testing.allocator;
@@ -146,5 +146,56 @@ test "pointsParser" {
     const p3b = Point{ .x = 0.0, .y = -1.0 };
     const p3c = Point{ .x = 1.0, .y = 0.0 };
     try testing.expectEqualDeep(&[3]Point{ p3a, p3b, p3c }, r3.value.ok[0..3]);
+    a.free(r3.value.ok);
+}
+
+const vectorParserRaw = mecha.combine(.{ common.skipOpenSquare, floatParser, common.skipComma, floatParser, common.skipCloseSquare });
+const vectorParserRawP = @TypeOf(vectorParserRaw);
+fn toVectorParser(_: std.mem.Allocator, res: vectorParserRawP.T) mecha.ConvertError!Vector {
+    return Vector{ .x = res[0], .y = res[1] };
+}
+const vectorParser = vectorParserRaw.convert(toVectorParser);
+
+test "vectorParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try vectorParser.parse(fa, "[2,1.1]");
+    const p1 = Vector{ .x = 2.0, .y = 1.1 };
+    try testing.expectEqual(p1, r1.value.ok);
+
+    const r2 = try vectorParser.parse(fa, " [2,-1.1] ");
+    const p2 = Vector{ .x = 2.0, .y = -1.1 };
+    try testing.expectEqual(p2, r2.value.ok);
+
+    const r3 = try vectorParser.parse(fa, " [2e+003 , -1.1] ");
+    const p3 = Vector{ .x = 2000.0, .y = -1.1 };
+    try testing.expectEqual(p3, r3.value.ok);
+}
+
+const vectorsParser = mecha.combine(.{
+    common.skipOpenSquare,
+    vectorParser.many(.{ .collect = true, .separator = common.skipComma }),
+    common.skipCloseSquare,
+});
+
+test "vectorsParser" {
+    const a = testing.allocator;
+
+    const r1 = try vectorsParser.parse(a, "[[2,1.1]]");
+    const p1 = Vector{ .x = 2.0, .y = 1.1 };
+    try testing.expectEqualDeep(&[1]Vector{p1}, r1.value.ok[0..1]);
+    a.free(r1.value.ok);
+
+    const r2 = try vectorsParser.parse(a, "[[2,1.1], [-2, -1.1]]");
+    const p2a = Vector{ .x = 2.0, .y = 1.1 };
+    const p2b = Vector{ .x = -2.0, .y = -1.1 };
+    try testing.expectEqualDeep(&[2]Vector{ p2a, p2b }, r2.value.ok[0..2]);
+    a.free(r2.value.ok);
+
+    const r3 = try vectorsParser.parse(a, "[[0,1.0], [0,-1.0], [1.0, 0]]");
+    const p3a = Vector{ .x = 0.0, .y = 1.0 };
+    const p3b = Vector{ .x = 0.0, .y = -1.0 };
+    const p3c = Vector{ .x = 1.0, .y = 0.0 };
+    try testing.expectEqualDeep(&[3]Vector{ p3a, p3b, p3c }, r3.value.ok[0..3]);
     a.free(r3.value.ok);
 }
