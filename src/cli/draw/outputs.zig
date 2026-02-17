@@ -1,5 +1,6 @@
 const mecha = @import("mecha");
 const common = @import("common.zig");
+const inputs = @import("inputs.zig");
 const std = @import("std");
 const testing = std.testing;
 
@@ -26,13 +27,8 @@ pub const ElementFraction = struct {
     element: ElementReference,
 };
 
-pub const Point = struct {
-    x: f32,
-    y: f32,
-};
-
 const GeneralPoint = union(enum) {
-    point: [1]Point,
+    point: inputs.Point,
     beginning: ElementReference,
     end: ElementReference,
     middle: ElementReference,
@@ -244,13 +240,13 @@ const middleGPParser = mecha.combine(.{
 
 const pointParserLocal = mecha.combine(.{
     common.skipOpenBracket,
-    common.floatFromInteger,
+    common.floatFromDecimal,
     common.skipComma,
-    common.floatFromInteger,
+    common.floatFromDecimal,
     common.skipCloseBracket,
 }).convert(struct {
-    fn toPoint(_: std.mem.Allocator, a: anytype) mecha.ConvertError!Point {
-        return Point{ .x = a[0], .y = a[1] };
+    fn toPoint(_: std.mem.Allocator, a: anytype) mecha.ConvertError!inputs.Point {
+        return inputs.Point{ .x = a[0], .y = a[1] };
     }
 }.toPoint);
 
@@ -260,7 +256,7 @@ const pointGPParser = mecha.combine(.{
     common.skipCloseBrace,
 }).convert(struct {
     fn toPoint(_: std.mem.Allocator, a: anytype) mecha.ConvertError!GeneralPoint {
-        return GeneralPoint{ .point = [1]Point{a} };
+        return GeneralPoint{ .point = a };
     }
 }.toPoint);
 
@@ -318,7 +314,7 @@ test "generalPointParser" {
     try testing.expectEqualDeep(o10, r10.value.ok);
 
     const r11 = try generalPointParser.parse(fa, "{(-12,2.1)} ");
-    const p11 = Point{ .x = -12.0, .y = 2.1 };
-    const o11 = GeneralPoint{ .point = [1]Point{p11} };
+    const p11 = inputs.Point{ .x = -12.0, .y = 2.1 };
+    const o11 = GeneralPoint{ .point = p11 };
     try testing.expectEqualDeep(o11, r11.value.ok);
 }

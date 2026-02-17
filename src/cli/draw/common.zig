@@ -76,23 +76,16 @@ pub const characterInNameParser =
 pub const nameParser = mecha.many(characterInNameParser, .{ .collect = false });
 
 const zeronine = mecha.utf8.range('0', '9');
-const digits = mecha.combine(.{
+const onenine = mecha.utf8.range('1', '9');
+pub const digits = mecha.combine(.{
     zeronine.many(.{ .collect = false, .min = 1, .max = 8 }),
 });
-const onenine = mecha.utf8.range('1', '9');
-
-const integer = mecha.combine(.{
-    onenine,
+pub const integer = mecha.combine(.{
+    mecha.oneOf(.{ onenine, zeronine }),
     zeronine.many(.{ .collect = false, .min = 1, .max = 8 }).opt(),
 });
 const integerWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), integer });
-const floatWithDecimal = mecha.combine(.{
-    integerWithSign,
-    mecha.utf8.char('.').opt(),
-    zeronine.many(.{ .collect = false, .min = 1 }).opt(),
-});
-const floatWithDecimalStr = floatWithDecimal.asStr();
-pub const floatFromInteger = floatWithDecimalStr.convert(mecha.toFloat(f32));
+pub const floatFromInteger = integerWithSign.asStr().convert(mecha.toFloat(f32));
 
 test "floatFromInteger" {
     const fa = testing.failing_allocator;
@@ -102,4 +95,25 @@ test "floatFromInteger" {
 
     const r2 = try floatFromInteger.parse(fa, "-10");
     try testing.expectEqual(-10.0, r2.value.ok);
+}
+
+const floatWithDecimal = mecha.combine(.{
+    integerWithSign,
+    mecha.utf8.char('.').opt(),
+    zeronine.many(.{ .collect = false, .min = 1 }).opt(),
+});
+const floatWithDecimalStr = floatWithDecimal.asStr();
+pub const floatFromDecimal = floatWithDecimalStr.convert(mecha.toFloat(f32));
+
+test "floatFromDecimal" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try floatFromDecimal.parse(fa, "1");
+    try testing.expectEqual(1.0, r1.value.ok);
+
+    const r2 = try floatFromDecimal.parse(fa, "-10");
+    try testing.expectEqual(-10.0, r2.value.ok);
+
+    const r3 = try floatFromDecimal.parse(fa, "-10.1");
+    try testing.expectEqual(-10.1, r3.value.ok);
 }
