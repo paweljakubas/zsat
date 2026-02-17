@@ -11,6 +11,12 @@ pub const Output = struct {
     name: []const u8,
 };
 
+pub const TwoArgCombinator = enum {
+    on, //the left arg is above the right arg
+    under, //the left arg is under the right arg
+    with, //the left arg is on the same layer level as the right arg
+};
+
 //Pin obj to point
 pub const PinPartial = struct {
     point: GeneralPoint,
@@ -569,4 +575,23 @@ test "pinPartialParser" {
     const gp11 = GeneralPoint{ .point = p11 };
     const o11 = PinPartial{ .point = gp11 };
     try testing.expectEqualDeep(o11, r11.value.ok);
+}
+
+const twoArgCombinatorParser =
+    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("on"), mecha.string("under"), mecha.string("with") }).asStr(), mecha.toEnum(TwoArgCombinator)) });
+
+test "twoArgCombinatorParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try twoArgCombinatorParser.parse(fa, "on");
+    try testing.expectEqual(.on, r1.value.ok);
+
+    const r2 = try twoArgCombinatorParser.parse(fa, " under");
+    try testing.expectEqual(.under, r2.value.ok);
+
+    const r3 = try twoArgCombinatorParser.parse(fa, "with");
+    try testing.expectEqual(.with, r3.value.ok);
+
+    const r4 = try twoArgCombinatorParser.parse(fa, "rad");
+    try testing.expectEqual(0, r4.index);
 }
