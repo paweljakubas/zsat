@@ -1,6 +1,5 @@
 const mecha = @import("mecha");
 const common = @import("common.zig");
-const inputs = @import("inputs.zig");
 const std = @import("std");
 const testing = std.testing;
 
@@ -27,11 +26,16 @@ pub const ElementFraction = struct {
     element: ElementReference,
 };
 
+pub const Point = struct {
+    x: f32,
+    y: f32,
+};
+
 const GeneralPoint = union(enum) {
-    point: [1]inputs.Point,
-    start: ElementReference,
+    point: [1]Point,
+    beginning: ElementReference,
     end: ElementReference,
-    mid: ElementReference,
+    middle: ElementReference,
     fraction: ElementFraction,
 };
 
@@ -86,18 +90,6 @@ test "outputsParser" {
     try testing.expectEqualDeep(&output4, r4.value.ok[0..3]);
     a.free(r4.value.ok);
 }
-
-//const generalPointParser =
-//
-//test "outputsParser" {
-//    const a = testing.allocator;
-//
-//    const r1 = try outputsParser.parse(a, "{(1,3)}");
-//    const p1 =
-//    const o1 = GeneralPoint{ .name = ;
-//}
-//
-//
 
 const selfParser = mecha.string("self").map(struct {
     fn toSelf(a: anytype) mecha.ConvertError!ElementReference {
@@ -189,4 +181,156 @@ test "elementFractionParser" {
     const r8 = try elementFractionParser.parse(fa, " -033 % dot1 ");
     const o8 = ElementFraction{ .fromStart = -33, .element = ElementReference{ .other = "dot1" } };
     try testing.expectEqualDeep(o8, r8.value.ok);
+}
+
+const fractionGPParser = mecha.combine(.{
+    common.skipOpenBracket,
+    elementFractionParser,
+    common.skipCloseBracket,
+}).convert(struct {
+    fn toFraction(_: std.mem.Allocator, res: anytype) mecha.ConvertError!GeneralPoint {
+        return GeneralPoint{ .fraction = try res };
+    }
+}.toFraction);
+
+const beginningGPParser = mecha.combine(.{
+    common.skipOpenBracket,
+    mecha.oneOf(.{
+        mecha.string("beginning"),
+        mecha.string("beg"),
+        mecha.string("b"),
+    }).discard(),
+    common.skipWhitespace,
+    elementReferenceParser,
+    common.skipCloseBracket,
+}).convert(struct {
+    fn toBeginning(_: std.mem.Allocator, a: anytype) mecha.ConvertError!GeneralPoint {
+        return GeneralPoint{ .beginning = try a };
+    }
+}.toBeginning);
+
+//const endGPParser = mecha.combine(.{
+//    common.skipOpenBracket,
+//    common.skipWhitespace,
+//    mecha.oneOf(.{
+//        mecha.string("end"),
+//        mecha.string("e"),
+//    }).discard(),
+//    common.skipWhitespace,
+//    elementReferenceParser,
+//    common.skipCloseBracket,
+//}).convert(struct {
+//    fn toEnd(_: std.mem.Allocator, a: anytype) mecha.ConvertError!GeneralPoint {
+//        return GeneralPoint{ .end = try a };
+//    }
+//}.toEnd);
+//
+//const middleGPParser = mecha.combine(.{
+//    common.skipOpenBracket,
+//    common.skipWhitespace,
+//    mecha.oneOf(.{
+//        mecha.string("middle"),
+//        mecha.string("mid"),
+//        mecha.string("m"),
+//    }).discard(),
+//    common.skipWhitespace,
+//    elementReferenceParser,
+//    common.skipCloseBracket,
+//}).convert(struct {
+//    fn toMiddle(_: std.mem.Allocator, a: anytype) mecha.ConvertError!GeneralPoint {
+//        return GeneralPoint{ .middle = try a };
+//    }
+//}.toMiddle);
+//
+//const zeronine = mecha.utf8.range('0', '9');
+//const onenine = mecha.utf8.range('1', '9');
+//const integer = mecha.combine(.{
+//    onenine,
+//    zeronine.many(.{ .collect = false, .min = 1, .max = 8 }).opt(),
+//});
+//const integerWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), integer });
+//const integerWithSignStr = integerWithSign.asStr();
+//const floatFromInteger = integerWithSignStr.convert(mecha.toFloat(f32));
+//
+//const pointParserLocal = mecha.combine(.{
+//    common.skipOpenBracket,
+//    floatFromInteger,
+//    common.skipComma,
+//    floatFromInteger,
+//    common.skipCloseBracket,
+//}).convert(struct {
+//    fn toPoint(_: std.mem.Allocator, a: anytype) mecha.ConvertError!Point {
+//        return Point{ .x = a[0], .y = a[1] };
+//    }
+//}.toPoint);
+//
+//const pointGPParser = mecha.combine(.{
+//    common.skipOpenBrace,
+//    pointParserLocal,
+//    common.skipCloseBrace,
+//}).convert(struct {
+//    fn toPoint(_: std.mem.Allocator, a: anytype) mecha.ConvertError!GeneralPoint {
+//        return GeneralPoint{ .point = [1]Point{a} };
+//    }
+//}.toPoint);
+//
+
+const generalPointParser = mecha.oneOf(.{
+    fractionGPParser,
+    beginningGPParser,
+    //    endGPParser,
+    //    middleGPParser,
+    //    pointGPParser,
+});
+
+test "generalPointParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try generalPointParser.parse(fa, "(0% self)");
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const o1 = GeneralPoint{ .fraction = f1 };
+    try testing.expectEqualDeep(o1, r1.value.ok);
+
+    const r2 = try generalPointParser.parse(fa, "(10% self)");
+    const f2 = ElementFraction{ .fromStart = 10, .element = .self };
+    const o2 = GeneralPoint{ .fraction = f2 };
+    try testing.expectEqualDeep(o2, r2.value.ok);
+
+    const r3 = try generalPointParser.parse(fa, "( beg self)");
+    std.debug.print("{any}", .{r3.value});
+    const o3 = GeneralPoint{ .beginning = .self };
+    try testing.expectEqualDeep(o3, r3.value.ok);
+
+    const r4 = try generalPointParser.parse(fa, "(beginning dot1)");
+    const o4 = GeneralPoint{ .beginning = ElementReference{ .other = "dot1" } };
+    try testing.expectEqualDeep(o4, r4.value.ok);
+
+    const r5 = try generalPointParser.parse(fa, "(b dot1)");
+    const o5 = GeneralPoint{ .beginning = ElementReference{ .other = "dot1" } };
+    try testing.expectEqualDeep(o5, r5.value.ok);
+
+    //    const r6 = try generalPointParser.parse(fa, "(end     sefl)");
+    //    const o6 = GeneralPoint{ .end = .self };
+    //    try testing.expectEqualDeep(o6, r6.value.ok);
+    //
+    //    const r7 = try generalPointParser.parse(fa, "(e vec1)");
+    //    const o7 = GeneralPoint{ .end = ElementReference{ .other = "vec1" } };
+    //    try testing.expectEqualDeep(o7, r7.value.ok);
+    //
+    //    const r8 = try generalPointParser.parse(fa, "(m vec1)");
+    //    const o8 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
+    //    try testing.expectEqualDeep(o8, r8.value.ok);
+    //
+    //    const r9 = try generalPointParser.parse(fa, "(mid vec1)");
+    //    const o9 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
+    //    try testing.expectEqualDeep(o9, r9.value.ok);
+    //
+    //    const r10 = try generalPointParser.parse(fa, "(middle vec1)");
+    //    const o10 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
+    //    try testing.expectEqualDeep(o10, r10.value.ok);
+    //    //
+    //    const r11 = try generalPointParser.parse(fa, "{-12,2.1)} ");
+    //    const p11 = Point{ .x = -12.0, .y = 2.1 };
+    //    const o11 = GeneralPoint{ .point = [1]Point{p11} };
+    //    try testing.expectEqualDeep(o11, r11.value.ok);
 }
