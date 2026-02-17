@@ -11,6 +11,11 @@ pub const Output = struct {
     name: []const u8,
 };
 
+//Pin obj to point
+pub const PinPartial = struct {
+    point: GeneralPoint,
+};
+
 //Rotate by phi
 //By default counter-clock wise if phi is positive. Point against which rotation occur must be specified.
 pub const RotationArg = struct {
@@ -484,4 +489,84 @@ test "scalePartialParser" {
     try testing.expectEqualDeep(s3a, r3.value.ok.elementWise[0]);
     try testing.expectEqualDeep(s3b, r3.value.ok.elementWise[1]);
     a.free(r3.value.ok.elementWise);
+}
+
+const pinPartialParser = mecha.combine(.{
+    common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("pin"),
+        mecha.string("p"),
+    }).discard(),
+    common.skipWhitespace,
+    mecha.combine(.{
+        mecha.string("at").discard(),
+    }).opt().discard(),
+    common.skipWhitespace,
+    generalPointParser,
+}).convert(struct {
+    fn toPinPartial(_: std.mem.Allocator, a: anytype) mecha.ConvertError!PinPartial {
+        return PinPartial{ .point = a };
+    }
+}.toPinPartial);
+
+test "pinPartialParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try pinPartialParser.parse(fa, "pin (0% self)");
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gp1 = GeneralPoint{ .fraction = f1 };
+    const o1 = PinPartial{ .point = gp1 };
+    try testing.expectEqualDeep(o1, r1.value.ok);
+
+    const r2 = try pinPartialParser.parse(fa, "p (10% self)");
+    const f2 = ElementFraction{ .fromStart = 10, .element = .self };
+    const gp2 = GeneralPoint{ .fraction = f2 };
+    const o2 = PinPartial{ .point = gp2 };
+    try testing.expectEqualDeep(o2, r2.value.ok);
+
+    const r3 = try pinPartialParser.parse(fa, "pin at ( beg self)");
+    const gp3 = GeneralPoint{ .beginning = .self };
+    const o3 = PinPartial{ .point = gp3 };
+    try testing.expectEqualDeep(o3, r3.value.ok);
+
+    const r4 = try pinPartialParser.parse(fa, "pin (beginning dot1)");
+    const gp4 = GeneralPoint{ .beginning = ElementReference{ .other = "dot1" } };
+    const o4 = PinPartial{ .point = gp4 };
+    try testing.expectEqualDeep(o4, r4.value.ok);
+
+    const r5 = try pinPartialParser.parse(fa, "p (b dot1)");
+    const gp5 = GeneralPoint{ .beginning = ElementReference{ .other = "dot1" } };
+    const o5 = PinPartial{ .point = gp5 };
+    try testing.expectEqualDeep(o5, r5.value.ok);
+
+    const r6 = try pinPartialParser.parse(fa, "pin at (end     self)");
+    const gp6 = GeneralPoint{ .end = .self };
+    const o6 = PinPartial{ .point = gp6 };
+    try testing.expectEqualDeep(o6, r6.value.ok);
+
+    const r7 = try pinPartialParser.parse(fa, "p (e vec1)");
+    const gp7 = GeneralPoint{ .end = ElementReference{ .other = "vec1" } };
+    const o7 = PinPartial{ .point = gp7 };
+    try testing.expectEqualDeep(o7, r7.value.ok);
+
+    const r8 = try pinPartialParser.parse(fa, "p (m vec1)");
+    const gp8 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
+    const o8 = PinPartial{ .point = gp8 };
+    try testing.expectEqualDeep(o8, r8.value.ok);
+
+    const r9 = try pinPartialParser.parse(fa, "pin at (mid vec1)");
+    const gp9 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
+    const o9 = PinPartial{ .point = gp9 };
+    try testing.expectEqualDeep(o9, r9.value.ok);
+
+    const r10 = try pinPartialParser.parse(fa, "pin at (middle vec1)");
+    const gp10 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
+    const o10 = PinPartial{ .point = gp10 };
+    try testing.expectEqualDeep(o10, r10.value.ok);
+
+    const r11 = try pinPartialParser.parse(fa, "p at {(-12,2.1)} ");
+    const p11 = inputs.Point{ .x = -12.0, .y = 2.1 };
+    const gp11 = GeneralPoint{ .point = p11 };
+    const o11 = PinPartial{ .point = gp11 };
+    try testing.expectEqualDeep(o11, r11.value.ok);
 }
