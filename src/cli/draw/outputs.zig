@@ -23,6 +23,16 @@ pub const RotatePartial = struct {
     elementWise: []RotationArg, //each rotation arg works on each element of [elem1, elem2,...]
 };
 
+//Scale by vec
+pub const ScaleArg = struct {
+    translation: inputs.Vector,
+};
+
+//Needs to be called with proper data
+pub const ScalePartial = struct {
+    elementWise: []ScaleArg, //each scale arg works on each element of [elem1, elem2,...]
+};
+
 pub const ElementReference = union(enum) {
     self,
     other: []const u8,
@@ -424,5 +434,56 @@ test "rotatePartialParser" {
     try testing.expectEqual(@as(usize, 2), r3.value.ok.elementWise.len);
     try testing.expectEqualDeep(r3a, r3.value.ok.elementWise[0]);
     try testing.expectEqualDeep(r3b, r3.value.ok.elementWise[1]);
+    a.free(r3.value.ok.elementWise);
+}
+
+const scalePartialParserRaw = mecha.combine(.{
+    common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("scale by"),
+        mecha.string("s by"),
+        mecha.string("scale"),
+        mecha.string("s"),
+    }).discard(),
+    common.skipWhitespace,
+    inputs.vectorsParser,
+    common.skipWhitespace,
+});
+const scalePartialParserRawP = @TypeOf(scalePartialParserRaw);
+fn toScalePartial(allocator: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!ScalePartial {
+    var args = try allocator.alloc(ScaleArg, res.len);
+    for (res, 0..) |v, i| {
+        args[i] = ScaleArg{ .translation = v };
+    }
+    allocator.free(res);
+    return ScalePartial{ .elementWise = args };
+}
+const scalePartialParser = scalePartialParserRaw.convert(toScalePartial);
+
+test "scalePartialParser" {
+    const a = testing.allocator;
+
+    const r1 = try scalePartialParser.parse(a, "scale [[2,3]]");
+    const v1 = inputs.Vector{ .x = 2.0, .y = 3.0 };
+    const s1 = ScaleArg{ .translation = v1 };
+    try testing.expectEqual(@as(usize, 1), r1.value.ok.elementWise.len);
+    try testing.expectEqualDeep(s1, r1.value.ok.elementWise[0]);
+    a.free(r1.value.ok.elementWise);
+
+    const r2 = try scalePartialParser.parse(a, "s by [[2.1,3.1]]");
+    const v2 = inputs.Vector{ .x = 2.1, .y = 3.1 };
+    const s2 = ScaleArg{ .translation = v2 };
+    try testing.expectEqual(@as(usize, 1), r2.value.ok.elementWise.len);
+    try testing.expectEqualDeep(s2, r2.value.ok.elementWise[0]);
+    a.free(r2.value.ok.elementWise);
+
+    const r3 = try scalePartialParser.parse(a, "s by [[2.1,3.1], [-10.0, 1.1e+03]]");
+    const v3a = inputs.Vector{ .x = 2.1, .y = 3.1 };
+    const v3b = inputs.Vector{ .x = -10.0, .y = 1100.0 };
+    const s3a = ScaleArg{ .translation = v3a };
+    const s3b = ScaleArg{ .translation = v3b };
+    try testing.expectEqual(@as(usize, 2), r3.value.ok.elementWise.len);
+    try testing.expectEqualDeep(s3a, r3.value.ok.elementWise[0]);
+    try testing.expectEqualDeep(s3b, r3.value.ok.elementWise[1]);
     a.free(r3.value.ok.elementWise);
 }

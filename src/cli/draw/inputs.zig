@@ -172,7 +172,7 @@ test "vectorParser" {
     try testing.expectEqual(p3, r3.value.ok);
 }
 
-const vectorsParser = mecha.combine(.{
+pub const vectorsParser = mecha.combine(.{
     common.skipOpenSquare,
     vectorParser.many(.{ .collect = true, .separator = common.skipComma }),
     common.skipCloseSquare,
