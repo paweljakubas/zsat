@@ -10,43 +10,6 @@ pub const Point = struct {
 };
 
 //Parsers
-const digits = mecha.combine(.{
-    zeronine.many(.{ .collect = false, .min = 1, .max = 8 }),
-});
-const zeronine = mecha.utf8.range('0', '9');
-const onenine = mecha.utf8.range('1', '9');
-
-const integer = mecha.combine(.{
-    onenine,
-    zeronine.many(.{ .collect = false, .min = 1, .max = 8 }).opt(),
-});
-const integerWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), integer });
-const floatFromInteger = integerWithSign.map(struct {
-    fn toF32(a: anytype) !f32 {
-        var buf: [16]u8 = undefined;
-        var i: usize = 0;
-        if (a[0]) |_| {
-            buf[i] = '-';
-            i += 1;
-        }
-        for (a[1]) |c| {
-            buf[i] = @intCast(c);
-            i += 1;
-        }
-        return try std.fmt.parseFloat(f32, buf[0..i]);
-    }
-}.toF32);
-
-test "floatFromInteger" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try floatFromInteger.parse(fa, "1");
-    try testing.expectEqual(1.0, r1.value.ok);
-
-    const r2 = try floatFromInteger.parse(fa, "-10");
-    try testing.expectEqual(-10.0, r2.value.ok);
-}
-
 const fraction = mecha.combine(.{ integer, mecha.utf8.char('.'), digits });
 const fractionWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), fraction });
 const floatFromFraction = fractionWithSign.map(struct {
@@ -145,7 +108,7 @@ test "floatFromScientific" {
 }
 
 const floatParser = mecha.oneOf(.{
-    floatFromInteger,
+    common.floatFromInteger,
     floatFromFraction,
     floatFromScientific,
 });

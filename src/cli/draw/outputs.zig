@@ -242,46 +242,34 @@ const middleGPParser = mecha.combine(.{
     }
 }.toMiddle);
 
-//
-//const zeronine = mecha.utf8.range('0', '9');
-//const onenine = mecha.utf8.range('1', '9');
-//const integer = mecha.combine(.{
-//    onenine,
-//    zeronine.many(.{ .collect = false, .min = 1, .max = 8 }).opt(),
-//});
-//const integerWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), integer });
-//const integerWithSignStr = integerWithSign.asStr();
-//const floatFromInteger = integerWithSignStr.convert(mecha.toFloat(f32));
-//
-//const pointParserLocal = mecha.combine(.{
-//    common.skipOpenBracket,
-//    floatFromInteger,
-//    common.skipComma,
-//    floatFromInteger,
-//    common.skipCloseBracket,
-//}).convert(struct {
-//    fn toPoint(_: std.mem.Allocator, a: anytype) mecha.ConvertError!Point {
-//        return Point{ .x = a[0], .y = a[1] };
-//    }
-//}.toPoint);
-//
-//const pointGPParser = mecha.combine(.{
-//    common.skipOpenBrace,
-//    pointParserLocal,
-//    common.skipCloseBrace,
-//}).convert(struct {
-//    fn toPoint(_: std.mem.Allocator, a: anytype) mecha.ConvertError!GeneralPoint {
-//        return GeneralPoint{ .point = [1]Point{a} };
-//    }
-//}.toPoint);
-//
+const pointParserLocal = mecha.combine(.{
+    common.skipOpenBracket,
+    common.floatFromInteger,
+    common.skipComma,
+    common.floatFromInteger,
+    common.skipCloseBracket,
+}).convert(struct {
+    fn toPoint(_: std.mem.Allocator, a: anytype) mecha.ConvertError!Point {
+        return Point{ .x = a[0], .y = a[1] };
+    }
+}.toPoint);
+
+const pointGPParser = mecha.combine(.{
+    common.skipOpenBrace,
+    pointParserLocal,
+    common.skipCloseBrace,
+}).convert(struct {
+    fn toPoint(_: std.mem.Allocator, a: anytype) mecha.ConvertError!GeneralPoint {
+        return GeneralPoint{ .point = [1]Point{a} };
+    }
+}.toPoint);
 
 const generalPointParser = mecha.oneOf(.{
     fractionGPParser,
     beginningGPParser,
     endGPParser,
     middleGPParser,
-    //    pointGPParser,
+    pointGPParser,
 });
 
 test "generalPointParser" {
@@ -328,9 +316,9 @@ test "generalPointParser" {
     const r10 = try generalPointParser.parse(fa, "(middle vec1)");
     const o10 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
     try testing.expectEqualDeep(o10, r10.value.ok);
-    //    //
-    //    const r11 = try generalPointParser.parse(fa, "{-12,2.1)} ");
-    //    const p11 = Point{ .x = -12.0, .y = 2.1 };
-    //    const o11 = GeneralPoint{ .point = [1]Point{p11} };
-    //    try testing.expectEqualDeep(o11, r11.value.ok);
+
+    const r11 = try generalPointParser.parse(fa, "{-12,2.1)} ");
+    const p11 = Point{ .x = -12.0, .y = 2.1 };
+    const o11 = GeneralPoint{ .point = [1]Point{p11} };
+    try testing.expectEqualDeep(o11, r11.value.ok);
 }

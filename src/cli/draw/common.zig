@@ -1,5 +1,6 @@
 const mecha = @import("mecha");
 const std = @import("std");
+const testing = std.testing;
 
 //colour names
 pub const ColorName = enum {
@@ -70,6 +71,30 @@ pub const skipArrow =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('-').discard(), mecha.ascii.char('>').discard(), skipWhitespace });
 pub const skipComma =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
-pub const characterParser =
+pub const characterInNameParser =
     mecha.oneOf(.{ mecha.ascii.range('a', 'z'), mecha.ascii.range('A', 'Z'), mecha.ascii.range('0', '9') });
-pub const nameParser = mecha.many(characterParser, .{ .collect = false });
+pub const nameParser = mecha.many(characterInNameParser, .{ .collect = false });
+
+const zeronine = mecha.utf8.range('0', '9');
+const digits = mecha.combine(.{
+    zeronine.many(.{ .collect = false, .min = 1, .max = 8 }),
+});
+const onenine = mecha.utf8.range('1', '9');
+
+const integer = mecha.combine(.{
+    onenine,
+    zeronine.many(.{ .collect = false, .min = 1, .max = 8 }).opt(),
+});
+const integerWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), integer });
+const integerWithSignStr = integerWithSign.asStr();
+pub const floatFromInteger = integerWithSignStr.convert(mecha.toFloat(f32));
+
+test "floatFromInteger" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try floatFromInteger.parse(fa, "1");
+    try testing.expectEqual(1.0, r1.value.ok);
+
+    const r2 = try floatFromInteger.parse(fa, "-10");
+    try testing.expectEqual(-10.0, r2.value.ok);
+}
