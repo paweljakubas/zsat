@@ -12,9 +12,16 @@ pub const Output = struct {
 };
 
 //Rotate by phi
-//By default counter-clock wise, vector is
+//By default counter-clock wise if phi is positive. Point against which rotation occur must be specified.
+pub const RotationArg = struct {
+    phi: f32,
+    point: GeneralPoint,
+};
+
+//Data needs to be specified
 pub const RotateBy = struct {
-    phi: i16,
+    output: Output, //should probably be here data shape which could be output, TODO
+    elementWise: []RotationArg, //each rotation arg works on each element of [elem1, elem2,...]
 };
 
 pub const ElementReference = union(enum) {
@@ -317,4 +324,53 @@ test "generalPointParser" {
     const p11 = inputs.Point{ .x = -12.0, .y = 2.1 };
     const o11 = GeneralPoint{ .point = p11 };
     try testing.expectEqualDeep(o11, r11.value.ok);
+}
+
+const rotationArgParser = mecha.combine(.{
+    common.skipOpenBracket,
+    common.floatFromDecimal,
+    common.skipWhitespace,
+    generalPointParser,
+    common.skipCloseBracket,
+}).convert(struct {
+    fn toRotationArg(_: std.mem.Allocator, a: anytype) mecha.ConvertError!RotationArg {
+        return RotationArg{ .phi = a[0], .point = a[1] };
+    }
+}.toRotationArg);
+
+test "rotationArgParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try rotationArgParser.parse(fa, "(90 (0% self))");
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const p1 = GeneralPoint{ .fraction = f1 };
+    const o1 = RotationArg{ .phi = 90.0, .point = p1 };
+    try testing.expectEqualDeep(o1, r1.value.ok);
+
+    const r2 = try rotationArgParser.parse(fa, "(-120 (10% self))");
+    const f2 = ElementFraction{ .fromStart = 10, .element = .self };
+    const p2 = GeneralPoint{ .fraction = f2 };
+    const o2 = RotationArg{ .phi = -120.0, .point = p2 };
+    try testing.expectEqualDeep(o2, r2.value.ok);
+
+    const r3 = try rotationArgParser.parse(fa, "(0 ( beg self))");
+    const p3 = GeneralPoint{ .beginning = .self };
+    const o3 = RotationArg{ .phi = 0.0, .point = p3 };
+    try testing.expectEqualDeep(o3, r3.value.ok);
+
+    const r4 = try rotationArgParser.parse(fa, "(-30.5 (beginning dot1))");
+    const p4 = GeneralPoint{ .beginning = ElementReference{ .other = "dot1" } };
+    const o4 = RotationArg{ .phi = -30.5, .point = p4 };
+    try testing.expectEqualDeep(o4, r4.value.ok);
+
+    const r5 = try rotationArgParser.parse(fa, "(45 (middle vec1))");
+    const p5 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
+    const o5 = RotationArg{ .phi = 45.0, .point = p5 };
+    try testing.expectEqualDeep(o5, r5.value.ok);
+
+    const r6 = try rotationArgParser.parse(fa, "(-1234.9 {(-12,2.1)} ) ");
+    const p6 = inputs.Point{ .x = -12.0, .y = 2.1 };
+    const gp6 = GeneralPoint{ .point = p6 };
+    const o6 = RotationArg{ .phi = -1234.9, .point = gp6 };
+    try testing.expectEqualDeep(o6, r6.value.ok);
 }

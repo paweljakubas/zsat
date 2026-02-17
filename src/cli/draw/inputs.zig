@@ -57,7 +57,6 @@ test "floatFromScientific" {
 const floatParser = mecha.oneOf(.{
     floatFromScientific,
     common.floatFromDecimal,
-    common.floatFromInteger,
 });
 
 test "floatParser" {

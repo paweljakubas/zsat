@@ -85,18 +85,6 @@ pub const integer = mecha.combine(.{
     zeronine.many(.{ .collect = false, .min = 1, .max = 8 }).opt(),
 });
 const integerWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), integer });
-pub const floatFromInteger = integerWithSign.asStr().convert(mecha.toFloat(f32));
-
-test "floatFromInteger" {
-    const fa = testing.failing_allocator;
-
-    const r1 = try floatFromInteger.parse(fa, "1");
-    try testing.expectEqual(1.0, r1.value.ok);
-
-    const r2 = try floatFromInteger.parse(fa, "-10");
-    try testing.expectEqual(-10.0, r2.value.ok);
-}
-
 const floatWithDecimal = mecha.combine(.{
     integerWithSign,
     mecha.utf8.char('.').opt(),
