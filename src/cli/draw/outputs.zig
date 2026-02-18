@@ -472,7 +472,7 @@ test "rotatePartialParser" {
     a.free(r4.value.ok.elementWise);
 }
 
-const scalePartialParserRaw = mecha.combine(.{
+const scalePartialParserRawWithout = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{
         mecha.string("scale by"),
@@ -483,6 +483,25 @@ const scalePartialParserRaw = mecha.combine(.{
     common.skipWhitespace,
     inputs.vectorsParser,
     common.skipWhitespace,
+});
+const scalePartialParserRawWith = mecha.combine(.{
+    common.skipOpenBracket,
+    common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("scale by"),
+        mecha.string("s by"),
+        mecha.string("scale"),
+        mecha.string("s"),
+    }).discard(),
+    common.skipWhitespace,
+    inputs.vectorsParser,
+    common.skipWhitespace,
+    common.skipCloseBracket,
+});
+
+const scalePartialParserRaw = mecha.oneOf(.{
+    scalePartialParserRawWith,
+    scalePartialParserRawWithout,
 });
 const scalePartialParserRawP = @TypeOf(scalePartialParserRaw);
 fn toScalePartial(allocator: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!ScalePartial {
@@ -521,6 +540,13 @@ test "scalePartialParser" {
     try testing.expectEqualDeep(s3a, r3.value.ok.elementWise[0]);
     try testing.expectEqualDeep(s3b, r3.value.ok.elementWise[1]);
     a.free(r3.value.ok.elementWise);
+
+    const r4 = try scalePartialParser.parse(a, "(s by [[2.1,3.1]])");
+    const v4 = inputs.Vector{ .x = 2.1, .y = 3.1 };
+    const s4 = ScaleArg{ .translation = v4 };
+    try testing.expectEqual(@as(usize, 1), r4.value.ok.elementWise.len);
+    try testing.expectEqualDeep(s4, r4.value.ok.elementWise[0]);
+    a.free(r4.value.ok.elementWise);
 }
 
 const pinPartialParser = mecha.combine(.{
@@ -601,6 +627,17 @@ test "pinPartialParser" {
     const gp11 = GeneralPoint{ .point = p11 };
     const o11 = PinPartial{ .point = gp11 };
     try testing.expectEqualDeep(o11, r11.value.ok);
+
+    const r12 = try pinPartialParser.parse(fa, "(pin at ( beg self))");
+    const gp12 = GeneralPoint{ .beginning = .self };
+    const o12 = PinPartial{ .point = gp12 };
+    try testing.expectEqualDeep(o12, r12.value.ok);
+
+    const r13 = try pinPartialParser.parse(fa, "( p at {(-12,2.1)} )");
+    const p13 = inputs.Point{ .x = -12.0, .y = 2.1 };
+    const gp13 = GeneralPoint{ .point = p13 };
+    const o13 = PinPartial{ .point = gp13 };
+    try testing.expectEqualDeep(o13, r13.value.ok);
 }
 
 const twoArgCombinatorParser =
