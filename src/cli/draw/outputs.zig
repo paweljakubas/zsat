@@ -398,7 +398,7 @@ test "rotationArgParser" {
     try testing.expectEqualDeep(o6, r6.value.ok);
 }
 
-const rotatePartialParserRaw = mecha.combine(.{
+const rotatePartialParserRawWithout = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{
         mecha.string("rotate"),
@@ -408,6 +408,24 @@ const rotatePartialParserRaw = mecha.combine(.{
     common.skipOpenSquare,
     rotationArgParser.many(.{ .collect = true, .separator = common.skipComma }),
     common.skipCloseSquare,
+});
+const rotatePartialParserRawWith = mecha.combine(.{
+    common.skipOpenBracket,
+    common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("rotate"),
+        mecha.string("r"),
+    }).discard(),
+    common.skipWhitespace,
+    common.skipOpenSquare,
+    rotationArgParser.many(.{ .collect = true, .separator = common.skipComma }),
+    common.skipCloseSquare,
+    common.skipCloseBracket,
+});
+
+const rotatePartialParserRaw = mecha.oneOf(.{
+    rotatePartialParserRawWith,
+    rotatePartialParserRawWithout,
 });
 const rotatePartialParserRawP = @TypeOf(rotatePartialParserRaw);
 fn toRotatePartial(_: std.mem.Allocator, res: rotatePartialParserRawP.T) mecha.ConvertError!RotatePartial {
@@ -444,6 +462,14 @@ test "rotatePartialParser" {
     try testing.expectEqualDeep(r3a, r3.value.ok.elementWise[0]);
     try testing.expectEqualDeep(r3b, r3.value.ok.elementWise[1]);
     a.free(r3.value.ok.elementWise);
+
+    const r4 = try rotatePartialParser.parse(a, "(r [-120 a (10% self)])");
+    const f4 = ElementFraction{ .fromStart = 10, .element = .self };
+    const p4 = GeneralPoint{ .fraction = f4 };
+    const r4arg = RotationArg{ .phi = -120.0, .point = p4 };
+    try testing.expectEqual(@as(usize, 1), r4.value.ok.elementWise.len);
+    try testing.expectEqualDeep(r4arg, r4.value.ok.elementWise[0]);
+    a.free(r4.value.ok.elementWise);
 }
 
 const scalePartialParserRaw = mecha.combine(.{
