@@ -11,10 +11,23 @@ pub const Output = struct {
     name: []const u8,
 };
 
+//Hook like in J
+//(op1 op2) x == (op1 x) op2 x
+pub const Hook = struct {
+    left: OneArgFunctionPartial,
+    right: TwoArgCombinator,
+};
+
 pub const TwoArgCombinator = enum {
     on, //the left arg is above the right arg
     under, //the left arg is under the right arg
     with, //the left arg is on the same layer level as the right arg
+};
+
+pub const OneArgFunctionPartial = union(enum) {
+    pin: PinPartial,
+    rotate: RotatePartial,
+    scale: ScalePartial,
 };
 
 //Pin obj to point
@@ -549,7 +562,7 @@ test "scalePartialParser" {
     a.free(r4.value.ok.elementWise);
 }
 
-const pinPartialParser = mecha.combine(.{
+const pinPartialParserRawWithout = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{
         mecha.string("pin"),
@@ -561,11 +574,33 @@ const pinPartialParser = mecha.combine(.{
     }).opt().discard(),
     common.skipWhitespace,
     generalPointParser,
-}).convert(struct {
-    fn toPinPartial(_: std.mem.Allocator, a: anytype) mecha.ConvertError!PinPartial {
-        return PinPartial{ .point = a };
-    }
-}.toPinPartial);
+});
+const pinPartialParserRawWith = mecha.combine(.{
+    common.skipOpenBracket,
+    common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("pin"),
+        mecha.string("p"),
+    }).discard(),
+    common.skipWhitespace,
+    mecha.combine(.{
+        mecha.string("at").discard(),
+    }).opt().discard(),
+    common.skipWhitespace,
+    generalPointParser,
+    common.skipWhitespace,
+    common.skipCloseBracket,
+});
+
+const pinPartialParserRaw = mecha.oneOf(.{
+    pinPartialParserRawWith,
+    pinPartialParserRawWithout,
+});
+const pinPartialParserRawP = @TypeOf(pinPartialParserRaw);
+fn toPinPartial(_: std.mem.Allocator, a: anytype) mecha.ConvertError!PinPartial {
+    return PinPartial{ .point = a };
+}
+const pinPartialParser = pinPartialParserRaw.convert(toPinPartial);
 
 test "pinPartialParser" {
     const fa = testing.failing_allocator;
@@ -657,4 +692,72 @@ test "twoArgCombinatorParser" {
 
     const r4 = try twoArgCombinatorParser.parse(fa, "rad");
     try testing.expectEqual(0, r4.index);
+}
+
+fn toRotatePartialUnion(_: std.mem.Allocator, res: rotatePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
+    const r = RotatePartial{ .elementWise = res };
+    return OneArgFunctionPartial{ .rotate = r };
+}
+const rotatePartialUnionParser = rotatePartialParserRaw.convert(toRotatePartialUnion);
+fn toScalePartialUnion(allocator: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
+    var args = try allocator.alloc(ScaleArg, res.len);
+    for (res, 0..) |v, i| {
+        args[i] = ScaleArg{ .translation = v };
+    }
+    allocator.free(res);
+    const s = ScalePartial{ .elementWise = args };
+    return OneArgFunctionPartial{ .scale = s };
+}
+const scalePartialUnionParser = scalePartialParserRaw.convert(toScalePartialUnion);
+fn toPinPartialUnion(_: std.mem.Allocator, res: anytype) mecha.ConvertError!OneArgFunctionPartial {
+    const p = PinPartial{ .point = res };
+    return OneArgFunctionPartial{ .pin = p };
+}
+const pinPartialUnionParser = pinPartialParserRaw.convert(toPinPartialUnion);
+
+const oneArgFunctionPartialParser = mecha.oneOf(.{
+    rotatePartialUnionParser,
+    scalePartialUnionParser,
+    pinPartialUnionParser,
+});
+
+test "oneArgFunctionPartialParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try oneArgFunctionPartialParser.parse(fa, "pin (0% self)");
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gp1 = GeneralPoint{ .fraction = f1 };
+    const p1 = PinPartial{ .point = gp1 };
+    const o1 = OneArgFunctionPartial{ .pin = p1 };
+    try testing.expectEqualDeep(o1, r1.value.ok);
+
+    const a = testing.allocator;
+
+    const r2 = try oneArgFunctionPartialParser.parse(a, "scale [[2,3]]");
+    const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
+    const s2 = ScaleArg{ .translation = v2 };
+    const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elementWise = try a.dupe(ScaleArg, &[1]ScaleArg{s2}) } };
+    try testing.expectEqualDeep(o2, r2.value.ok);
+    a.free(r2.value.ok.scale.elementWise);
+    a.free(o2.scale.elementWise);
+
+    const r3 = try oneArgFunctionPartialParser.parse(a, " rotate [0 around ( beg self) , -1234.9 a {(-12,2.1)} ]");
+    const p3a = GeneralPoint{ .beginning = .self };
+    const r3a = RotationArg{ .phi = 0.0, .point = p3a };
+    const p3b = inputs.Point{ .x = -12.0, .y = 2.1 };
+    const gp3 = GeneralPoint{ .point = p3b };
+    const r3b = RotationArg{ .phi = -1234.9, .point = gp3 };
+    const o3 = OneArgFunctionPartial{ .rotate = RotatePartial{ .elementWise = try a.dupe(RotationArg, &[2]RotationArg{ r3a, r3b }) } };
+    try testing.expectEqualDeep(o3, r3.value.ok);
+    a.free(r3.value.ok.rotate.elementWise);
+    a.free(o3.rotate.elementWise);
+
+    const r4 = try oneArgFunctionPartialParser.parse(a, "(r [-120 a (10% self)])");
+    const f4 = ElementFraction{ .fromStart = 10, .element = .self };
+    const p4 = GeneralPoint{ .fraction = f4 };
+    const r4a = RotationArg{ .phi = -120.0, .point = p4 };
+    const o4 = OneArgFunctionPartial{ .rotate = RotatePartial{ .elementWise = try a.dupe(RotationArg, &[1]RotationArg{r4a}) } };
+    try testing.expectEqualDeep(o4, r4.value.ok);
+    a.free(r4.value.ok.rotate.elementWise);
+    a.free(o4.rotate.elementWise);
 }
