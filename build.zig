@@ -47,6 +47,7 @@ pub fn build(b: *std.Build) void {
             "src/cli/draw/experiment.zig",
             "src/cli/draw/outputs.zig",
             "src/cli/draw/styles.zig",
+            "src/cli/draw/mechatest.zig",
         }) |test_file| {
             const unit_tests = b.addTest(.{
                 .root_module = b.createModule(.{
