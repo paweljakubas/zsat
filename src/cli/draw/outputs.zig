@@ -12,13 +12,13 @@ pub const Output = struct {
 };
 
 const Composite = union(enum) {
-    train: *Train,
-    hook: *Hook,
+    train: *const Train,
+    hook: *const Hook,
 };
 
 const CompositeInside = union(enum) {
     stop: OneArgFunctionPartial,
-    inside: *Composite,
+    inside: *const Composite,
 };
 
 //Train like in J
@@ -55,14 +55,14 @@ pub const PinPartial = struct {
 
 //Rotate by phi
 //By default counter-clock wise if phi is positive. Point against which rotation occur must be specified.
-pub const RotationArg = struct {
+pub const RotateArg = struct {
     phi: f32,
     point: GeneralPoint,
 };
 
 //Needs to be called with proper data
 pub const RotatePartial = struct {
-    elementWise: []RotationArg, //each rotation arg works on each element of [elem1, elem2,...]
+    elementWise: []RotateArg, //each rotation arg works on each element of [elem1, elem2,...]
 };
 
 //Scale by vec
@@ -387,10 +387,10 @@ const rotationArgParser = mecha.combine(.{
     common.skipWhitespace,
     generalPointParser,
 }).convert(struct {
-    fn toRotationArg(_: std.mem.Allocator, a: anytype) mecha.ConvertError!RotationArg {
-        return RotationArg{ .phi = a[0], .point = a[1] };
+    fn toRotateArg(_: std.mem.Allocator, a: anytype) mecha.ConvertError!RotateArg {
+        return RotateArg{ .phi = a[0], .point = a[1] };
     }
-}.toRotationArg);
+}.toRotateArg);
 
 test "rotationArgParser" {
     const fa = testing.failing_allocator;
@@ -398,34 +398,34 @@ test "rotationArgParser" {
     const r1 = try rotationArgParser.parse(fa, "90 around (0% self)");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const p1 = GeneralPoint{ .fraction = f1 };
-    const o1 = RotationArg{ .phi = 90.0, .point = p1 };
+    const o1 = RotateArg{ .phi = 90.0, .point = p1 };
     try testing.expectEqualDeep(o1, r1.value.ok);
 
     const r2 = try rotationArgParser.parse(fa, "-120 a (10% self)");
     const f2 = ElementFraction{ .fromStart = 10, .element = .self };
     const p2 = GeneralPoint{ .fraction = f2 };
-    const o2 = RotationArg{ .phi = -120.0, .point = p2 };
+    const o2 = RotateArg{ .phi = -120.0, .point = p2 };
     try testing.expectEqualDeep(o2, r2.value.ok);
 
     const r3 = try rotationArgParser.parse(fa, "0 a ( beg self)");
     const p3 = GeneralPoint{ .beginning = .self };
-    const o3 = RotationArg{ .phi = 0.0, .point = p3 };
+    const o3 = RotateArg{ .phi = 0.0, .point = p3 };
     try testing.expectEqualDeep(o3, r3.value.ok);
 
     const r4 = try rotationArgParser.parse(fa, "-30.5 around (beginning dot1)");
     const p4 = GeneralPoint{ .beginning = ElementReference{ .other = "dot1" } };
-    const o4 = RotationArg{ .phi = -30.5, .point = p4 };
+    const o4 = RotateArg{ .phi = -30.5, .point = p4 };
     try testing.expectEqualDeep(o4, r4.value.ok);
 
     const r5 = try rotationArgParser.parse(fa, "45 around (middle vec1)");
     const p5 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
-    const o5 = RotationArg{ .phi = 45.0, .point = p5 };
+    const o5 = RotateArg{ .phi = 45.0, .point = p5 };
     try testing.expectEqualDeep(o5, r5.value.ok);
 
     const r6 = try rotationArgParser.parse(fa, "-1234.9 around {(-12,2.1)} ");
     const p6 = inputs.Point{ .x = -12.0, .y = 2.1 };
     const gp6 = GeneralPoint{ .point = p6 };
-    const o6 = RotationArg{ .phi = -1234.9, .point = gp6 };
+    const o6 = RotateArg{ .phi = -1234.9, .point = gp6 };
     try testing.expectEqualDeep(o6, r6.value.ok);
 }
 
@@ -470,7 +470,7 @@ test "rotatePartialParser" {
     const r1 = try rotatePartialParser.parse(a, "rotate [90 a (0% self)]");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const p1 = GeneralPoint{ .fraction = f1 };
-    const r1arg = RotationArg{ .phi = 90.0, .point = p1 };
+    const r1arg = RotateArg{ .phi = 90.0, .point = p1 };
     try testing.expectEqual(@as(usize, 1), r1.value.ok.elementWise.len);
     try testing.expectEqualDeep(r1arg, r1.value.ok.elementWise[0]);
     a.free(r1.value.ok.elementWise);
@@ -478,17 +478,17 @@ test "rotatePartialParser" {
     const r2 = try rotatePartialParser.parse(a, "r [-120 a (10% self)]");
     const f2 = ElementFraction{ .fromStart = 10, .element = .self };
     const p2 = GeneralPoint{ .fraction = f2 };
-    const r2arg = RotationArg{ .phi = -120.0, .point = p2 };
+    const r2arg = RotateArg{ .phi = -120.0, .point = p2 };
     try testing.expectEqual(@as(usize, 1), r2.value.ok.elementWise.len);
     try testing.expectEqualDeep(r2arg, r2.value.ok.elementWise[0]);
     a.free(r2.value.ok.elementWise);
 
     const r3 = try rotatePartialParser.parse(a, " rotate [0 around ( beg self) , -1234.9 a {(-12,2.1)} ]");
     const p3a = GeneralPoint{ .beginning = .self };
-    const r3a = RotationArg{ .phi = 0.0, .point = p3a };
+    const r3a = RotateArg{ .phi = 0.0, .point = p3a };
     const p3b = inputs.Point{ .x = -12.0, .y = 2.1 };
     const gp3 = GeneralPoint{ .point = p3b };
-    const r3b = RotationArg{ .phi = -1234.9, .point = gp3 };
+    const r3b = RotateArg{ .phi = -1234.9, .point = gp3 };
     try testing.expectEqual(@as(usize, 2), r3.value.ok.elementWise.len);
     try testing.expectEqualDeep(r3a, r3.value.ok.elementWise[0]);
     try testing.expectEqualDeep(r3b, r3.value.ok.elementWise[1]);
@@ -497,7 +497,7 @@ test "rotatePartialParser" {
     const r4 = try rotatePartialParser.parse(a, "(r [-120 a (10% self)])");
     const f4 = ElementFraction{ .fromStart = 10, .element = .self };
     const p4 = GeneralPoint{ .fraction = f4 };
-    const r4arg = RotationArg{ .phi = -120.0, .point = p4 };
+    const r4arg = RotateArg{ .phi = -120.0, .point = p4 };
     try testing.expectEqual(@as(usize, 1), r4.value.ok.elementWise.len);
     try testing.expectEqualDeep(r4arg, r4.value.ok.elementWise[0]);
     a.free(r4.value.ok.elementWise);
@@ -761,11 +761,11 @@ test "oneArgFunctionPartialParser" {
 
     const r3 = try oneArgFunctionPartialParser.parse(a, " rotate [0 around ( beg self) , -1234.9 a {(-12,2.1)} ]");
     const p3a = GeneralPoint{ .beginning = .self };
-    const r3a = RotationArg{ .phi = 0.0, .point = p3a };
+    const r3a = RotateArg{ .phi = 0.0, .point = p3a };
     const p3b = inputs.Point{ .x = -12.0, .y = 2.1 };
     const gp3 = GeneralPoint{ .point = p3b };
-    const r3b = RotationArg{ .phi = -1234.9, .point = gp3 };
-    const o3 = OneArgFunctionPartial{ .rotate = RotatePartial{ .elementWise = try a.dupe(RotationArg, &[2]RotationArg{ r3a, r3b }) } };
+    const r3b = RotateArg{ .phi = -1234.9, .point = gp3 };
+    const o3 = OneArgFunctionPartial{ .rotate = RotatePartial{ .elementWise = try a.dupe(RotateArg, &[2]RotateArg{ r3a, r3b }) } };
     try testing.expectEqualDeep(o3, r3.value.ok);
     a.free(r3.value.ok.rotate.elementWise);
     a.free(o3.rotate.elementWise);
@@ -773,8 +773,8 @@ test "oneArgFunctionPartialParser" {
     const r4 = try oneArgFunctionPartialParser.parse(a, "(r [-120 a (10% self)])");
     const f4 = ElementFraction{ .fromStart = 10, .element = .self };
     const p4 = GeneralPoint{ .fraction = f4 };
-    const r4a = RotationArg{ .phi = -120.0, .point = p4 };
-    const o4 = OneArgFunctionPartial{ .rotate = RotatePartial{ .elementWise = try a.dupe(RotationArg, &[1]RotationArg{r4a}) } };
+    const r4a = RotateArg{ .phi = -120.0, .point = p4 };
+    const o4 = OneArgFunctionPartial{ .rotate = RotatePartial{ .elementWise = try a.dupe(RotateArg, &[1]RotateArg{r4a}) } };
     try testing.expectEqualDeep(o4, r4.value.ok);
     a.free(r4.value.ok.rotate.elementWise);
     a.free(o4.rotate.elementWise);
@@ -892,7 +892,30 @@ fn freeTrain(a: std.mem.Allocator, tr: Train) void {
 }
 
 fn freeHook(a: std.mem.Allocator, hk: Hook) void {
-    freeCompositeInside(a, hk.left);
+    switch (hk.left) {
+        .stop => |stop_fn| {
+            switch (stop_fn) {
+                .scale => |s| {
+                    if (s.elementWise.len > 0) {
+                        a.free(s.elementWise);
+                    }
+                },
+                .rotate => |r| {
+                    if (r.elementWise.len > 0) {
+                        a.free(r.elementWise);
+                    }
+                },
+                .pin => {},
+            }
+        },
+        .inside => |comp| {
+            switch (comp.*) {
+                .train => |tr| a.destroy(tr),
+                .hook => |hk_inner| a.destroy(hk_inner),
+            }
+            a.destroy(comp);
+        },
+    }
 }
 
 test "hookParser" {
@@ -925,4 +948,13 @@ test "trainParser" {
     const t1 = Train{ .left = CompositeInside{ .stop = o1a }, .middle = .with, .right = CompositeInside{ .stop = o1b } };
     try testing.expectEqualDeep(t1, r1.value.ok);
     freeTrain(a, r1.value.ok);
+
+    //    const r2 = try trainParser.parse(a, "(((r [-120 a (10% self)])) with (pin {(-12,2.1)}))");
+    //    undefined;
+    //
+    //    const r3 = try trainParser.parse(a, "(((r [-120 a (10% self)])) with (pin {(-12,2.1)}))");
+    //    undefined;
+    //
+    //    const r4 = try trainParser.parse(a, " ( (((r [-120 a (10% self)])) on (scale [[2,3]])) with (pin {(-12,2.1)}))");
+    //    undefined;
 }
