@@ -11,10 +11,28 @@ pub const Output = struct {
     name: []const u8,
 };
 
+const Composite = union(enum) {
+    train: *Train,
+    hook: *Hook,
+};
+
+const CompositeInside = union(enum) {
+    stop: OneArgFunctionPartial,
+    inside: *Composite,
+};
+
+//Train like in J
+//(op1 op2 op3) x == (op1 x) op2 (op3 x)
+pub const Train = struct {
+    left: CompositeInside,
+    middle: TwoArgCombinator,
+    right: CompositeInside,
+};
+
 //Hook like in J
 //(op1 op2) x == (op1 x) op2 x
 pub const Hook = struct {
-    left: OneArgFunctionPartial,
+    left: CompositeInside,
     right: TwoArgCombinator,
 };
 
@@ -760,4 +778,151 @@ test "oneArgFunctionPartialParser" {
     try testing.expectEqualDeep(o4, r4.value.ok);
     a.free(r4.value.ok.rotate.elementWise);
     a.free(o4.rotate.elementWise);
+}
+
+fn compositeToInside(allocator: std.mem.Allocator, a: Composite) mecha.ConvertError!CompositeInside {
+    const p = try allocator.create(Composite);
+    p.* = a;
+    return CompositeInside{ .inside = p };
+}
+
+fn compositeInsideParserRef() mecha.Parser(CompositeInside) {
+    return compositeInsideParser;
+}
+
+const compositeInsideParser = mecha.oneOf(.{
+    mecha.combine(.{
+        common.skipOpenBracket,
+        mecha.ref(compositeParserRef),
+        common.skipCloseBracket,
+    }).convert(compositeToInside),
+    oneArgFunctionPartialParser.map(struct {
+        fn toStop(a: OneArgFunctionPartial) CompositeInside {
+            return CompositeInside{ .stop = a };
+        }
+    }.toStop),
+});
+
+fn compositeParserRef() mecha.Parser(Composite) {
+    return compositeParser;
+}
+
+fn parseTrainInner(allocator: std.mem.Allocator, args: anytype) mecha.ConvertError!*Train {
+    const left = args[0];
+    const middle = args[1];
+    const right = args[2];
+    const train = try allocator.create(Train);
+    train.* = Train{ .left = left, .middle = middle, .right = right };
+    return train;
+}
+
+const trainParserInner = mecha.combine(.{
+    mecha.ref(compositeInsideParserRef),
+    common.skipWhitespace,
+    twoArgCombinatorParser,
+    common.skipWhitespace,
+    mecha.ref(compositeInsideParserRef),
+}).convert(parseTrainInner);
+
+fn parseHookInner(allocator: std.mem.Allocator, args: anytype) mecha.ConvertError!*Hook {
+    const left = args[0];
+    const right = args[1];
+    const hook = try allocator.create(Hook);
+    hook.* = Hook{ .left = left, .right = right };
+    return hook;
+}
+
+const hookParserInner = mecha.combine(.{
+    mecha.ref(compositeInsideParserRef),
+    common.skipWhitespace,
+    twoArgCombinatorParser,
+}).convert(parseHookInner);
+
+const compositeParser = mecha.oneOf(.{
+    trainParserInner.map(struct {
+        fn toTrain(t: *Train) Composite {
+            return Composite{ .train = t };
+        }
+    }.toTrain),
+    hookParserInner.map(struct {
+        fn toHook(h: *Hook) Composite {
+            return Composite{ .hook = h };
+        }
+    }.toHook),
+});
+
+fn parseTrain(allocator: std.mem.Allocator, t: *Train) mecha.ConvertError!Train {
+    const result = t.*;
+    allocator.destroy(t);
+    return result;
+}
+
+const trainParser = mecha.combine(.{
+    common.skipOpenBracket,
+    trainParserInner,
+    common.skipCloseBracket,
+}).convert(parseTrain);
+
+fn parseHook(allocator: std.mem.Allocator, h: *Hook) mecha.ConvertError!Hook {
+    const result = h.*;
+    allocator.destroy(h);
+    return result;
+}
+
+const hookParser = mecha.combine(.{
+    common.skipOpenBracket,
+    hookParserInner,
+    common.skipCloseBracket,
+}).convert(parseHook);
+
+fn freeCompositeInside(a: std.mem.Allocator, ci: CompositeInside) void {
+    if (ci == .inside) {
+        const comp = ci.inside;
+        switch (comp.*) {
+            .train => |tr| a.destroy(tr),
+            .hook => |hk| a.destroy(hk),
+        }
+        a.destroy(comp);
+    }
+}
+
+fn freeTrain(a: std.mem.Allocator, tr: Train) void {
+    freeCompositeInside(a, tr.left);
+    freeCompositeInside(a, tr.right);
+}
+
+fn freeHook(a: std.mem.Allocator, hk: Hook) void {
+    freeCompositeInside(a, hk.left);
+}
+
+test "hookParser" {
+    const a = testing.allocator;
+
+    const r1 = try hookParser.parse(a, "((pin (0% self)) with)");
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gp1 = GeneralPoint{ .fraction = f1 };
+    const p1 = PinPartial{ .point = gp1 };
+    const o1 = OneArgFunctionPartial{ .pin = p1 };
+    const h1 = Hook{ .left = CompositeInside{ .stop = o1 }, .right = .with };
+    try testing.expectEqualDeep(h1, r1.value.ok);
+    freeHook(a, r1.value.ok);
+}
+
+test "trainParser" {
+    const a = testing.allocator;
+
+    const r1 = try trainParser.parse(a, "((pin (0% self)) with (pin {(-12,2.1)}))");
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gp1a = GeneralPoint{ .fraction = f1 };
+    const p1a = PinPartial{ .point = gp1a };
+    const o1a = OneArgFunctionPartial{ .pin = p1a };
+
+    const p1b_point = inputs.Point{ .x = -12.0, .y = 2.1 };
+    const gp1b = GeneralPoint{ .point = p1b_point };
+    const p1b = PinPartial{ .point = gp1b };
+    const o1b = OneArgFunctionPartial{ .pin = p1b };
+
+    const t1 = Train{ .left = CompositeInside{ .stop = o1a }, .middle = .with, .right = CompositeInside{ .stop = o1b } };
+    try testing.expectEqualDeep(t1, r1.value.ok);
+    freeTrain(a, r1.value.ok);
 }
