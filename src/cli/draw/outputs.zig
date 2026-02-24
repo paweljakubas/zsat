@@ -72,7 +72,7 @@ pub const ScaleArg = struct {
 
 //Needs to be called with proper data
 pub const ScalePartial = struct {
-    elements: []const inputs.Vector, //each scale arg works on each element of [elem1, elem2,...]
+    elements: []const ScaleArg, //each scale arg works on each element of [elem1, elem2,...]
 };
 
 pub const ElementReference = union(enum) {
@@ -535,9 +535,13 @@ const scalePartialParserRaw = mecha.oneOf(.{
     scalePartialParserRawWithout,
 });
 const scalePartialParserRawP = @TypeOf(scalePartialParserRaw);
-fn toScalePartial(_: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!ScalePartial {
-    // No allocation needed - just use the raw vectors
-    return ScalePartial{ .elements = res };
+fn toScalePartial(allocator: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!ScalePartial {
+    var args = try allocator.alloc(ScaleArg, res.len);
+    for (res, 0..) |v, i| {
+        args[i] = ScaleArg{ .translation = v };
+    }
+    allocator.free(res);
+    return ScalePartial{ .elements = args };
 }
 const scalePartialParser = scalePartialParserRaw.convert(toScalePartial);
 
@@ -546,28 +550,33 @@ test "scalePartialParser" {
 
     const r1 = try scalePartialParser.parse(a, "scale [[2,3]]");
     const v1 = inputs.Vector{ .x = 2.0, .y = 3.0 };
+    const s1 = ScaleArg{ .translation = v1 };
     try testing.expectEqual(@as(usize, 1), r1.value.ok.elements.len);
-    try testing.expectEqualDeep(v1, r1.value.ok.elements[0]);
+    try testing.expectEqualDeep(s1, r1.value.ok.elements[0]);
     a.free(r1.value.ok.elements);
 
     const r2 = try scalePartialParser.parse(a, "s by [[2.1,3.1]]");
     const v2 = inputs.Vector{ .x = 2.1, .y = 3.1 };
+    const s2 = ScaleArg{ .translation = v2 };
     try testing.expectEqual(@as(usize, 1), r2.value.ok.elements.len);
-    try testing.expectEqualDeep(v2, r2.value.ok.elements[0]);
+    try testing.expectEqualDeep(s2, r2.value.ok.elements[0]);
     a.free(r2.value.ok.elements);
 
     const r3 = try scalePartialParser.parse(a, "s by [[2.1,3.1], [-10.0, 1.1e+03]]");
     const v3a = inputs.Vector{ .x = 2.1, .y = 3.1 };
     const v3b = inputs.Vector{ .x = -10.0, .y = 1100.0 };
+    const s3a = ScaleArg{ .translation = v3a };
+    const s3b = ScaleArg{ .translation = v3b };
     try testing.expectEqual(@as(usize, 2), r3.value.ok.elements.len);
-    try testing.expectEqualDeep(v3a, r3.value.ok.elements[0]);
-    try testing.expectEqualDeep(v3b, r3.value.ok.elements[1]);
+    try testing.expectEqualDeep(s3a, r3.value.ok.elements[0]);
+    try testing.expectEqualDeep(s3b, r3.value.ok.elements[1]);
     a.free(r3.value.ok.elements);
 
     const r4 = try scalePartialParser.parse(a, "(s by [[2.1,3.1]])");
     const v4 = inputs.Vector{ .x = 2.1, .y = 3.1 };
+    const s4 = ScaleArg{ .translation = v4 };
     try testing.expectEqual(@as(usize, 1), r4.value.ok.elements.len);
-    try testing.expectEqualDeep(v4, r4.value.ok.elements[0]);
+    try testing.expectEqualDeep(s4, r4.value.ok.elements[0]);
     a.free(r4.value.ok.elements);
 }
 
@@ -708,9 +717,13 @@ fn toRotatePartialUnion(_: std.mem.Allocator, res: rotatePartialParserRawP.T) me
     return OneArgFunctionPartial{ .rotate = r };
 }
 const rotatePartialUnionParser = rotatePartialParserRaw.convert(toRotatePartialUnion);
-fn toScalePartialUnion(_: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
-    // No allocation needed - just use the raw vectors
-    const s = ScalePartial{ .elements = res };
+fn toScalePartialUnion(allocator: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
+    var args = try allocator.alloc(ScaleArg, res.len);
+    for (res, 0..) |v, i| {
+        args[i] = ScaleArg{ .translation = v };
+    }
+    allocator.free(res);
+    const s = ScalePartial{ .elements = args };
     return OneArgFunctionPartial{ .scale = s };
 }
 const scalePartialUnionParser = scalePartialParserRaw.convert(toScalePartialUnion);
@@ -740,7 +753,8 @@ test "oneArgFunctionPartialParser" {
 
     const r2 = try oneArgFunctionPartialParser.parse(a, "scale [[2,3]]");
     const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
-    const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = try a.dupe(inputs.Vector, &[1]inputs.Vector{v2}) } };
+    const s2 = ScaleArg{ .translation = v2 };
+    const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = try a.dupe(ScaleArg, &[1]ScaleArg{s2}) } };
     try testing.expectEqualDeep(o2, r2.value.ok);
     a.free(r2.value.ok.scale.elements);
     a.free(o2.scale.elements);
@@ -912,7 +926,8 @@ test "hookParser" {
 
     const r2 = try hookParser.parse(a, "((scale [[2,3]]) under)");
     const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
-    const alloc2 = [1]inputs.Vector{v2};
+    const s2 = ScaleArg{ .translation = v2 };
+    const alloc2 = [1]ScaleArg{s2};
     const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = &alloc2 } };
     const h2 = Hook{ .left = CompositeInside{ .stop = o2 }, .right = .under };
     try testing.expectEqualDeep(h2, r2.value.ok);
@@ -921,7 +936,8 @@ test "hookParser" {
     //
     //    const r3 = try hookParser.parse(a, "(((scale [[2,3]]) with) with)");
     //    const v3 = inputs.Vector{ .x = 2.0, .y = 3.0 };
-    //    const o3 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = try a.dupe(inputs.Vector, &[1]inputs.Vector{v3}) } };
+    //    const s3 = ScaleArg{ .translation = v3 };
+    //    const o3 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = try a.dupe(ScaleArg, &[1]ScaleArg{s3}) } };
     //    const h3inner = Hook{ .left = CompositeInside{ .stop = o3 }, .right = .with };
     //    const c3 = Composite{ .hook = &h3inner };
     //    const h3 = Hook{ .left = CompositeInside{ .inside = &c3 }, .right = .with };
