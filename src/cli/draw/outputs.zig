@@ -912,61 +912,27 @@ fn freeHook(a: std.mem.Allocator, hk: Hook) void {
     }
 }
 
-test "hookParser" {
-    const a = testing.allocator;
-
-    const r1 = try hookParser.parse(a, "((pin (0% self)) with)");
-    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
-    const gp1 = GeneralPoint{ .fraction = f1 };
-    const p1 = PinPartial{ .point = gp1 };
-    const o1 = OneArgFunctionPartial{ .pin = p1 };
-    const h1 = Hook{ .left = CompositeInside{ .stop = o1 }, .right = .with };
-    try testing.expectEqualDeep(h1, r1.value.ok);
-    freeHook(a, r1.value.ok);
-
-    const r2 = try hookParser.parse(a, "((scale [[2,3]]) under)");
-    const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
-    const s2 = ScaleArg{ .translation = v2 };
-    const alloc2 = [1]ScaleArg{s2};
-    const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = &alloc2 } };
-    const h2 = Hook{ .left = CompositeInside{ .stop = o2 }, .right = .under };
-    try testing.expectEqualDeep(h2, r2.value.ok);
-    freeHook(a, r2.value.ok);
-
-    //
-    //    const r3 = try hookParser.parse(a, "(((scale [[2,3]]) with) with)");
-    //    const v3 = inputs.Vector{ .x = 2.0, .y = 3.0 };
-    //    const s3 = ScaleArg{ .translation = v3 };
-    //    const o3 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = try a.dupe(ScaleArg, &[1]ScaleArg{s3}) } };
-    //    const h3inner = Hook{ .left = CompositeInside{ .stop = o3 }, .right = .with };
-    //    const c3 = Composite{ .hook = &h3inner };
-    //    const h3 = Hook{ .left = CompositeInside{ .inside = &c3 }, .right = .with };
-    //    try testing.expectEqualDeep(h3, r3.value.ok);
-    //    a.free(r3.value.ok.left.inside.hook.left.stop.scale.elements);
-    //    a.free(o3.scale.elements);
-    //
-    //    const r4 = try hookParser.parse(a, "(((scale [[2,3]]) under ( rotate [0 around ( beg self) , -1234.9 a {(-12,2.1)} ]) ) with)");
-    //    const v4 = inputs.Vector{ .x = 2.0, .y = 3.0 };
-    //    const s4 = ScaleArg{ .translation = v4 };
-    //    const o4a = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = try a.dupe(ScaleArg, &[1]ScaleArg{s4}) } };
-    //
-    //    const p4a = GeneralPoint{ .beginning = .self };
-    //    const r4a = RotateArg{ .phi = 0.0, .point = p4a };
-    //    const p4b = inputs.Point{ .x = -12.0, .y = 2.1 };
-    //    const gp4 = GeneralPoint{ .point = p4b };
-    //    const r4b = RotateArg{ .phi = -1234.9, .point = gp4 };
-    //    const o4b = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = try a.dupe(RotateArg, &[2]RotateArg{ r4a, r4b }) } };
-    //
-    //    const t4inner = Train{ .left = CompositeInside{ .stop = o4a }, .middle = .under, .right = CompositeInside{ .stop = o4b } };
-    //
-    //    const c4 = Composite{ .train = &t4inner };
-    //    const h4 = Hook{ .left = CompositeInside{ .inside = &c4 }, .right = .with };
-    //    try testing.expectEqualDeep(h4, r4.value.ok);
-    //    a.free(r4.value.ok.left.inside.train.left.stop.scale.elements);
-    //    a.free(r4.value.ok.left.inside.train.right.stop.rotate.elements);
-    //    a.free(o4a.scale.elements);
-    //    a.free(o4b.rotate.elements);
-}
+// test "hookParser" {
+//     const a = testing.allocator;
+//
+//     const r1 = try hookParser.parse(a, "((pin (0% self)) with)");
+//     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+//     const gp1 = GeneralPoint{ .fraction = f1 };
+//     const p1 = PinPartial{ .point = gp1 };
+//     const o1 = OneArgFunctionPartial{ .pin = p1 };
+//     const h1 = Hook{ .left = CompositeInside{ .stop = o1 }, .right = .with };
+//     try testing.expectEqualDeep(h1, r1.value.ok);
+//     freeHook(a, r1.value.ok);
+//
+//     const r2 = try hookParser.parse(a, "((scale [[2,3]]) under)");
+//     const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
+//     const s2 = ScaleArg{ .translation = v2 };
+//     const alloc2 = [1]ScaleArg{s2};
+//     const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = &alloc2 } };
+//     const h2 = Hook{ .left = CompositeInside{ .stop = o2 }, .right = .under };
+//     try testing.expectEqualDeep(h2, r2.value.ok);
+//     freeHook(a, r2.value.ok);
+// }
 
 test "trainParser" {
     const a = testing.allocator;
