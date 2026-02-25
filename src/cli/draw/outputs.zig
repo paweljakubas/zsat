@@ -718,7 +718,9 @@ fn toRotatePartialUnion(_: std.mem.Allocator, res: rotatePartialParserRawP.T) me
 }
 const rotatePartialUnionParser = rotatePartialParserRaw.convert(toRotatePartialUnion);
 fn toScalePartialUnion(allocator: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
+    errdefer allocator.free(res);
     var args = try allocator.alloc(ScaleArg, res.len);
+    errdefer allocator.free(args);
     for (res, 0..) |v, i| {
         args[i] = ScaleArg{ .translation = v };
     }
@@ -734,9 +736,9 @@ fn toPinPartialUnion(_: std.mem.Allocator, res: anytype) mecha.ConvertError!OneA
 const pinPartialUnionParser = pinPartialParserRaw.convert(toPinPartialUnion);
 
 const oneArgFunctionPartialParser = mecha.oneOf(.{
+    pinPartialUnionParser,
     rotatePartialUnionParser,
     scalePartialUnionParser,
-    pinPartialUnionParser,
 });
 
 test "oneArgFunctionPartialParser" {
@@ -782,6 +784,7 @@ test "oneArgFunctionPartialParser" {
 
 fn compositeToInside(allocator: std.mem.Allocator, a: Composite) mecha.ConvertError!CompositeInside {
     const p = try allocator.create(Composite);
+    errdefer allocator.destroy(p);
     p.* = a;
     return CompositeInside{ .inside = p };
 }
@@ -791,16 +794,16 @@ fn compositeInsideParserRef() mecha.Parser(CompositeInside) {
 }
 
 const compositeInsideParser = mecha.oneOf(.{
-    mecha.combine(.{
-        common.skipOpenBracket,
-        mecha.ref(compositeParserRef),
-        common.skipCloseBracket,
-    }).convert(compositeToInside),
     oneArgFunctionPartialParser.map(struct {
         fn toStop(a: OneArgFunctionPartial) CompositeInside {
             return CompositeInside{ .stop = a };
         }
     }.toStop),
+    mecha.combine(.{
+        common.skipOpenBracket,
+        mecha.ref(compositeParserRef),
+        common.skipCloseBracket,
+    }).convert(compositeToInside),
 });
 
 fn compositeParserRef() mecha.Parser(Composite) {
@@ -812,6 +815,7 @@ fn parseTrainInner(allocator: std.mem.Allocator, args: anytype) mecha.ConvertErr
     const middle = args[1];
     const right = args[2];
     const train = try allocator.create(Train);
+    errdefer allocator.destroy(train);
     train.* = Train{ .left = left, .middle = middle, .right = right };
     return train;
 }
@@ -828,6 +832,7 @@ fn parseHookInner(allocator: std.mem.Allocator, args: anytype) mecha.ConvertErro
     const left = args[0];
     const right = args[1];
     const hook = try allocator.create(Hook);
+    errdefer allocator.destroy(hook);
     hook.* = Hook{ .left = left, .right = right };
     return hook;
 }
@@ -912,27 +917,28 @@ fn freeHook(a: std.mem.Allocator, hk: Hook) void {
     }
 }
 
-// test "hookParser" {
-//     const a = testing.allocator;
-//
-//     const r1 = try hookParser.parse(a, "((pin (0% self)) with)");
-//     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
-//     const gp1 = GeneralPoint{ .fraction = f1 };
-//     const p1 = PinPartial{ .point = gp1 };
-//     const o1 = OneArgFunctionPartial{ .pin = p1 };
-//     const h1 = Hook{ .left = CompositeInside{ .stop = o1 }, .right = .with };
-//     try testing.expectEqualDeep(h1, r1.value.ok);
-//     freeHook(a, r1.value.ok);
-//
-//     const r2 = try hookParser.parse(a, "((scale [[2,3]]) under)");
-//     const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
-//     const s2 = ScaleArg{ .translation = v2 };
-//     const alloc2 = [1]ScaleArg{s2};
-//     const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = &alloc2 } };
-//     const h2 = Hook{ .left = CompositeInside{ .stop = o2 }, .right = .under };
-//     try testing.expectEqualDeep(h2, r2.value.ok);
-//     freeHook(a, r2.value.ok);
-// }
+test "hookParser" {
+    const a = testing.allocator;
+
+    const r1 = try hookParser.parse(a, "((pin (0% self)) with)");
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gp1 = GeneralPoint{ .fraction = f1 };
+    const p1 = PinPartial{ .point = gp1 };
+    const o1 = OneArgFunctionPartial{ .pin = p1 };
+    const h1 = Hook{ .left = CompositeInside{ .stop = o1 }, .right = .with };
+    try testing.expectEqualDeep(h1, r1.value.ok);
+    freeHook(a, r1.value.ok);
+
+    const r2 = try hookParser.parse(a, "((scale [[2,3]]) under)");
+    const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
+    const s2 = ScaleArg{ .translation = v2 };
+    const alloc2 = try a.dupe(ScaleArg, &[1]ScaleArg{s2});
+    const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc2 } };
+    const h2 = Hook{ .left = CompositeInside{ .stop = o2 }, .right = .under };
+    try testing.expectEqualDeep(h2, r2.value.ok);
+    freeHook(a, r2.value.ok);
+    a.free(alloc2);
+}
 
 test "trainParser" {
     const a = testing.allocator;
