@@ -6,7 +6,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const zli_dep = b.dependency("zli", .{ .target = target, .optimize = optimize });
-    const mecha_dep = b.dependency("mecha", .{});
+    const mecha_dep = b.dependency("mecha", .{ .target = target, .optimize = optimize });
     const cmdtest_dep = b.dependency("cmdtest", .{});
 
     {
