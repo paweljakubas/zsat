@@ -712,7 +712,8 @@ test "twoArgCombinatorParser" {
     try testing.expectEqual(0, r4.index);
 }
 
-fn toRotatePartialUnion(_: std.mem.Allocator, res: rotatePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
+fn toRotatePartialUnion(allocator: std.mem.Allocator, res: rotatePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
+    errdefer allocator.free(res);
     const r = RotatePartial{ .elements = res };
     return OneArgFunctionPartial{ .rotate = r };
 }
@@ -720,7 +721,6 @@ const rotatePartialUnionParser = rotatePartialParserRaw.convert(toRotatePartialU
 fn toScalePartialUnion(allocator: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
     errdefer allocator.free(res);
     var args = try allocator.alloc(ScaleArg, res.len);
-    errdefer allocator.free(args);
     for (res, 0..) |v, i| {
         args[i] = ScaleArg{ .translation = v };
     }
@@ -880,15 +880,18 @@ const hookParser = mecha.combine(.{
     common.skipCloseBracket,
 }).convert(parseHook);
 
-fn freeCompositeInside(a: std.mem.Allocator, ci: CompositeInside) void {
-    if (ci == .inside) {
-        const comp = ci.inside;
-        switch (comp.*) {
-            .train => |tr| a.destroy(tr),
-            .hook => |hk| a.destroy(hk),
-        }
-        a.destroy(comp);
+fn freeComposite(a: std.mem.Allocator, comp: *const Composite) void {
+    switch (comp.*) {
+        .train => |tr| {
+            freeTrain(a, tr.*);
+            a.destroy(tr);
+        },
+        .hook => |hk| {
+            freeHook(a, hk.*);
+            a.destroy(hk);
+        },
     }
+    a.destroy(comp);
 }
 
 fn freeOneArgFunctionPartial(a: std.mem.Allocator, oa: OneArgFunctionPartial) void {
@@ -900,36 +903,20 @@ fn freeOneArgFunctionPartial(a: std.mem.Allocator, oa: OneArgFunctionPartial) vo
 }
 
 fn freeTrain(a: std.mem.Allocator, tr: Train) void {
-    freeCompositeInside(a, tr.left);
-    freeCompositeInside(a, tr.right);
     switch (tr.left) {
         .stop => |onearg| freeOneArgFunctionPartial(a, onearg),
-        .inside => {},
+        .inside => |comp| freeComposite(a, comp),
     }
     switch (tr.right) {
         .stop => |onearg| freeOneArgFunctionPartial(a, onearg),
-        .inside => {},
+        .inside => |comp| freeComposite(a, comp),
     }
 }
 
 fn freeHook(a: std.mem.Allocator, hk: Hook) void {
     switch (hk.left) {
-        .stop => |onearg| {
-            switch (onearg) {
-                .scale => |scalepart| {
-                    a.free(scalepart.elements);
-                },
-                .pin => {},
-                .rotate => |rotatepart| a.free(rotatepart.elements),
-            }
-        },
-        .inside => |comp| {
-            switch (comp.*) {
-                .train => |tr| freeTrain(a, tr.*),
-                .hook => |hk_inner| freeHook(a, hk_inner.*),
-            }
-            a.destroy(comp);
-        },
+        .stop => |onearg| freeOneArgFunctionPartial(a, onearg),
+        .inside => |comp| freeComposite(a, comp),
     }
 }
 
@@ -974,6 +961,7 @@ test "trainParser" {
     try testing.expectEqualDeep(t1, r1.value.ok);
     freeTrain(a, r1.value.ok);
 
+    //
     const r2 = try trainParser.parse(a, "((r [-120 a (10% self)]) with (pin {(-12,2.1)}))");
 
     const f2 = ElementFraction{ .fromStart = 10, .element = .self };
@@ -992,9 +980,22 @@ test "trainParser" {
     freeTrain(a, r2.value.ok);
     a.free(alloc2);
 
-    //    const r3 = try trainParser.parse(a, "(((r [-120 a (10% self)])) with (pin {(-12,2.1)}))");
-    //    undefined;
     //
-    //    const r4 = try trainParser.parse(a, " ( (((r [-120 a (10% self)])) on (scale [[2,3]])) with (pin {(-12,2.1)}))");
-    //    undefined;
+    const r3 = try trainParser.parse(a, "((scale [[2,3]] on) with (pin {(-12,2.1)}))");
+
+    const v3 = inputs.Vector{ .x = 2.0, .y = 3.0 };
+    const s3 = ScaleArg{ .translation = v3 };
+    const alloc3 = try a.dupe(ScaleArg, &[1]ScaleArg{s3});
+    const o3 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc3 } };
+    const h3 = Hook{ .left = CompositeInside{ .stop = o3 }, .right = .on };
+
+    const p3b_point = inputs.Point{ .x = -12.0, .y = 2.1 };
+    const gp3b = GeneralPoint{ .point = p3b_point };
+    const p3b = PinPartial{ .point = gp3b };
+    const o3b = OneArgFunctionPartial{ .pin = p3b };
+
+    const t3 = Train{ .left = CompositeInside{ .inside = &Composite{ .hook = &h3 } }, .middle = .with, .right = CompositeInside{ .stop = o3b } };
+    try testing.expectEqualDeep(t3, r3.value.ok);
+    freeTrain(a, r3.value.ok);
+    a.free(alloc3);
 }
