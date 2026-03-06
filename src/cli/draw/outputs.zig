@@ -891,9 +891,25 @@ fn freeCompositeInside(a: std.mem.Allocator, ci: CompositeInside) void {
     }
 }
 
+fn freeOneArgFunctionPartial(a: std.mem.Allocator, oa: OneArgFunctionPartial) void {
+    switch (oa) {
+        .scale => |scalepart| a.free(scalepart.elements),
+        .pin => {},
+        .rotate => |rotatepart| a.free(rotatepart.elements),
+    }
+}
+
 fn freeTrain(a: std.mem.Allocator, tr: Train) void {
     freeCompositeInside(a, tr.left);
     freeCompositeInside(a, tr.right);
+    switch (tr.left) {
+        .stop => |onearg| freeOneArgFunctionPartial(a, onearg),
+        .inside => {},
+    }
+    switch (tr.right) {
+        .stop => |onearg| freeOneArgFunctionPartial(a, onearg),
+        .inside => {},
+    }
 }
 
 fn freeHook(a: std.mem.Allocator, hk: Hook) void {
@@ -958,9 +974,24 @@ test "trainParser" {
     try testing.expectEqualDeep(t1, r1.value.ok);
     freeTrain(a, r1.value.ok);
 
-    //    const r2 = try trainParser.parse(a, "(((r [-120 a (10% self)])) with (pin {(-12,2.1)}))");
-    //    undefined;
-    //
+    const r2 = try trainParser.parse(a, "((r [-120 a (10% self)]) with (pin {(-12,2.1)}))");
+
+    const f2 = ElementFraction{ .fromStart = 10, .element = .self };
+    const p2 = GeneralPoint{ .fraction = f2 };
+    const r2a = RotateArg{ .phi = -120.0, .point = p2 };
+    const alloc2 = try a.dupe(RotateArg, &[1]RotateArg{r2a});
+    const o2a = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = alloc2 } };
+
+    const p2b_point = inputs.Point{ .x = -12.0, .y = 2.1 };
+    const gp2b = GeneralPoint{ .point = p2b_point };
+    const p2b = PinPartial{ .point = gp2b };
+    const o2b = OneArgFunctionPartial{ .pin = p2b };
+
+    const t2 = Train{ .left = CompositeInside{ .stop = o2a }, .middle = .with, .right = CompositeInside{ .stop = o2b } };
+    try testing.expectEqualDeep(t2, r2.value.ok);
+    freeTrain(a, r2.value.ok);
+    a.free(alloc2);
+
     //    const r3 = try trainParser.parse(a, "(((r [-120 a (10% self)])) with (pin {(-12,2.1)}))");
     //    undefined;
     //
