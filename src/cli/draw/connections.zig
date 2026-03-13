@@ -1,7 +1,9 @@
-const mecha = @import("mecha");
-const common = @import("common.zig");
 const std = @import("std");
 const testing = std.testing;
+
+const mecha = @import("mecha");
+
+const common = @import("common.zig");
 
 //Final connection pair mapping between data source to target
 pub const ConnectionMapping = struct {
@@ -44,39 +46,38 @@ const many_sourceNameParser = mecha.many(common.nameParser, .{ .collect = true, 
 const sourcesParserRaw =
     mecha.combine(.{ common.skipOpenBracket, many_sourceNameParser, common.skipCloseBracket });
 const sourcesParserRawP = @TypeOf(sourcesParserRaw);
-fn toSourcesParser(allocator: std.mem.Allocator, names: sourcesParserRawP.T) mecha.ConvertError![]Source {
-    var arr = try allocator.alloc(Source, names.len);
+fn toSourcesParser(arena: std.mem.Allocator, names: sourcesParserRawP.T) mecha.ConvertError![]Source {
+    var arr = try arena.alloc(Source, names.len);
     var ix: u8 = 0;
     for (names) |theRes| {
         arr[ix] = Source{ .name = theRes };
         ix += 1;
     }
-    allocator.free(names);
+    arena.free(names);
     return arr;
 }
 const sourcesParser = sourcesParserRaw.convert(toSourcesParser);
 
 test "sourcesParser" {
-    const a = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     const r1 = try sourcesParser.parse(a, "(seg)");
     const s1 = Source{ .name = &[_]u8{ 's', 'e', 'g' } };
     const sources1 = [1]Source{s1};
     try testing.expectEqualDeep(&sources1, r1.value.ok[0..1]);
-    a.free(r1.value.ok);
 
     const r2 = try sourcesParser.parse(a, "( seg )");
     const s2 = Source{ .name = &[_]u8{ 's', 'e', 'g' } };
     const sources2 = [1]Source{s2};
     try testing.expectEqualDeep(&sources2, r2.value.ok[0..1]);
-    a.free(r2.value.ok);
 
     const r3 = try sourcesParser.parse(a, "( seg1, seg2 )");
     const s3a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
     const s3b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
     const sources3 = [2]Source{ s3a, s3b };
     try testing.expectEqualDeep(&sources3, r3.value.ok[0..2]);
-    a.free(r3.value.ok);
 
     const r4 = try sourcesParser.parse(a, "( seg1, seg2, txt1 )");
     const s4a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
@@ -84,19 +85,20 @@ test "sourcesParser" {
     const s4c = Source{ .name = &[_]u8{ 't', 'x', 't', '1' } };
     const sources4 = [3]Source{ s4a, s4b, s4c };
     try testing.expectEqualDeep(&sources4, r4.value.ok[0..3]);
-    a.free(r4.value.ok);
 }
 
 const pairTargetNameParser = mecha.manyN(common.nameParser, 2, .{ .separator = common.skipArrow });
 
 test "pairTargetNameParser" {
-    const fa = testing.failing_allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
-    const r1 = try pairTargetNameParser.parse(fa, "seg -> e0");
+    const r1 = try pairTargetNameParser.parse(a, "seg -> e0");
     const exp1 = [2][]const u8{ "seg", "e0" };
     try testing.expectEqualDeep(&exp1, &r1.value.ok);
 
-    const r2 = try pairTargetNameParser.parse(fa, "seg1  ->  e10");
+    const r2 = try pairTargetNameParser.parse(a, "seg1  ->  e10");
     const exp2 = [2][]const u8{ "seg1", "e10" };
     try testing.expectEqualDeep(&exp2, &r2.value.ok);
 }
@@ -105,33 +107,33 @@ const many_targetNameParser = mecha.many(pairTargetNameParser, .{ .collect = tru
 const targetsParserRaw =
     mecha.combine(.{ common.skipOpenBracket, many_targetNameParser, common.skipCloseBracket });
 const targetsParserRawP = @TypeOf(targetsParserRaw);
-fn toTargetsParser(allocator: std.mem.Allocator, pairs: targetsParserRawP.T) mecha.ConvertError![]TargetPair {
-    var arr = try allocator.alloc(TargetPair, pairs.len);
+fn toTargetsParser(arena: std.mem.Allocator, pairs: targetsParserRawP.T) mecha.ConvertError![]TargetPair {
+    var arr = try arena.alloc(TargetPair, pairs.len);
     var ix: u8 = 0;
     for (pairs) |thePair| {
         arr[ix] = TargetPair{ .sourceName = thePair[0], .elementName = thePair[1] };
         ix += 1;
     }
-    allocator.free(pairs);
+    arena.free(pairs);
     return arr;
 }
 const targetsParser = targetsParserRaw.convert(toTargetsParser);
 
 test "targetsParser" {
-    const a = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     const r1 = try targetsParser.parse(a, "(seg1 -> e0, seg2 -> e0)");
     const exp1a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
     const exp1b = TargetPair{ .sourceName = "seg2", .elementName = "e0" };
     const exp1 = [2]TargetPair{ exp1a, exp1b };
     try testing.expectEqualDeep(&exp1, r1.value.ok[0..2]);
-    a.free(r1.value.ok);
 
     const r2 = try targetsParser.parse(a, "(seg1 -> e0   )");
     const exp2a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
     const exp2 = [1]TargetPair{exp2a};
     try testing.expectEqualDeep(&exp2, r2.value.ok[0..1]);
-    a.free(r2.value.ok);
 
     const r3 = try targetsParser.parse(a, "(seg1 -> e0, seg2 -> e0,   txt1 -> e11)");
     const exp3a = TargetPair{ .sourceName = "seg1", .elementName = "e0" };
@@ -139,7 +141,6 @@ test "targetsParser" {
     const exp3c = TargetPair{ .sourceName = "txt1", .elementName = "e11" };
     const exp3 = [3]TargetPair{ exp3a, exp3b, exp3c };
     try testing.expectEqualDeep(&exp3, r3.value.ok[0..3]);
-    a.free(r3.value.ok);
 }
 
 const connectionParserRaw =
@@ -151,7 +152,9 @@ fn toConnectionParser(_: std.mem.Allocator, res: connectionParserRawP.T) mecha.C
 const connectionParser = connectionParserRaw.convert(toConnectionParser);
 
 test "connectionParser" {
-    const a = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     const r1 = try connectionParser.parse(a, "(seg) -> (seg -> e0)");
     const s1 = Source{ .name = &[_]u8{ 's', 'e', 'g' } };
@@ -160,8 +163,6 @@ test "connectionParser" {
     const target1 = [1]TargetPair{t1};
     const exp1 = Connection{ .inputs = &source1, .mappingPairs = &target1 };
     try testing.expectEqualDeep(&exp1, &r1.value.ok);
-    a.free(r1.value.ok.inputs);
-    a.free(r1.value.ok.mappingPairs);
 
     const r2 = try connectionParser.parse(a, "(seg1, seg2) -> (seg1 -> e0, seg2->e0)");
     const s2a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
@@ -172,8 +173,6 @@ test "connectionParser" {
     const target2 = [2]TargetPair{ t2a, t2b };
     const exp2 = Connection{ .inputs = &source2, .mappingPairs = &target2 };
     try testing.expectEqualDeep(&exp2, &r2.value.ok);
-    a.free(r2.value.ok.inputs);
-    a.free(r2.value.ok.mappingPairs);
 
     const r3 = try connectionParser.parse(a, " (seg1, seg2,txt1) -> (seg1 -> e0, seg2->e0,txt1->e11)");
     const s3a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
@@ -186,8 +185,6 @@ test "connectionParser" {
     const target3 = [3]TargetPair{ t3a, t3b, t3c };
     const exp3 = Connection{ .inputs = &source3, .mappingPairs = &target3 };
     try testing.expectEqualDeep(&exp3, &r3.value.ok);
-    a.free(r3.value.ok.inputs);
-    a.free(r3.value.ok.mappingPairs);
 }
 
 // Validate 'Connection' to get 'ConnectionValidated' if
@@ -203,21 +200,19 @@ test "connectionParser" {
 // } else |err| {
 //    ...
 // }
-pub fn validateConnection(allocator: std.mem.Allocator, numberOfSources: u8, elements: []const []const u8, connection: Connection) !ConnectionValidated {
+pub fn validateConnection(arena: std.mem.Allocator, numberOfSources: u8, elements: []const []const u8, connection: Connection) !ConnectionValidated {
     if (connection.inputs.len != numberOfSources) {
         return ConnectionError.WrongNumberOfInputStreams;
     }
 
-    var srcArr = try allocator.alloc([]const u8, connection.inputs.len);
-    defer allocator.free(srcArr);
+    var srcArr = try arena.alloc([]const u8, connection.inputs.len);
     var ix: u8 = 0;
     for (connection.inputs) |theSource| {
         srcArr[ix] = theSource.name;
         ix += 1;
     }
 
-    var outArr = try allocator.alloc(ConnectionMapping, connection.mappingPairs.len);
-    errdefer allocator.free(outArr);
+    var outArr = try arena.alloc(ConnectionMapping, connection.mappingPairs.len);
     ix = 0;
     for (connection.mappingPairs) |theTarget| {
         const elemToFind = theTarget.elementName;
@@ -251,7 +246,9 @@ fn indexOfPos(check: ConnectionValidationCheck, vec: []const []const u8, elem: [
 }
 
 test "connection validation" {
-    const a = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     const s1 = Source{ .name = &[_]u8{ 's', 'e', 'g' } };
     const source1 = [1]Source{s1};
@@ -264,7 +261,6 @@ test "connection validation" {
     const elems1: [1][]const u8 = .{"e0"};
     const validation1 = try validateConnection(a, 1, &elems1, connection1);
     try testing.expectEqualDeep(&validation1, &connectionValidated1);
-    a.free(validation1.mappings);
 
     const validation2 = validateConnection(a, 2, &elems1, connection1);
     try testing.expectEqual(validation2, ConnectionError.WrongNumberOfInputStreams);
@@ -283,7 +279,6 @@ test "connection validation" {
     const elems3: [1][]const u8 = .{"e0"};
     const validation3 = try validateConnection(a, 2, &elems3, connection3);
     try testing.expectEqualDeep(&validation3, &connectionValidated3);
-    a.free(validation3.mappings);
 
     const s4a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
     const s4b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
@@ -299,7 +294,6 @@ test "connection validation" {
     const elems4: [2][]const u8 = .{ "e11", "e0" };
     const validation4 = try validateConnection(a, 2, &elems4, connection4);
     try testing.expectEqualDeep(&validation4, &connectionValidated4);
-    a.free(validation4.mappings);
 
     const s5a = Source{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
     const s5b = Source{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
