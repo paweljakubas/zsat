@@ -1,8 +1,9 @@
+const std = @import("std");
+const testing = std.testing;
+
 const mecha = @import("mecha");
 const common = @import("common.zig");
 const inputs = @import("inputs.zig");
-const std = @import("std");
-const testing = std.testing;
 
 ////Types
 
@@ -102,39 +103,38 @@ const many_outputNameParser = mecha.many(outputNameParser, .{ .collect = true, .
 const outputsParserRaw =
     mecha.combine(.{ common.skipOpenBracket, many_outputNameParser, common.skipCloseBracket });
 const outputsParserRawP = @TypeOf(outputsParserRaw);
-fn toOutputsParser(allocator: std.mem.Allocator, names: outputsParserRawP.T) mecha.ConvertError![]Output {
-    var arr = try allocator.alloc(Output, names.len);
+fn toOutputsParser(arena: std.mem.Allocator, names: outputsParserRawP.T) mecha.ConvertError![]Output {
+    var arr = try arena.alloc(Output, names.len);
     var ix: u8 = 0;
     for (names) |theRes| {
         arr[ix] = Output{ .name = theRes };
         ix += 1;
     }
-    allocator.free(names);
+    arena.free(names);
     return arr;
 }
 const outputsParser = outputsParserRaw.convert(toOutputsParser);
 
 test "outputsParser" {
-    const a = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     const r1 = try outputsParser.parse(a, "(out)");
     const o1 = Output{ .name = &[_]u8{ 'o', 'u', 't' } };
     const output1 = [1]Output{o1};
     try testing.expectEqualDeep(&output1, r1.value.ok[0..1]);
-    a.free(r1.value.ok);
 
     const r2 = try outputsParser.parse(a, "( out )");
     const o2 = Output{ .name = &[_]u8{ 'o', 'u', 't' } };
     const output2 = [1]Output{o2};
     try testing.expectEqualDeep(&output2, r2.value.ok[0..1]);
-    a.free(r2.value.ok);
 
     const r3 = try outputsParser.parse(a, "( out1, out2 )");
     const o3a = Output{ .name = &[_]u8{ 'o', 'u', 't', '1' } };
     const o3b = Output{ .name = &[_]u8{ 'o', 'u', 't', '2' } };
     const output3 = [2]Output{ o3a, o3b };
     try testing.expectEqualDeep(&output3, r3.value.ok[0..2]);
-    a.free(r3.value.ok);
 
     const r4 = try outputsParser.parse(a, "( out1, out2, txt1 )");
     const o4a = Output{ .name = &[_]u8{ 'o', 'u', 't', '1' } };
@@ -142,7 +142,6 @@ test "outputsParser" {
     const o4c = Output{ .name = &[_]u8{ 't', 'x', 't', '1' } };
     const output4 = [3]Output{ o4a, o4b, o4c };
     try testing.expectEqualDeep(&output4, r4.value.ok[0..3]);
-    a.free(r4.value.ok);
 }
 
 const selfParser = mecha.string("self").map(struct {
@@ -460,12 +459,15 @@ const rotatePartialParserRaw = mecha.oneOf(.{
 });
 const rotatePartialParserRawP = @TypeOf(rotatePartialParserRaw);
 fn toRotatePartial(_: std.mem.Allocator, res: rotatePartialParserRawP.T) mecha.ConvertError!RotatePartial {
+    _ = undefined; // unused arena
     return RotatePartial{ .elements = res };
 }
 const rotatePartialParser = rotatePartialParserRaw.convert(toRotatePartial);
 
 test "rotatePartialParser" {
-    const a = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     const r1 = try rotatePartialParser.parse(a, "rotate [90 a (0% self)]");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
@@ -473,7 +475,6 @@ test "rotatePartialParser" {
     const r1arg = RotateArg{ .phi = 90.0, .point = p1 };
     try testing.expectEqual(@as(usize, 1), r1.value.ok.elements.len);
     try testing.expectEqualDeep(r1arg, r1.value.ok.elements[0]);
-    a.free(r1.value.ok.elements);
 
     const r2 = try rotatePartialParser.parse(a, "r [-120 a (10% self)]");
     const f2 = ElementFraction{ .fromStart = 10, .element = .self };
@@ -481,7 +482,6 @@ test "rotatePartialParser" {
     const r2arg = RotateArg{ .phi = -120.0, .point = p2 };
     try testing.expectEqual(@as(usize, 1), r2.value.ok.elements.len);
     try testing.expectEqualDeep(r2arg, r2.value.ok.elements[0]);
-    a.free(r2.value.ok.elements);
 
     const r3 = try rotatePartialParser.parse(a, " rotate [0 around ( beg self) , -1234.9 a {(-12,2.1)} ]");
     const p3a = GeneralPoint{ .beginning = .self };
@@ -492,7 +492,6 @@ test "rotatePartialParser" {
     try testing.expectEqual(@as(usize, 2), r3.value.ok.elements.len);
     try testing.expectEqualDeep(r3a, r3.value.ok.elements[0]);
     try testing.expectEqualDeep(r3b, r3.value.ok.elements[1]);
-    a.free(r3.value.ok.elements);
 
     const r4 = try rotatePartialParser.parse(a, "(r [-120 a (10% self)])");
     const f4 = ElementFraction{ .fromStart = 10, .element = .self };
@@ -500,7 +499,6 @@ test "rotatePartialParser" {
     const r4arg = RotateArg{ .phi = -120.0, .point = p4 };
     try testing.expectEqual(@as(usize, 1), r4.value.ok.elements.len);
     try testing.expectEqualDeep(r4arg, r4.value.ok.elements[0]);
-    a.free(r4.value.ok.elements);
 }
 
 const scalePartialParserRawWithout = mecha.combine(.{
@@ -535,32 +533,32 @@ const scalePartialParserRaw = mecha.oneOf(.{
     scalePartialParserRawWithout,
 });
 const scalePartialParserRawP = @TypeOf(scalePartialParserRaw);
-fn toScalePartial(allocator: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!ScalePartial {
-    var args = try allocator.alloc(ScaleArg, res.len);
+fn toScalePartial(arena: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!ScalePartial {
+    var args = try arena.alloc(ScaleArg, res.len);
     for (res, 0..) |v, i| {
         args[i] = ScaleArg{ .translation = v };
     }
-    allocator.free(res);
+    arena.free(res);
     return ScalePartial{ .elements = args };
 }
 const scalePartialParser = scalePartialParserRaw.convert(toScalePartial);
 
 test "scalePartialParser" {
-    const a = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     const r1 = try scalePartialParser.parse(a, "scale [[2,3]]");
     const v1 = inputs.Vector{ .x = 2.0, .y = 3.0 };
     const s1 = ScaleArg{ .translation = v1 };
     try testing.expectEqual(@as(usize, 1), r1.value.ok.elements.len);
     try testing.expectEqualDeep(s1, r1.value.ok.elements[0]);
-    a.free(r1.value.ok.elements);
 
     const r2 = try scalePartialParser.parse(a, "s by [[2.1,3.1]]");
     const v2 = inputs.Vector{ .x = 2.1, .y = 3.1 };
     const s2 = ScaleArg{ .translation = v2 };
     try testing.expectEqual(@as(usize, 1), r2.value.ok.elements.len);
     try testing.expectEqualDeep(s2, r2.value.ok.elements[0]);
-    a.free(r2.value.ok.elements);
 
     const r3 = try scalePartialParser.parse(a, "s by [[2.1,3.1], [-10.0, 1.1e+03]]");
     const v3a = inputs.Vector{ .x = 2.1, .y = 3.1 };
@@ -570,14 +568,12 @@ test "scalePartialParser" {
     try testing.expectEqual(@as(usize, 2), r3.value.ok.elements.len);
     try testing.expectEqualDeep(s3a, r3.value.ok.elements[0]);
     try testing.expectEqualDeep(s3b, r3.value.ok.elements[1]);
-    a.free(r3.value.ok.elements);
 
     const r4 = try scalePartialParser.parse(a, "(s by [[2.1,3.1]])");
     const v4 = inputs.Vector{ .x = 2.1, .y = 3.1 };
     const s4 = ScaleArg{ .translation = v4 };
     try testing.expectEqual(@as(usize, 1), r4.value.ok.elements.len);
     try testing.expectEqualDeep(s4, r4.value.ok.elements[0]);
-    a.free(r4.value.ok.elements);
 }
 
 const pinPartialParserRawWithout = mecha.combine(.{
@@ -712,19 +708,17 @@ test "twoArgCombinatorParser" {
     try testing.expectEqual(0, r4.index);
 }
 
-fn toRotatePartialUnion(allocator: std.mem.Allocator, res: rotatePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
-    errdefer allocator.free(res);
+fn toRotatePartialUnion(_: std.mem.Allocator, res: rotatePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
     const r = RotatePartial{ .elements = res };
     return OneArgFunctionPartial{ .rotate = r };
 }
 const rotatePartialUnionParser = rotatePartialParserRaw.convert(toRotatePartialUnion);
-fn toScalePartialUnion(allocator: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
-    errdefer allocator.free(res);
-    var args = try allocator.alloc(ScaleArg, res.len);
+fn toScalePartialUnion(arena: std.mem.Allocator, res: scalePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
+    var args = try arena.alloc(ScaleArg, res.len);
     for (res, 0..) |v, i| {
         args[i] = ScaleArg{ .translation = v };
     }
-    allocator.free(res);
+    arena.free(res);
     const s = ScalePartial{ .elements = args };
     return OneArgFunctionPartial{ .scale = s };
 }
@@ -742,24 +736,22 @@ const oneArgFunctionPartialParser = mecha.oneOf(.{
 });
 
 test "oneArgFunctionPartialParser" {
-    const fa = testing.failing_allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
-    const r1 = try oneArgFunctionPartialParser.parse(fa, "pin (0% self)");
+    const r1 = try oneArgFunctionPartialParser.parse(a, "pin (0% self)");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const gp1 = GeneralPoint{ .fraction = f1 };
     const p1 = PinPartial{ .point = gp1 };
     const o1 = OneArgFunctionPartial{ .pin = p1 };
     try testing.expectEqualDeep(o1, r1.value.ok);
 
-    const a = testing.allocator;
-
     const r2 = try oneArgFunctionPartialParser.parse(a, "scale [[2,3]]");
     const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
     const s2 = ScaleArg{ .translation = v2 };
     const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = try a.dupe(ScaleArg, &[1]ScaleArg{s2}) } };
     try testing.expectEqualDeep(o2, r2.value.ok);
-    a.free(r2.value.ok.scale.elements);
-    a.free(o2.scale.elements);
 
     const r3 = try oneArgFunctionPartialParser.parse(a, " rotate [0 around ( beg self) , -1234.9 a {(-12,2.1)} ]");
     const p3a = GeneralPoint{ .beginning = .self };
@@ -769,8 +761,6 @@ test "oneArgFunctionPartialParser" {
     const r3b = RotateArg{ .phi = -1234.9, .point = gp3 };
     const o3 = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = try a.dupe(RotateArg, &[2]RotateArg{ r3a, r3b }) } };
     try testing.expectEqualDeep(o3, r3.value.ok);
-    a.free(r3.value.ok.rotate.elements);
-    a.free(o3.rotate.elements);
 
     const r4 = try oneArgFunctionPartialParser.parse(a, "(r [-120 a (10% self)])");
     const f4 = ElementFraction{ .fromStart = 10, .element = .self };
@@ -778,13 +768,11 @@ test "oneArgFunctionPartialParser" {
     const r4a = RotateArg{ .phi = -120.0, .point = p4 };
     const o4 = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = try a.dupe(RotateArg, &[1]RotateArg{r4a}) } };
     try testing.expectEqualDeep(o4, r4.value.ok);
-    a.free(r4.value.ok.rotate.elements);
-    a.free(o4.rotate.elements);
 }
 
-fn compositeToInside(allocator: std.mem.Allocator, a: Composite) mecha.ConvertError!CompositeInside {
-    const p = try allocator.create(Composite);
-    errdefer allocator.destroy(p);
+fn compositeToInside(arena: std.mem.Allocator, a: Composite) mecha.ConvertError!CompositeInside {
+    const p = try arena.create(Composite);
+    errdefer arena.destroy(p);
     p.* = a;
     return CompositeInside{ .inside = p };
 }
@@ -810,12 +798,12 @@ fn compositeParserRef() mecha.Parser(Composite) {
     return compositeParser;
 }
 
-fn parseTrainInner(allocator: std.mem.Allocator, args: anytype) mecha.ConvertError!*Train {
+fn parseTrainInner(arena: std.mem.Allocator, args: anytype) mecha.ConvertError!*Train {
     const left = args[0];
     const middle = args[1];
     const right = args[2];
-    const train = try allocator.create(Train);
-    errdefer allocator.destroy(train);
+    const train = try arena.create(Train);
+    errdefer arena.destroy(train);
     train.* = Train{ .left = left, .middle = middle, .right = right };
     return train;
 }
@@ -828,11 +816,11 @@ const trainParserInner = mecha.combine(.{
     mecha.ref(compositeInsideParserRef),
 }).convert(parseTrainInner);
 
-fn parseHookInner(allocator: std.mem.Allocator, args: anytype) mecha.ConvertError!*Hook {
+fn parseHookInner(arena: std.mem.Allocator, args: anytype) mecha.ConvertError!*Hook {
     const left = args[0];
     const right = args[1];
-    const hook = try allocator.create(Hook);
-    errdefer allocator.destroy(hook);
+    const hook = try arena.create(Hook);
+    errdefer arena.destroy(hook);
     hook.* = Hook{ .left = left, .right = right };
     return hook;
 }
@@ -856,10 +844,8 @@ const compositeParser = mecha.oneOf(.{
     }.toHook),
 });
 
-fn parseTrain(allocator: std.mem.Allocator, t: *Train) mecha.ConvertError!Train {
-    const result = t.*;
-    allocator.destroy(t);
-    return result;
+fn parseTrain(_: std.mem.Allocator, t: *Train) mecha.ConvertError!Train {
+    return t.*;
 }
 
 const trainParser = mecha.combine(.{
@@ -868,10 +854,8 @@ const trainParser = mecha.combine(.{
     common.skipCloseBracket,
 }).convert(parseTrain);
 
-fn parseHook(allocator: std.mem.Allocator, h: *Hook) mecha.ConvertError!Hook {
-    const result = h.*;
-    allocator.destroy(h);
-    return result;
+fn parseHook(_: std.mem.Allocator, h: *Hook) mecha.ConvertError!Hook {
+    return h.*;
 }
 
 const hookParser = mecha.combine(.{
@@ -880,48 +864,10 @@ const hookParser = mecha.combine(.{
     common.skipCloseBracket,
 }).convert(parseHook);
 
-fn freeComposite(a: std.mem.Allocator, comp: *const Composite) void {
-    switch (comp.*) {
-        .train => |tr| {
-            freeTrain(a, tr.*);
-            a.destroy(tr);
-        },
-        .hook => |hk| {
-            freeHook(a, hk.*);
-            a.destroy(hk);
-        },
-    }
-    a.destroy(comp);
-}
-
-fn freeOneArgFunctionPartial(a: std.mem.Allocator, oa: OneArgFunctionPartial) void {
-    switch (oa) {
-        .scale => |scalepart| a.free(scalepart.elements),
-        .pin => {},
-        .rotate => |rotatepart| a.free(rotatepart.elements),
-    }
-}
-
-fn freeTrain(a: std.mem.Allocator, tr: Train) void {
-    switch (tr.left) {
-        .stop => |onearg| freeOneArgFunctionPartial(a, onearg),
-        .inside => |comp| freeComposite(a, comp),
-    }
-    switch (tr.right) {
-        .stop => |onearg| freeOneArgFunctionPartial(a, onearg),
-        .inside => |comp| freeComposite(a, comp),
-    }
-}
-
-fn freeHook(a: std.mem.Allocator, hk: Hook) void {
-    switch (hk.left) {
-        .stop => |onearg| freeOneArgFunctionPartial(a, onearg),
-        .inside => |comp| freeComposite(a, comp),
-    }
-}
-
 test "hookParser" {
-    const a = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     const r1 = try hookParser.parse(a, "((pin (0% self)) with)");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
@@ -930,7 +876,6 @@ test "hookParser" {
     const o1 = OneArgFunctionPartial{ .pin = p1 };
     const h1 = Hook{ .left = CompositeInside{ .stop = o1 }, .right = .with };
     try testing.expectEqualDeep(h1, r1.value.ok);
-    freeHook(a, r1.value.ok);
 
     const r2 = try hookParser.parse(a, "((scale [[2,3]]) under)");
     const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
@@ -939,12 +884,12 @@ test "hookParser" {
     const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc2 } };
     const h2 = Hook{ .left = CompositeInside{ .stop = o2 }, .right = .under };
     try testing.expectEqualDeep(h2, r2.value.ok);
-    freeHook(a, r2.value.ok);
-    a.free(alloc2);
 }
 
 test "trainParser" {
-    const a = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     const r1 = try trainParser.parse(a, "((pin (0% self)) with (pin {(-12,2.1)}))");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
@@ -959,9 +904,7 @@ test "trainParser" {
 
     const t1 = Train{ .left = CompositeInside{ .stop = o1a }, .middle = .with, .right = CompositeInside{ .stop = o1b } };
     try testing.expectEqualDeep(t1, r1.value.ok);
-    freeTrain(a, r1.value.ok);
 
-    //
     const r2 = try trainParser.parse(a, "((r [-120 a (10% self)]) with (pin {(-12,2.1)}))");
 
     const f2 = ElementFraction{ .fromStart = 10, .element = .self };
@@ -977,8 +920,6 @@ test "trainParser" {
 
     const t2 = Train{ .left = CompositeInside{ .stop = o2a }, .middle = .with, .right = CompositeInside{ .stop = o2b } };
     try testing.expectEqualDeep(t2, r2.value.ok);
-    freeTrain(a, r2.value.ok);
-    a.free(alloc2);
 
     //
     const r3 = try trainParser.parse(a, "((scale [[2,3]] on) with (pin {(-12,2.1)}))");
@@ -996,6 +937,4 @@ test "trainParser" {
 
     const t3 = Train{ .left = CompositeInside{ .inside = &Composite{ .hook = &h3 } }, .middle = .with, .right = CompositeInside{ .stop = o3b } };
     try testing.expectEqualDeep(t3, r3.value.ok);
-    freeTrain(a, r3.value.ok);
-    a.free(alloc3);
 }
