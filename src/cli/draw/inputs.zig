@@ -38,7 +38,9 @@ const scientific = mecha.combine(.{
 const floatFromScientific = scientific.asStr().convert(mecha.toFloat(f32));
 
 test "floatFromScientific" {
-    const fa = testing.failing_allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const fa = arena.allocator();
 
     const r1 = try floatFromScientific.parse(fa, "2e+1");
     try testing.expectEqual(20.0, r1.value.ok);
@@ -65,7 +67,9 @@ const floatParser = mecha.oneOf(.{
 });
 
 test "floatParser" {
-    const fa = testing.failing_allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const fa = arena.allocator();
 
     const r1 = try floatParser.parse(fa, "2e+1");
     try testing.expectEqual(20.0, r1.value.ok);
@@ -106,7 +110,9 @@ fn toPointParser(_: std.mem.Allocator, res: pointParserRawP.T) mecha.ConvertErro
 const pointParser = pointParserRaw.convert(toPointParser);
 
 test "pointParser" {
-    const fa = testing.failing_allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const fa = arena.allocator();
 
     const r1 = try pointParser.parse(fa, "(2,1.1)");
     const p1 = Point{ .x = 2.0, .y = 1.1 };
@@ -128,25 +134,24 @@ const pointsParser = mecha.combine(.{
 });
 
 test "pointsParser" {
-    const a = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     const r1 = try pointsParser.parse(a, "{(2,1.1)}");
     const p1 = Point{ .x = 2.0, .y = 1.1 };
     try testing.expectEqualDeep(&[1]Point{p1}, r1.value.ok[0..1]);
-    a.free(r1.value.ok);
 
     const r2 = try pointsParser.parse(a, "{(2,1.1), (-2, -1.1)}");
     const p2a = Point{ .x = 2.0, .y = 1.1 };
     const p2b = Point{ .x = -2.0, .y = -1.1 };
     try testing.expectEqualDeep(&[2]Point{ p2a, p2b }, r2.value.ok[0..2]);
-    a.free(r2.value.ok);
 
     const r3 = try pointsParser.parse(a, "{(0,1.0), (0,-1.0), (1.0, 0)}");
     const p3a = Point{ .x = 0.0, .y = 1.0 };
     const p3b = Point{ .x = 0.0, .y = -1.0 };
     const p3c = Point{ .x = 1.0, .y = 0.0 };
     try testing.expectEqualDeep(&[3]Point{ p3a, p3b, p3c }, r3.value.ok[0..3]);
-    a.free(r3.value.ok);
 }
 
 const vectorParserRaw = mecha.combine(.{ common.skipOpenSquare, floatParser, common.skipComma, floatParser, common.skipCloseSquare });
@@ -157,7 +162,9 @@ fn toVectorParser(_: std.mem.Allocator, res: vectorParserRawP.T) mecha.ConvertEr
 const vectorParser = vectorParserRaw.convert(toVectorParser);
 
 test "vectorParser" {
-    const fa = testing.failing_allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const fa = arena.allocator();
 
     const r1 = try vectorParser.parse(fa, "[2,1.1]");
     const p1 = Vector{ .x = 2.0, .y = 1.1 };
@@ -179,23 +186,21 @@ pub const vectorsParser = mecha.combine(.{
 });
 
 test "vectorsParser" {
-    const a = testing.allocator;
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
 
     const r1 = try vectorsParser.parse(a, "[[2,1.1]]");
     const p1 = Vector{ .x = 2.0, .y = 1.1 };
     try testing.expectEqualDeep(&[1]Vector{p1}, r1.value.ok[0..1]);
-    a.free(r1.value.ok);
-    //
-    //    const r2 = try vectorsParser.parse(a, "[[2,1.1], [-2, -1.1]]");
-    //    const p2a = Vector{ .x = 2.0, .y = 1.1 };
-    //    const p2b = Vector{ .x = -2.0, .y = -1.1 };
-    //    try testing.expectEqualDeep(&[2]Vector{ p2a, p2b }, r2.value.ok[0..2]);
-    //    a.free(r2.value.ok);
-    //
-    //    const r3 = try vectorsParser.parse(a, "[[0,1.0], [0,-1.0], [1.0, 0]]");
-    //    const p3a = Vector{ .x = 0.0, .y = 1.0 };
-    //    const p3b = Vector{ .x = 0.0, .y = -1.0 };
-    //    const p3c = Vector{ .x = 1.0, .y = 0.0 };
-    //    try testing.expectEqualDeep(&[3]Vector{ p3a, p3b, p3c }, r3.value.ok[0..3]);
-    //    a.free(r3.value.ok);
+    const r2 = try vectorsParser.parse(a, "[[2,1.1], [-2, -1.1]]");
+    const p2a = Vector{ .x = 2.0, .y = 1.1 };
+    const p2b = Vector{ .x = -2.0, .y = -1.1 };
+    try testing.expectEqualDeep(&[2]Vector{ p2a, p2b }, r2.value.ok[0..2]);
+
+    const r3 = try vectorsParser.parse(a, "[[0,1.0], [0,-1.0], [1.0, 0]]");
+    const p3a = Vector{ .x = 0.0, .y = 1.0 };
+    const p3b = Vector{ .x = 0.0, .y = -1.0 };
+    const p3c = Vector{ .x = 1.0, .y = 0.0 };
+    try testing.expectEqualDeep(&[3]Vector{ p3a, p3b, p3c }, r3.value.ok[0..3]);
 }
