@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 
 const mecha = @import("mecha");
+
 const common = @import("common.zig");
 const inputs = @import("inputs.zig");
 
@@ -35,6 +36,13 @@ pub const Train = struct {
 pub const Hook = struct {
     left: CompositeInside,
     right: TwoArgCombinator,
+};
+
+//Compose (&) like in J
+//(op1 & op2) x == op1 (op2 x)
+pub const Compose = struct {
+    left: OneArgFunctionPartial,
+    right: OneArgFunctionPartial,
 };
 
 pub const TwoArgCombinator = enum {
@@ -937,4 +945,39 @@ test "trainParser" {
 
     const t3 = Train{ .left = CompositeInside{ .inside = &Composite{ .hook = &h3 } }, .middle = .with, .right = CompositeInside{ .stop = o3b } };
     try testing.expectEqualDeep(t3, r3.value.ok);
+}
+
+const composeParserRaw = mecha.combine(.{
+    common.skipOpenBracket,
+    oneArgFunctionPartialParser,
+    common.skipWhitespace,
+    mecha.ascii.char('&').discard(),
+    common.skipWhitespace,
+    oneArgFunctionPartialParser,
+    common.skipCloseBracket,
+});
+const composeParserRawP = @TypeOf(composeParserRaw);
+fn toCompose(_: std.mem.Allocator, args: composeParserRawP.T) mecha.ConvertError!Compose {
+    return Compose{ .left = args[0], .right = args[1] };
+}
+const composeParser = composeParserRaw.convert(toCompose);
+
+test "composeParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try composeParser.parse(a, "(pin (0% self) & scale [[2,3]]))");
+
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gp1 = GeneralPoint{ .fraction = f1 };
+    const p1 = PinPartial{ .point = gp1 };
+    const o1 = OneArgFunctionPartial{ .pin = p1 };
+    const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
+    const s2 = ScaleArg{ .translation = v2 };
+    const alloc2 = try a.dupe(ScaleArg, &[1]ScaleArg{s2});
+    const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc2 } };
+
+    const c1 = Compose{ .left = o1, .right = o2 };
+    try testing.expectEqualDeep(c1, r1.value.ok);
 }
