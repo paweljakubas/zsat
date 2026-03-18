@@ -47,17 +47,22 @@ pub fn build(b: *std.Build) void {
             "src/cli/draw/inputs.zig",
             "src/cli/draw/outputs.zig",
             "src/cli/draw/styles.zig",
+            "src/cli/transform/geometry.zig",
         }) |test_file| {
+            const test_mod = b.createModule(.{
+                .root_source_file = b.path(test_file),
+                .optimize = optimize,
+                .target = target,
+            });
             const unit_tests = b.addTest(.{
-                .root_module = b.createModule(.{
-                    .root_source_file = b.path(test_file),
-                    .optimize = optimize,
-                    .target = target,
-                }),
+                .root_module = test_mod,
             });
 
-            unit_tests.root_module.addImport("zli", zli_dep.module("zli"));
-            unit_tests.root_module.addImport("mecha", mecha_dep.module("mecha"));
+            test_mod.addImport("zli", zli_dep.module("zli"));
+            test_mod.addImport("mecha", mecha_dep.module("mecha"));
+            test_mod.addImport("cli", b.createModule(.{
+                .root_source_file = b.path("src/cli/draw/inputs.zig"),
+            }));
 
             const run_unit_tests = b.addRunArtifact(unit_tests);
             test_step.dependOn(&run_unit_tests.step);
