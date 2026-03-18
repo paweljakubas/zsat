@@ -358,3 +358,107 @@ test "inputsParser" {
     const in6 = Inputs{ .input = &[3]InputElementRow{ row6a, row6b, row6c } };
     try testing.expectEqualDeep(in6, r6.value.ok);
 }
+
+pub const Angle = union(enum) {
+    degrees: f32,
+    radians: f32,
+};
+
+pub const pi: f32 = 3.14159265359;
+
+const angleParserPiSuffix = mecha.combine(.{
+    mecha.utf8.char('p'),
+});
+
+const angleParserPiSuffixP = @TypeOf(angleParserPiSuffix);
+fn parsePiSuffix(_: std.mem.Allocator, _: angleParserPiSuffixP.T) mecha.ConvertError!f32 {
+    return pi;
+}
+
+const angleParserWithRatio = mecha.combine(.{
+    common.integer,
+    mecha.utf8.char('r'),
+    common.integer,
+    mecha.utf8.char('p'),
+}).asStr();
+
+const angleParserWithRatioP = @TypeOf(angleParserWithRatio);
+fn parseWithRatio(_: std.mem.Allocator, res: angleParserWithRatioP.T) mecha.ConvertError!f32 {
+    const slash_index = std.mem.indexOfScalar(u8, res, 'r').?;
+    const p_index = std.mem.indexOfScalar(u8, res, 'p').?;
+    const numerator = std.fmt.parseInt(i32, res[0..slash_index], 10) catch return error.ConversionFailed;
+    const denominator = std.fmt.parseInt(i32, res[slash_index + 1 .. p_index], 10) catch return error.ConversionFailed;
+    const num_f: f32 = @floatFromInt(numerator);
+    const den_f: f32 = @floatFromInt(denominator);
+    return (num_f / den_f) * pi;
+}
+
+const angleParserWithInt = mecha.combine(.{
+    common.integer,
+    mecha.utf8.char('p'),
+}).asStr();
+
+const angleParserWithIntP = @TypeOf(angleParserWithInt);
+fn parseWithInt(_: std.mem.Allocator, res: angleParserWithIntP.T) mecha.ConvertError!f32 {
+    const p_index = std.mem.indexOfScalar(u8, res, 'p').?;
+    const multiplier = std.fmt.parseInt(i32, res[0..p_index], 10) catch return error.ConversionFailed;
+    const mult_f: f32 = @floatFromInt(multiplier);
+    return mult_f * pi;
+}
+
+const angleParserRadians = mecha.oneOf(.{
+    angleParserWithRatio.convert(parseWithRatio),
+    angleParserWithInt.convert(parseWithInt),
+    angleParserPiSuffix.convert(parsePiSuffix),
+});
+
+const angleParserRadiansP = @TypeOf(angleParserRadians);
+fn parseRadians(_: std.mem.Allocator, res: angleParserRadiansP.T) mecha.ConvertError!Angle {
+    return Angle{ .radians = res };
+}
+
+const angleParserDegrees = floatParser;
+
+const angleParserDegreesP = @TypeOf(angleParserDegrees);
+fn parseDegrees(_: std.mem.Allocator, res: angleParserDegreesP.T) mecha.ConvertError!Angle {
+    return Angle{ .degrees = res };
+}
+
+pub const angleParser = mecha.oneOf(.{
+    angleParserRadians.convert(parseRadians),
+    angleParserDegrees.convert(parseDegrees),
+});
+
+test "angleParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try angleParser.parse(a, "90");
+    const a1 = Angle{ .degrees = 90.0 };
+    try testing.expectEqualDeep(a1, r1.value.ok);
+
+    const r2 = try angleParser.parse(a, "90.0");
+    const a2 = Angle{ .degrees = 90.0 };
+    try testing.expectEqualDeep(a2, r2.value.ok);
+
+    const r3 = try angleParser.parse(a, "-90");
+    const a3 = Angle{ .degrees = -90.0 };
+    try testing.expectEqualDeep(a3, r3.value.ok);
+
+    const r4 = try angleParser.parse(a, "p");
+    const a4 = Angle{ .radians = pi };
+    try testing.expectEqualDeep(a4, r4.value.ok);
+
+    const r5 = try angleParser.parse(a, "1r4p");
+    const a5 = Angle{ .radians = 0.25 * pi };
+    try testing.expectEqualDeep(a5, r5.value.ok);
+
+    const r6 = try angleParser.parse(a, "5r12p");
+    const a6 = Angle{ .radians = 5.0 * pi / 12.0 };
+    try testing.expectApproxEqAbs(a6.radians, r6.value.ok.radians, 0.0001);
+
+    const r7 = try angleParser.parse(a, "4p");
+    const a7 = Angle{ .radians = 4 * pi };
+    try testing.expectEqualDeep(a7, r7.value.ok);
+}
