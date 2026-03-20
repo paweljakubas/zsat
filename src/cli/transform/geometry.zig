@@ -60,4 +60,16 @@ test "rotateByAngleAroundPoint" {
     const pointRes6 = rotateByAngleAroundPoint(angle6, Point{ .x = 0.15, .y = 10 }, point6, 5);
     try testing.expectEqual(@as(f32, 5.0), pointRes6.x);
     try testing.expectEqual(@as(f32, 1.5), pointRes6.y);
+
+    const point7 = Point{ .x = 1.0, .y = 1.0 };
+    const angle7 = Angle{ .degrees = 45 };
+    const pointRes7 = rotateByAngleAroundPoint(angle7, Point{ .x = 0, .y = 0 }, point7, null);
+    try testing.expectEqual(@as(f32, 0.0), pointRes7.x);
+    try testing.expectEqual(@as(f32, 1.4142135), pointRes7.y);
+
+    const point8 = Point{ .x = 1.0, .y = 1.0 };
+    const angle8 = Angle{ .radians = 0.25 * inputs.pi };
+    const pointRes8 = rotateByAngleAroundPoint(angle8, Point{ .x = 0, .y = 0 }, point8, null);
+    try testing.expectEqual(@as(f32, 0.0), pointRes8.x);
+    try testing.expectEqual(@as(f32, 1.4142135), pointRes8.y);
 }
