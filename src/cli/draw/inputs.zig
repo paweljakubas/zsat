@@ -462,3 +462,95 @@ test "angleParser" {
     const a7 = Angle{ .radians = 4 * pi };
     try testing.expectEqualDeep(a7, r7.value.ok);
 }
+
+//ay=bx+c
+pub const Line = struct {
+    a: f32,
+    b: f32,
+    c: f32,
+};
+
+fn toYLineType(_: std.mem.Allocator, res: anytype) !Line {
+    if (res.len == 3) {
+        return Line{ .a = 1.0, .b = res[1], .c = res[2] };
+    } else {
+        return Line{ .a = 1.0, .b = 0.0, .c = res[1] };
+    }
+}
+
+fn toXLineType(_: std.mem.Allocator, res: anytype) !Line {
+    return Line{ .a = 0.0, .b = 1.0, .c = -res[1] };
+}
+
+const xLineParserRaw = mecha.combine(.{
+    mecha.utf8.char('x'),
+    common.skipWhitespace,
+    mecha.utf8.char('=').discard(),
+    common.skipWhitespace,
+    floatParser,
+});
+
+const xLineParserVal = xLineParserRaw.convert(toXLineType);
+
+const yLineWithXParser = mecha.combine(.{
+    mecha.utf8.char('y'),
+    common.skipWhitespace,
+    mecha.utf8.char('=').discard(),
+    common.skipWhitespace,
+    floatParser,
+    mecha.utf8.char('x').discard(),
+    common.skipWhitespace,
+    mecha.oneOf(.{ mecha.utf8.char('+'), mecha.utf8.char('-') }).discard(),
+    common.skipWhitespace,
+    floatParser,
+});
+
+const yLineWithX = yLineWithXParser.convert(toYLineType);
+
+const yLineWithoutXParser = mecha.combine(.{
+    mecha.utf8.char('y'),
+    common.skipWhitespace,
+    mecha.utf8.char('=').discard(),
+    common.skipWhitespace,
+    floatParser,
+});
+
+const yLineWithoutX = yLineWithoutXParser.convert(toYLineType);
+
+const yLineParser = mecha.oneOf(.{ yLineWithX, yLineWithoutX });
+
+pub const lineParser = mecha.oneOf(.{ xLineParserVal, yLineParser });
+
+test "lineParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try lineParser.parse(a, "y=2x+1");
+    const l1 = Line{ .a = 1.0, .b = 2.0, .c = 1.0 };
+    try testing.expectEqualDeep(l1, r1.value.ok);
+
+    const r2 = try lineParser.parse(a, "y=0.2x+100");
+    const l2 = Line{ .a = 1.0, .b = 0.2, .c = 100.0 };
+    try testing.expectEqualDeep(l2, r2.value.ok);
+
+    const r3 = try lineParser.parse(a, "y=-0.2x + 100");
+    const l3 = Line{ .a = 1.0, .b = -0.2, .c = 100.0 };
+    try testing.expectEqualDeep(l3, r3.value.ok);
+
+    const r4 = try lineParser.parse(a, "y=100.1");
+    const l4 = Line{ .a = 1.0, .b = 0.0, .c = 100.1 };
+    try testing.expectEqualDeep(l4, r4.value.ok);
+
+    const r5 = try lineParser.parse(a, "x=100.1");
+    const l5 = Line{ .a = 0.0, .b = 1.0, .c = -100.1 };
+    try testing.expectEqualDeep(l5, r5.value.ok);
+
+    const r6 = try lineParser.parse(a, "y = 0");
+    const l6 = Line{ .a = 1.0, .b = 0.0, .c = 0.0 };
+    try testing.expectEqualDeep(l6, r6.value.ok);
+
+    const r7 = try lineParser.parse(a, "x =0");
+    const l7 = Line{ .a = 0.0, .b = 1.0, .c = 0.0 };
+    try testing.expectEqualDeep(l7, r7.value.ok);
+}
