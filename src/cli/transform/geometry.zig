@@ -4,6 +4,7 @@ const inputs = @import("cli");
 
 const Point = inputs.Point;
 const Angle = inputs.Angle;
+const Line = inputs.Line;
 
 pub fn rotateByAngleAroundPoint(angle: Angle, around: Point, point: Point, accuracy: ?u8) Point {
     const phi = switch (angle) {
@@ -72,4 +73,71 @@ test "rotateByAngleAroundPoint" {
     const pointRes8 = rotateByAngleAroundPoint(angle8, Point{ .x = 0, .y = 0 }, point8, null);
     try testing.expectEqual(@as(f32, 0.0), pointRes8.x);
     try testing.expectEqual(@as(f32, 1.4142135), pointRes8.y);
+}
+
+// Line is assuming ay=bx+c
+// Line cannot be a=b=0, this should be filtered out at the parsing level
+// 1. if we have vertical line, ie., a=0 and b/=0, y component of any point is maintained.
+//    x component is mirrored.
+//    Here, if (-c/b)< point.x then point.x'= (-c/b) - (point.x + (c/b))
+//    Here, if (-c/b)> point.x then point.x'= (-c/b) + ((-c/b) - point.x)
+//    Here, if (-c/b) == point.x then point.x'= point.x
+pub fn mirrorPointOverLine(what: Point, over: Line, accuracy: ?u8) Point {
+    if (over.a == 0.0) {
+        const mirror_x = -over.c / over.b;
+        const mirrored_x = 2.0 * mirror_x - what.x;
+        if (accuracy) |acc| {
+            const factor = std.math.pow(f32, 10, @as(f32, @floatFromInt(acc)));
+            return Point{
+                .x = @round(mirrored_x * factor) / factor,
+                .y = what.y,
+            };
+        }
+        return Point{ .x = mirrored_x, .y = what.y };
+    }
+    return what;
+}
+
+test "mirrorPointOverLine" {
+    const point1 = Point{ .x = 1.0, .y = 1.0 };
+    const line1 = Line{ .a = 0.0, .b = 1.0, .c = 0.0 };
+    const mirrorRes1 = mirrorPointOverLine(point1, line1, 5);
+    try testing.expectEqual(@as(f32, -1.0), mirrorRes1.x);
+    try testing.expectEqual(@as(f32, 1.0), mirrorRes1.y);
+
+    const point2 = Point{ .x = 1.0, .y = -1.0 };
+    const line2 = Line{ .a = 0.0, .b = 1.0, .c = 0.0 };
+    const mirrorRes2 = mirrorPointOverLine(point2, line2, 5);
+    try testing.expectEqual(@as(f32, -1.0), mirrorRes2.x);
+    try testing.expectEqual(@as(f32, -1.0), mirrorRes2.y);
+
+    const point3 = Point{ .x = 1.0, .y = -1.0 };
+    const line3 = Line{ .a = 0.0, .b = 2.0, .c = 4.0 };
+    const mirrorRes3 = mirrorPointOverLine(point3, line3, 5);
+    try testing.expectEqual(@as(f32, -5.0), mirrorRes3.x);
+    try testing.expectEqual(@as(f32, -1.0), mirrorRes3.y);
+
+    const point4 = Point{ .x = -1.0, .y = -1.0 };
+    const line4 = Line{ .a = 0.0, .b = 2.0, .c = 4.0 };
+    const mirrorRes4 = mirrorPointOverLine(point4, line4, 5);
+    try testing.expectEqual(@as(f32, -3.0), mirrorRes4.x);
+    try testing.expectEqual(@as(f32, -1.0), mirrorRes4.y);
+
+    const point5 = Point{ .x = 1.0, .y = -1.0 };
+    const line5 = Line{ .a = 0.0, .b = -2.0, .c = 4.0 };
+    const mirrorRes5 = mirrorPointOverLine(point5, line5, 5);
+    try testing.expectEqual(@as(f32, 3.0), mirrorRes5.x);
+    try testing.expectEqual(@as(f32, -1.0), mirrorRes5.y);
+
+    const point6 = Point{ .x = -1.0, .y = -1.0 };
+    const line6 = Line{ .a = 0.0, .b = -2.0, .c = 4.0 };
+    const mirrorRes6 = mirrorPointOverLine(point6, line6, 5);
+    try testing.expectEqual(@as(f32, 5.0), mirrorRes6.x);
+    try testing.expectEqual(@as(f32, -1.0), mirrorRes6.y);
+
+    const point7 = Point{ .x = 2.0, .y = -1.0 };
+    const line7 = Line{ .a = 0.0, .b = -2.0, .c = 4.0 };
+    const mirrorRes7 = mirrorPointOverLine(point7, line7, 5);
+    try testing.expectEqual(@as(f32, 2.0), mirrorRes7.x);
+    try testing.expectEqual(@as(f32, -1.0), mirrorRes7.y);
 }
