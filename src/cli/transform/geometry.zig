@@ -87,6 +87,18 @@ test "rotateByAngleAroundPoint" {
 //    Here, if (c/a) > point.y then point.y'= (c/a) + ((c/a) - point.y)
 //    Here, if (c/a) < point.y then point.y'= (c/a) - (point.y - (c/a))
 //    Here, if (c/a) == point.y then point.y'= point.y
+// 3. if we have neither horizontal nor vertical line, ie., a/=0 and b/=0, both components needs to be calculated.
+//    First, we find point in line to which perpendicular line passing point is crossed with. Let's name it (xL, yL).
+//    The equation is
+//        xL=(point.y * a * b + point.x * a * a - c*b)/(a*a + b*b)
+//        yL=(b/a)*xL + (c/a)
+//    Now, we have 6 geometric conditions:
+//    (a) point.x > xL then delta=point.x - xL and point.x' = xL - delta
+//    (b) point.x == xL then point.x' = point.x
+//    (c) point.x < xL then delta= xL - point.x  and point.x' = xL + delta
+//    (d) point.y < yL then delta= yL - point.y and point.y' = yL + delta
+//    (e) point.y == yL then point.y' = point.y
+//    (f) point.y > yL then delta= point.y - yL and point.y' = yL - delta
 pub fn mirrorPointOverLine(what: Point, over: Line, accuracy: ?u8) Point {
     if (over.a == 0.0) {
         const mirror_x = -over.c / over.b;
@@ -112,7 +124,37 @@ pub fn mirrorPointOverLine(what: Point, over: Line, accuracy: ?u8) Point {
         }
         return Point{ .x = what.x, .y = mirrored_y };
     }
-    return what;
+    const denom = over.a * over.a + over.b * over.b;
+    const xL = (what.y * over.a * over.b + what.x * over.a * over.a - over.c * over.b) / denom;
+    const yL = (over.b / over.a) * xL + (over.c / over.a);
+    var mirrored_x: f32 = undefined;
+    var mirrored_y: f32 = undefined;
+    if (what.x > xL) {
+        const delta = what.x - xL;
+        mirrored_x = xL - delta;
+    } else if (what.x == xL) {
+        mirrored_x = what.x;
+    } else {
+        const delta = xL - what.x;
+        mirrored_x = xL + delta;
+    }
+    if (what.y < yL) {
+        const delta = yL - what.y;
+        mirrored_y = yL + delta;
+    } else if (what.y == yL) {
+        mirrored_y = what.y;
+    } else {
+        const delta = what.y - yL;
+        mirrored_y = yL - delta;
+    }
+    if (accuracy) |acc| {
+        const factor = std.math.pow(f32, 10, @as(f32, @floatFromInt(acc)));
+        return Point{
+            .x = @round(mirrored_x * factor) / factor,
+            .y = @round(mirrored_y * factor) / factor,
+        };
+    }
+    return Point{ .x = mirrored_x, .y = mirrored_y };
 }
 
 test "mirrorPointOverLine" {
@@ -187,4 +229,40 @@ test "mirrorPointOverLine" {
     const mirrorRes12 = mirrorPointOverLine(point12, line12, 5);
     try testing.expectEqual(@as(f32, 2.0), mirrorRes12.x);
     try testing.expectEqual(@as(f32, 5.0), mirrorRes12.y);
+
+    const point13 = Point{ .x = 2.0, .y = 1.0 };
+    const line13 = Line{ .a = 1.0, .b = -1.0, .c = 1.0 };
+    const mirrorRes13 = mirrorPointOverLine(point13, line13, 5);
+    try testing.expectEqual(@as(f32, 0.0), mirrorRes13.x);
+    try testing.expectEqual(@as(f32, -1.0), mirrorRes13.y);
+
+    const point14 = Point{ .x = 1.0, .y = 0.0 };
+    const line14 = Line{ .a = 1.0, .b = -1.0, .c = 1.0 };
+    const mirrorRes14 = mirrorPointOverLine(point14, line14, 5);
+    try testing.expectEqual(@as(f32, 1.0), mirrorRes14.x);
+    try testing.expectEqual(@as(f32, 0.0), mirrorRes14.y);
+
+    const point15 = Point{ .x = 0.0, .y = -1.0 };
+    const line15 = Line{ .a = 1.0, .b = -1.0, .c = 1.0 };
+    const mirrorRes15 = mirrorPointOverLine(point15, line15, 5);
+    try testing.expectEqual(@as(f32, 2.0), mirrorRes15.x);
+    try testing.expectEqual(@as(f32, 1.0), mirrorRes15.y);
+
+    const point16 = Point{ .x = 1.0, .y = 1.0 };
+    const line16 = Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    const mirrorRes16 = mirrorPointOverLine(point16, line16, 5);
+    try testing.expectEqual(@as(f32, 1.0), mirrorRes16.x);
+    try testing.expectEqual(@as(f32, 1.0), mirrorRes16.y);
+
+    const point17 = Point{ .x = 0.0, .y = 0.0 };
+    const line17 = Line{ .a = 2.0, .b = -1.0, .c = 4.0 };
+    const mirrorRes17 = mirrorPointOverLine(point17, line17, 5);
+    try testing.expectEqual(@as(f32, 1.6), mirrorRes17.x);
+    try testing.expectEqual(@as(f32, 3.2), mirrorRes17.y);
+
+    const point18 = Point{ .x = 4.0, .y = 0.0 };
+    const line18 = Line{ .a = 2.0, .b = -1.0, .c = 4.0 };
+    const mirrorRes18 = mirrorPointOverLine(point18, line18, 5);
+    try testing.expectEqual(@as(f32, 4.0), mirrorRes18.x);
+    try testing.expectEqual(@as(f32, 0.0), mirrorRes18.y);
 }
