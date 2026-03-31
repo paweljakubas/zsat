@@ -90,7 +90,25 @@ test "paneSize" {
     try testing.expectEqual(p3, r3.value.ok);
 }
 
-const paneViewParser = undefined;
+const paneViewParserRaw = mecha.combine(.{
+    common.skipWhitespace,
+    mecha.string("view").discard(),
+    common.skipWhitespace,
+    mecha.ascii.char(':').discard(),
+    common.skipWhitespace,
+    mecha.ascii.char('{').discard(),
+    inputs.pointParser,
+    common.skipComma,
+    inputs.pointParser,
+    common.skipWhitespace,
+    mecha.ascii.char('}').discard(),
+    mecha.ascii.char('}').discard(),
+});
+const paneViewParserRawP = @TypeOf(paneViewParserRaw);
+fn toPaneView(_: std.mem.Allocator, res: paneViewParserRawP.T) mecha.ConvertError!PaneView {
+    return PaneView{ .from = res[0], .to = res[1] };
+}
+const paneViewParser = paneViewParserRaw.convert(toPaneView);
 test "paneView" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -100,13 +118,13 @@ test "paneView" {
     const p1a = inputs.Point{ .x = 2.0, .y = 1.1 };
     const p1b = inputs.Point{ .x = 10.0, .y = 1.2 };
     const v1 = PaneView{ .from = p1a, .to = p1b };
-    try testing.expectEqual(p1, r1.value.ok);
+    try testing.expectEqual(v1, r1.value.ok);
 
     const r2 = try paneViewParser.parse(a, "view:{(0,0), (10, 10)}}");
     const p2a = inputs.Point{ .x = 0.0, .y = 0.0 };
     const p2b = inputs.Point{ .x = 10.0, .y = 10.0 };
     const v2 = PaneView{ .from = p2a, .to = p2b };
-    try testing.expectEqual(p2, r2.value.ok);
+    try testing.expectEqual(v2, r2.value.ok);
 }
 
 const paneValueParser = undefined;
