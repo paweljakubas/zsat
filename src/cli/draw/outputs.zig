@@ -55,6 +55,7 @@ pub const OneArgFunctionPartial = union(enum) {
     pin: PinPartial,
     rotate: RotatePartial,
     scale: ScalePartial,
+    //    mirror: MirrorPartial,
 };
 
 //Pin obj to point
@@ -82,6 +83,11 @@ pub const ScaleArg = struct {
 //Needs to be called with proper data
 pub const ScalePartial = struct {
     elements: []const ScaleArg, //each scale arg works on each element of [elem1, elem2,...]
+};
+
+//Mirror over line
+pub const MirrorPartial = struct {
+    line: inputs.Line,
 };
 
 pub const ElementReference = union(enum) {
@@ -695,6 +701,50 @@ test "pinPartialParser" {
     const gp13 = GeneralPoint{ .point = p13 };
     const o13 = PinPartial{ .point = gp13 };
     try testing.expectEqualDeep(o13, r13.value.ok);
+}
+
+const mirrorLineParser = mecha.combine(.{
+    common.skipOpenBracket,
+    inputs.lineParser,
+    common.skipCloseBracket,
+}).convert(struct {
+    fn toLine(_: std.mem.Allocator, a: inputs.Line) mecha.ConvertError!inputs.Line {
+        return a;
+    }
+}.toLine);
+
+const mirrorPartialParserRaw = mecha.combine(.{
+    common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("mirror"),
+        mecha.string("m"),
+    }).discard(),
+    common.skipWhitespace,
+    mirrorLineParser,
+});
+const mirrorPartialParserRawP = @TypeOf(mirrorPartialParserRaw);
+fn toMirrorPartial(_: std.mem.Allocator, res: mirrorPartialParserRawP.T) mecha.ConvertError!MirrorPartial {
+    return MirrorPartial{ .line = res };
+}
+const mirrorPartialParser = mirrorPartialParserRaw.convert(toMirrorPartial);
+
+test "mirrorPartialParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try mirrorPartialParser.parse(fa, "mirror (y=2x+1)");
+    const l1 = inputs.Line{ .a = 1.0, .b = 2.0, .c = 1.0 };
+    const m1 = MirrorPartial{ .line = l1 };
+    try testing.expectEqualDeep(m1, r1.value.ok);
+
+    const r2 = try mirrorPartialParser.parse(fa, "mirror ( y=2x+1 )");
+    const l2 = inputs.Line{ .a = 1.0, .b = 2.0, .c = 1.0 };
+    const m2 = MirrorPartial{ .line = l2 };
+    try testing.expectEqualDeep(m2, r2.value.ok);
+
+    const r3 = try mirrorPartialParser.parse(fa, "m (y=12x+1.1)");
+    const l3 = inputs.Line{ .a = 1.0, .b = 12.0, .c = 1.1 };
+    const m3 = MirrorPartial{ .line = l3 };
+    try testing.expectEqualDeep(m3, r3.value.ok);
 }
 
 const twoArgCombinatorParser =
