@@ -102,7 +102,7 @@ const pointParserRawP = @TypeOf(pointParserRaw);
 fn toPointParser(_: std.mem.Allocator, res: pointParserRawP.T) mecha.ConvertError!Point {
     return Point{ .x = res[0], .y = res[1] };
 }
-const pointParser = pointParserRaw.convert(toPointParser);
+pub const pointParser = pointParserRaw.convert(toPointParser);
 
 test "pointParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
