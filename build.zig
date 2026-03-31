@@ -46,6 +46,7 @@ pub fn build(b: *std.Build) void {
             "src/cli/draw/connections.zig",
             "src/cli/draw/inputs.zig",
             "src/cli/draw/outputs.zig",
+            "src/cli/draw/panes.zig",
             "src/cli/draw/styles.zig",
             "src/cli/transform/geometry.zig",
         }) |test_file| {
