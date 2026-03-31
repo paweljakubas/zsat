@@ -265,4 +265,28 @@ test "mirrorPointOverLine" {
     const mirrorRes18 = mirrorPointOverLine(point18, line18, 5);
     try testing.expectEqual(@as(f32, 4.0), mirrorRes18.x);
     try testing.expectEqual(@as(f32, 0.0), mirrorRes18.y);
+
+    const point19 = Point{ .x = 2.0, .y = 0.0 };
+    const line19 = Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    const mirrorRes19 = mirrorPointOverLine(point19, line19, 5);
+    try testing.expectEqual(@as(f32, 0.0), mirrorRes19.x);
+    try testing.expectEqual(@as(f32, 2.0), mirrorRes19.y);
+
+    const point20 = Point{ .x = 0.0, .y = 2.0 };
+    const line20 = Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    const mirrorRes20 = mirrorPointOverLine(point20, line20, 5);
+    try testing.expectEqual(@as(f32, 2.0), mirrorRes20.x);
+    try testing.expectEqual(@as(f32, 0.0), mirrorRes20.y);
+
+    const point21 = Point{ .x = -2.0, .y = 0.0 };
+    const line21 = Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    const mirrorRes21 = mirrorPointOverLine(point21, line21, 5);
+    try testing.expectEqual(@as(f32, 0.0), mirrorRes21.x);
+    try testing.expectEqual(@as(f32, -2.0), mirrorRes21.y);
+
+    const point22 = Point{ .x = 0.0, .y = -2.0 };
+    const line22 = Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    const mirrorRes22 = mirrorPointOverLine(point22, line22, 5);
+    try testing.expectEqual(@as(f32, -2.0), mirrorRes22.x);
+    try testing.expectEqual(@as(f32, 0.0), mirrorRes22.y);
 }
