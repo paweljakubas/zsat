@@ -55,7 +55,7 @@ pub const OneArgFunctionPartial = union(enum) {
     pin: PinPartial,
     rotate: RotatePartial,
     scale: ScalePartial,
-    //    mirror: MirrorPartial,
+    mirror: MirrorPartial,
 };
 
 //Pin obj to point
@@ -713,7 +713,7 @@ const mirrorLineParser = mecha.combine(.{
     }
 }.toLine);
 
-const mirrorPartialParserRaw = mecha.combine(.{
+const mirrorPartialParserRawWithout = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{
         mecha.string("mirror"),
@@ -721,6 +721,22 @@ const mirrorPartialParserRaw = mecha.combine(.{
     }).discard(),
     common.skipWhitespace,
     mirrorLineParser,
+});
+const mirrorPartialParserRawWith = mecha.combine(.{
+    common.skipOpenBracket,
+    common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("mirror"),
+        mecha.string("m"),
+    }).discard(),
+    common.skipWhitespace,
+    mirrorLineParser,
+    common.skipWhitespace,
+    common.skipCloseBracket,
+});
+const mirrorPartialParserRaw = mecha.oneOf(.{
+    mirrorPartialParserRawWith,
+    mirrorPartialParserRawWithout,
 });
 const mirrorPartialParserRawP = @TypeOf(mirrorPartialParserRaw);
 fn toMirrorPartial(_: std.mem.Allocator, res: mirrorPartialParserRawP.T) mecha.ConvertError!MirrorPartial {
@@ -786,11 +802,16 @@ fn toPinPartialUnion(_: std.mem.Allocator, res: anytype) mecha.ConvertError!OneA
     return OneArgFunctionPartial{ .pin = p };
 }
 const pinPartialUnionParser = pinPartialParserRaw.convert(toPinPartialUnion);
+fn toMirrorPartialUnion(_: std.mem.Allocator, res: MirrorPartial) mecha.ConvertError!OneArgFunctionPartial {
+    return OneArgFunctionPartial{ .mirror = res };
+}
+const mirrorPartialUnionParser = mirrorPartialParser.convert(toMirrorPartialUnion);
 
 const oneArgFunctionPartialParser = mecha.oneOf(.{
     pinPartialUnionParser,
     rotatePartialUnionParser,
     scalePartialUnionParser,
+    mirrorPartialUnionParser,
 });
 
 test "oneArgFunctionPartialParser" {
@@ -826,6 +847,12 @@ test "oneArgFunctionPartialParser" {
     const r4a = RotateArg{ .phi = -120.0, .point = p4 };
     const o4 = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = try a.dupe(RotateArg, &[1]RotateArg{r4a}) } };
     try testing.expectEqualDeep(o4, r4.value.ok);
+
+    const r5 = try oneArgFunctionPartialParser.parse(a, "(m (y=12x+1.1))");
+    const l5 = inputs.Line{ .a = 1.0, .b = 12.0, .c = 1.1 };
+    const m5 = MirrorPartial{ .line = l5 };
+    const o5 = OneArgFunctionPartial{ .mirror = m5 };
+    try testing.expectEqualDeep(o5, r5.value.ok);
 }
 
 fn compositeToInside(arena: std.mem.Allocator, a: Composite) mecha.ConvertError!CompositeInside {
