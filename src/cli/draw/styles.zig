@@ -159,10 +159,6 @@ const Vec2dAttributesUnion = union(enum) {
 };
 
 //Parsers
-const skipOpenBracket =
-    mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.ascii.char('{').discard() });
-const skipCloseBracket =
-    mecha.combine(.{ common.skipWhitespace, mecha.ascii.char('}').discard(), common.skipWhitespace });
 const skipOpenRecBracket =
     mecha.combine(.{ common.skipWhitespace, mecha.ascii.char('[').discard() });
 const skipCloseRecBracket =
@@ -980,7 +976,7 @@ test "styleValueParser" {
 }
 
 const styleParser =
-    mecha.combine(.{ styleNumberParserRaw, skipOpenBracket, styleValueParser, skipCloseBracket }).map(mecha.toStruct(Style));
+    mecha.combine(.{ styleNumberParserRaw, common.skipOpenBraceColon, styleValueParser, common.skipCloseBrace }).map(mecha.toStruct(Style));
 
 test "styleParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);

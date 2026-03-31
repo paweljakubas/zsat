@@ -31,11 +31,6 @@ pub const PaneView = struct {
 };
 
 //Parsers
-const skipOpenBracket =
-    mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.ascii.char('{').discard() });
-const skipCloseBracket =
-    mecha.combine(.{ common.skipWhitespace, mecha.ascii.char('}').discard(), common.skipWhitespace });
-
 const paneNumberParser =
     mecha.combine(.{ common.skipWhitespace, mecha.ascii.char('p').discard(), mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 1 }).asStr().convert(mecha.toInt(u8, 10)) });
 
@@ -152,7 +147,7 @@ const paneValueParser = mecha.oneOf(.{
 });
 
 const paneParser =
-    mecha.combine(.{ paneNumberParser, skipOpenBracket, paneValueParser, skipCloseBracket }).map(mecha.toStruct(Pane));
+    mecha.combine(.{ paneNumberParser, common.skipOpenBraceColon, paneValueParser, common.skipCloseBrace }).map(mecha.toStruct(Pane));
 
 test "paneParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
