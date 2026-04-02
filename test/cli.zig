@@ -34,3 +34,19 @@ test "zsat draw with invalid stdin" {
 
     try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseInputsFailed"));
 }
+
+test "zsat draw with invalid datum" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--datum", "invalid" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseDatumFailed"));
+}
+
+test "zsat draw with invalid styles and datum" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--styles", "invalid", "--datum", "invalid" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseStylesFailed"));
+}
