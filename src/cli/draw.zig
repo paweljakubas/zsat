@@ -4,6 +4,7 @@ const Reader = std.Io.Reader;
 const zli = @import("zli");
 const Styles = @import("draw/styles.zig");
 const Inputs = @import("draw/inputs.zig");
+const Datum = @import("draw/datum.zig");
 
 const style_flag = zli.Flag{
     .name = "styles",
@@ -11,6 +12,14 @@ const style_flag = zli.Flag{
     .description = "Style(s) definition to be used in further steps when constructing the figure.",
     .type = .String,
     .default_value = .{ .String = "e0:{vec2d xy fixed [lw:20, lc: black, lo: 100, le:none, lj: none]}" },
+};
+
+const datum_flag = zli.Flag{
+    .name = "datum",
+    .shortcut = "d",
+    .description = "Mapping data streams to the defined styles.",
+    .type = .String,
+    .default_value = .{ .String = "(vec) -> (vec -> e0)" },
 };
 
 const debug_flag = zli.Flag{
@@ -28,6 +37,7 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
     }, run);
 
     try cmd.addFlag(style_flag);
+    try cmd.addFlag(datum_flag);
     try cmd.addFlag(debug_flag);
 
     return cmd;
@@ -36,11 +46,13 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
 const ParsedData = struct {
     styles: Styles.Style,
     inputs: Inputs.Inputs,
+    datum: Datum.Connection,
 };
 
 fn parse(ctx: zli.CommandContext) !ParsedData {
     const debug = ctx.flag("debug", bool);
     const styles_str = ctx.flag("styles", []const u8);
+    const datum_str = ctx.flag("datum", []const u8);
 
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -50,8 +62,9 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
     defer alloc.free(stdin_str);
 
     if (debug) {
-        std.debug.print("styles: {s}\n", .{styles_str});
         std.debug.print("stdin: {s}\n", .{stdin_str});
+        std.debug.print("styles: {s}\n", .{styles_str});
+        std.debug.print("datum: {s}\n", .{datum_str});
     }
 
     const inputs_parse_result = try Inputs.inputsParser.parse(alloc, stdin_str);
@@ -70,9 +83,18 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
         },
     };
 
+    const datum_parse_result = try Datum.connectionParser.parse(alloc, datum_str);
+    const datum = switch (datum_parse_result.value) {
+        .ok => |d| d,
+        .err => {
+            return error.ParseDatumFailed;
+        },
+    };
+
     return ParsedData{
         .styles = styles,
         .inputs = inputs,
+        .datum = datum,
     };
 }
 
