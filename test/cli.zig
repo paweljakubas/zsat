@@ -12,18 +12,27 @@ test "zsat version" {
 
 test "zsat draw" {
     const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw" };
-    var result = try cmdtest.run(.{ .argv = argv });
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
     try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
     try testing.expectEqual(@as(u8, 0), result.code);
     try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "styles parsed successfully"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "inputs parsed successfully"));
 }
 
 test "zsat draw with invalid styles" {
     const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--styles", "invalid" };
-    var result = try cmdtest.run(.{ .argv = argv });
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
     try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse styles"));
+}
+
+test "zsat draw with invalid stdin" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "invalid" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse inputs"));
 }

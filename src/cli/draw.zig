@@ -46,26 +46,26 @@ fn run(ctx: zli.CommandContext) !void {
     } else {
         std.debug.print("plotting \n", .{});
         const styles_parse_result = try Styles.styleParser.parse(alloc, styles_str);
-        switch (styles_parse_result.value) {
-            .ok => |s| {
-                std.debug.print("styles parsed successfully {}\n", .{s});
-            },
+        const styles = switch (styles_parse_result.value) {
+            .ok => |s| s,
             .err => {
                 std.debug.print("failed to parse styles\n", .{});
                 return;
             },
-        }
+        };
+
         const stdin_content = try std.fs.File.stdin().readToEndAlloc(alloc, 1024 * 1024);
         defer alloc.free(stdin_content);
         const inputs_parse_result = try InputsModule.inputsParser.parse(alloc, stdin_content);
-        switch (inputs_parse_result.value) {
-            .ok => |in| {
-                std.debug.print("inputs parsed successfully {}\n", .{in});
-            },
+        const inputs = switch (inputs_parse_result.value) {
+            .ok => |in| in,
             .err => {
                 std.debug.print("failed to parse inputs\n", .{});
                 return;
             },
-        }
+        };
+
+        std.debug.print("styles parsed successfully {}\n", .{styles});
+        std.debug.print("inputs parsed successfully {}\n", .{inputs});
     }
 }
