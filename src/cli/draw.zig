@@ -2,13 +2,14 @@ const std = @import("std");
 const Writer = std.Io.Writer;
 const Reader = std.Io.Reader;
 const zli = @import("zli");
+const Styles = @import("draw/styles.zig");
 
 const style_flag = zli.Flag{
     .name = "styles",
     .shortcut = "s",
     .description = "Style(s) definition to be used in further steps when constructing the figure.",
     .type = .String,
-    .default_value = .{ .String = "e0:{vec2d xy fixed [lw:2; lc: black]}" },
+    .default_value = .{ .String = "e0:{vec2d xy fixed [lw:20, lc: black, lo: 100, le:none, lj: none]}" },
 };
 
 const debug_flag = zli.Flag{
@@ -33,11 +34,25 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
 
 fn run(ctx: zli.CommandContext) !void {
     const debug = ctx.flag("debug", bool);
-    const styles = ctx.flag("styles", []const u8);
+    const styles_str = ctx.flag("styles", []const u8);
+
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
 
     if (debug) {
-        std.debug.print("styles: {s}\n", .{elements});
+        std.debug.print("styles: {s}\n", .{styles_str});
     } else {
         std.debug.print("plotting \n", .{});
+        const styles_parse_result = try Styles.styleParser.parse(alloc, styles_str);
+        switch (styles_parse_result.value) {
+            .ok => |s| {
+                std.debug.print("styles parsed successfully {}\n", .{s});
+            },
+            .err => {
+                std.debug.print("failed to parse styles\n", .{});
+                return;
+            },
+        }
     }
 }

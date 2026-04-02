@@ -975,7 +975,7 @@ test "styleValueParser" {
     try testing.expectEqualDeep(exp_value3, r3.value.ok);
 }
 
-const styleParser =
+pub const styleParser =
     mecha.combine(.{ styleNumberParserRaw, common.skipOpenBraceColon, styleValueParser, common.skipCloseBrace }).map(mecha.toStruct(Style));
 
 test "styleParser" {
