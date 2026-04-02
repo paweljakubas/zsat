@@ -46,7 +46,7 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
 const ParsedData = struct {
     styles: Styles.Style,
     inputs: Inputs.Inputs,
-    datum: Datum.Connection,
+    datum: Datum.DataElementValidated,
 };
 
 fn parse(ctx: zli.CommandContext) !ParsedData {
@@ -91,10 +91,22 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
         },
     };
 
+    //here we are going to validate datum via validateConnection. We will take the number of inputs, array length of 'input' in Inputs,
+    //and also identifiers from style. Here we know that they are preceded by 's' and complemented by number being field 'styleNumber'.
+    //Hence, datumValidated is of type DataElementValidated.
+    const numberOfDatum: u8 = @intCast(inputs.input.len);
+
+    var elements = try alloc.alloc([]const u8, 1);
+    elements[0] = try std.fmt.allocPrint(alloc, "e{}", .{styles.styleNumber});
+    defer alloc.free(elements[0]);
+    defer alloc.free(elements);
+
+    const datumValidated = try Datum.validateConnection(alloc, numberOfDatum, elements, datum);
+
     return ParsedData{
         .styles = styles,
         .inputs = inputs,
-        .datum = datum,
+        .datum = datumValidated,
     };
 }
 
