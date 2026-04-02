@@ -3,7 +3,7 @@ const Writer = std.Io.Writer;
 const Reader = std.Io.Reader;
 const zli = @import("zli");
 const Styles = @import("draw/styles.zig");
-const InputsModule = @import("draw/inputs.zig");
+const Inputs = @import("draw/inputs.zig");
 
 const style_flag = zli.Flag{
     .name = "styles",
@@ -33,7 +33,12 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
     return cmd;
 }
 
-fn run(ctx: zli.CommandContext) !void {
+const ParsedData = struct {
+    styles: Styles.Style,
+    inputs: Inputs.Inputs,
+};
+
+fn parse(ctx: zli.CommandContext) !ParsedData {
     const debug = ctx.flag("debug", bool);
     const styles_str = ctx.flag("styles", []const u8);
 
@@ -41,31 +46,39 @@ fn run(ctx: zli.CommandContext) !void {
     defer arena.deinit();
     const alloc = arena.allocator();
 
+    const stdin_str = try std.fs.File.stdin().readToEndAlloc(alloc, 1024 * 1024);
+    defer alloc.free(stdin_str);
+
     if (debug) {
         std.debug.print("styles: {s}\n", .{styles_str});
-    } else {
-        std.debug.print("plotting \n", .{});
-        const styles_parse_result = try Styles.styleParser.parse(alloc, styles_str);
-        const styles = switch (styles_parse_result.value) {
-            .ok => |s| s,
-            .err => {
-                std.debug.print("failed to parse styles\n", .{});
-                return;
-            },
-        };
-
-        const stdin_content = try std.fs.File.stdin().readToEndAlloc(alloc, 1024 * 1024);
-        defer alloc.free(stdin_content);
-        const inputs_parse_result = try InputsModule.inputsParser.parse(alloc, stdin_content);
-        const inputs = switch (inputs_parse_result.value) {
-            .ok => |in| in,
-            .err => {
-                std.debug.print("failed to parse inputs\n", .{});
-                return;
-            },
-        };
-
-        std.debug.print("styles parsed successfully {}\n", .{styles});
-        std.debug.print("inputs parsed successfully {}\n", .{inputs});
+        std.debug.print("stdin: {s}\n", .{stdin_str});
     }
+
+    const inputs_parse_result = try Inputs.inputsParser.parse(alloc, stdin_str);
+    const inputs = switch (inputs_parse_result.value) {
+        .ok => |in| in,
+        .err => {
+            return error.ParseInputsFailed;
+        },
+    };
+
+    const styles_parse_result = try Styles.styleParser.parse(alloc, styles_str);
+    const styles = switch (styles_parse_result.value) {
+        .ok => |s| s,
+        .err => {
+            return error.ParseStylesFailed;
+        },
+    };
+
+    return ParsedData{
+        .styles = styles,
+        .inputs = inputs,
+    };
+}
+
+fn run(ctx: zli.CommandContext) !void {
+    _ = parse(ctx) catch |err| {
+        std.debug.print("failed to parse: {}\n", .{err});
+        return;
+    };
 }
