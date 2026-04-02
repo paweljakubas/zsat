@@ -3,6 +3,7 @@ const Writer = std.Io.Writer;
 const Reader = std.Io.Reader;
 const zli = @import("zli");
 const Styles = @import("draw/styles.zig");
+const InputsModule = @import("draw/inputs.zig");
 
 const style_flag = zli.Flag{
     .name = "styles",
@@ -51,6 +52,18 @@ fn run(ctx: zli.CommandContext) !void {
             },
             .err => {
                 std.debug.print("failed to parse styles\n", .{});
+                return;
+            },
+        }
+        const stdin_content = try std.fs.File.stdin().readToEndAlloc(alloc, 1024 * 1024);
+        defer alloc.free(stdin_content);
+        const inputs_parse_result = try InputsModule.inputsParser.parse(alloc, stdin_content);
+        switch (inputs_parse_result.value) {
+            .ok => |in| {
+                std.debug.print("inputs parsed successfully {}\n", .{in});
+            },
+            .err => {
+                std.debug.print("failed to parse inputs\n", .{});
                 return;
             },
         }
