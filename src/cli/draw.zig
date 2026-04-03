@@ -56,6 +56,13 @@ const debug_flag = zli.Flag{
     .default_value = .{ .Bool = false },
 };
 
+const out_flag = zli.Flag{
+    .name = "out",
+    .description = "Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal.",
+    .type = .String,
+    .default_value = .{ .String = "" },
+};
+
 pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) !*zli.Command {
     const cmd = try zli.Command.init(writer, reader, allocator, .{
         .name = "draw",
@@ -69,6 +76,7 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
     try cmd.addFlag(frames_flag);
 
     try cmd.addFlag(debug_flag);
+    try cmd.addFlag(out_flag);
 
     return cmd;
 }
@@ -193,6 +201,9 @@ fn run(ctx: zli.CommandContext) !void {
     const parsed_data = try parse(ctx, alloc);
     try Plot.plot_via_z2d(parsed_data);
 
+    const out_filename = ctx.flag("out", []const u8);
+    const force_file = out_filename.len > 0;
+
     const blackcat_installed = blk: {
         var blackcat_check = std.process.Child.init(&.{ "blackcat", "--version" }, alloc);
         blackcat_check.spawn() catch break :blk false;
@@ -200,7 +211,21 @@ fn run(ctx: zli.CommandContext) !void {
         break :blk result == .Exited and result.Exited == 0;
     };
 
-    if (blackcat_installed and checkTerminalSupportsKitty()) {
+    const can_display = blackcat_installed and checkTerminalSupportsKitty();
+
+    if (force_file) {
+        try std.fs.cwd().rename("output.png", out_filename);
+        std.debug.print("Saved to {s}\n", .{out_filename});
+        if (can_display) {
+            var stdin_file = try std.fs.cwd().openFile(out_filename, .{});
+            defer stdin_file.close();
+            var blackcat_proc = std.process.Child.init(&.{"blackcat"}, alloc);
+            blackcat_proc.stdin = stdin_file;
+            blackcat_proc.stdin_behavior = .Pipe;
+            blackcat_proc.spawn() catch {};
+            _ = blackcat_proc.wait() catch {};
+        }
+    } else if (can_display) {
         var stdin_file = try std.fs.cwd().openFile("output.png", .{});
         defer stdin_file.close();
 
@@ -208,7 +233,10 @@ fn run(ctx: zli.CommandContext) !void {
         blackcat_proc.stdin = stdin_file;
         blackcat_proc.stdin_behavior = .Pipe;
         blackcat_proc.spawn() catch {
-            std.debug.print("error: failed to run blackcat\n", .{});
+            const filename = try getNextOutputFilename(alloc);
+            defer alloc.free(filename);
+            try std.fs.cwd().rename("output.png", filename);
+            std.debug.print("Saved to {s}\n", .{filename});
             return;
         };
         _ = blackcat_proc.wait() catch {};
