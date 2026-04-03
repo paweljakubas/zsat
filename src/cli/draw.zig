@@ -157,11 +157,9 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
     if (debug) {
         try ctx.writer.print("stdin:\n{s}\n", .{stdin_str});
         try ctx.writer.print("\n--styles {s}\n", .{styles_str});
-        try ctx.writer.print("--datum {s}", .{datum_str});
-        try datumValidated.print(ctx.writer);
+        try ctx.writer.print("--datum {s}\n", .{datum_str});
         try ctx.writer.print("--panes {s}\n", .{panes_str});
-        try ctx.writer.print("--frames {s}", .{frames_str});
-        try framesValidated.print(ctx.writer);
+        try ctx.writer.print("--frames {s}\n", .{frames_str});
     }
 
     return ParsedData{

@@ -15,14 +15,6 @@ pub const DataElementMapping = struct {
 //Validated Mappings
 pub const DataElementValidated = struct {
     mappings: []const DataElementMapping,
-
-    pub fn print(self: *const DataElementValidated, writer: anytype) !void {
-        try writer.print(" (validated:", .{});
-        for (self.mappings) |mapping| {
-            try writer.print(" {}->{},", .{ mapping.from, mapping.to });
-        }
-        try writer.print(")\n", .{});
-    }
 };
 
 pub const DataElementError = error{

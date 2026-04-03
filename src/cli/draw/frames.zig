@@ -15,14 +15,6 @@ pub const OutputPaneMapping = struct {
 //Validated output pane mapping
 pub const OutputPaneValidated = struct {
     mappings: []const OutputPaneMapping,
-
-    pub fn print(self: *const OutputPaneValidated, writer: anytype) !void {
-        try writer.print(" (validated:", .{});
-        for (self.mappings) |mapping| {
-            try writer.print(" {}->{},", .{ mapping.from, mapping.to });
-        }
-        try writer.print(")\n", .{});
-    }
 };
 
 pub const OutputPaneError = error{
