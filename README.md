@@ -23,6 +23,7 @@ But they lack five features that are crucial for my workflow:
 Hence, my humble attempt to address those pain points as the goals of this project.
 
 I also treat this as an opportunity to learn and practice Zig, a truely wonderful general programming language with an angle to be performant, explicit and low-level.
+As AI agentic era has started it is going to be probably more recreational programming project, but still, I do have a lot of fun developing it and do not intend to stop:-)
 
 **zsat** must have had picked maximum two out of three choices from _flexibility_, _power_ and _simplicity_.
 And, by a design, both __flexibility__ and __power__ were chosen over _simplicity_.
@@ -46,19 +47,54 @@ Meaning **blackcat** is also required to be installed.
 
 ```bash
 $ zsat --help
-Zig-powered science animation and plot toolkit
+Zig-powered science animation and plot command line tool
 v0.0.1
 
 Usage: zsat [options]
 
 Available commands:
-   draw (d)        Construct figure from bits
+   draw (d)        Construct figure from elements, sources, outputs, panes and frames
    version (v)     Show zsat version
 
 Flags:
    -h, --help      Shows the help for a command [Bool] (default: false)
 
 Use "zsat [command] --help" for more information.
+```
+
+### draw command
+
+```bash
+$ zsat draw --help
+Construct figure from elements, sources, outputs, panes and frames
+
+Usage: zsat draw [options]
+
+Flags:
+   -d, --datum      Mapping data streams to the defined styles. [String] (default: "(vec) -> (vec -> e0)")
+   -s, --styles     Style(s) definition to be used in further steps when constructing the figure. [String] (default: "e0:{vec2d xy fixed [lw:20, lc: black, lo: 100, le:none, lj: none, ld: none]}")
+   --debug          Dump the drawing representation for a command invoked. [Bool] (default: false)
+   -f, --frames     Frame(s) definition of the figure. [String] (default: "(out) -> out -> p0")
+   -p, --panes      Pane(s) definition to be used in frame construction of the figure. [String] (default: "p0:{size: 100x100}")
+   --out            Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal. [String]
+   -h, --help       Shows the help for a command [Bool] (default: false)
+```
+
+### Examples
+
+Basic usage (outputs to `output0.png`, `output1.png`, etc.):
+```bash
+echo '[[1,1], [2,2]]' | zsat draw
+```
+
+Specify output file:
+```bash
+echo '[[1,1], [2,2]]' | zsat draw --out myplot.png
+```
+
+With custom size:
+```bash
+echo '[[1,1], [2,2]]' | zsat draw -p 'p0:{size: 800x600}'
 ```
 
 ## Development
@@ -74,7 +110,8 @@ Vector plots - coming soon!
 
 ## Zig packages (outside std) proudly used in the project:
 
-- [**zli**](https://github.com/xcaeser/zli) for CLI development support
-- [**macha**](https://github.com/Hejsil/mecha) parser combinator library
-- [**cmdtest**](https://github.com/pyk/cmdtest) for testing CLI app
+- [**zli**](https://github.com/xcaeser/zli) CLI development support
+- [**macha**](https://github.com/Hejsil/mecha) Parser combinator library
+- [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app
 - [**blackcat**](https://github.com/j-c-m/blackcat) cat enabling png/gif opening valid in **kitty graphics protocol** supported terminals
+- [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend
