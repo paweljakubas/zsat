@@ -148,7 +148,7 @@ const connectionParserRawP = @TypeOf(connectionParserRaw);
 fn toConnectionParser(_: std.mem.Allocator, res: connectionParserRawP.T) mecha.ConvertError!Connection {
     return Connection{ .outputs = res[0], .mappingPairs = res[1] };
 }
-const connectionParser = connectionParserRaw.convert(toConnectionParser);
+pub const connectionParser = connectionParserRaw.convert(toConnectionParser);
 
 test "connectionParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);

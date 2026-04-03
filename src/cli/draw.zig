@@ -6,6 +6,7 @@ const Styles = @import("draw/styles.zig");
 const Inputs = @import("draw/inputs.zig");
 const Datum = @import("draw/datum.zig");
 const Panes = @import("draw/panes.zig");
+const Frames = @import("draw/frames.zig");
 
 const style_flag = zli.Flag{
     .name = "styles",
@@ -26,9 +27,17 @@ const datum_flag = zli.Flag{
 const panes_flag = zli.Flag{
     .name = "panes",
     .shortcut = "p",
-    .description = "Pane(s) definition to be used in further steps when constructing the figure.",
+    .description = "Pane(s) definition to be used in frame construction of the figure.",
     .type = .String,
     .default_value = .{ .String = "p0:{view:{(0,0), (100, 100)}}" },
+};
+
+const frames_flag = zli.Flag{
+    .name = "frames",
+    .shortcut = "f",
+    .description = "Frame(s) definition to be used in frame construction of the figure.",
+    .type = .String,
+    .default_value = .{ .String = "(out) -> out -> p0" },
 };
 
 const debug_flag = zli.Flag{
@@ -48,6 +57,8 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
     try cmd.addFlag(style_flag);
     try cmd.addFlag(datum_flag);
     try cmd.addFlag(panes_flag);
+    try cmd.addFlag(frames_flag);
+
     try cmd.addFlag(debug_flag);
 
     return cmd;
@@ -58,6 +69,7 @@ const ParsedData = struct {
     inputs: Inputs.Inputs,
     datum: Datum.DataElementValidated,
     panes: []const Panes.Pane,
+    frames: Frames.OutputPaneValidated,
 };
 
 fn parse(ctx: zli.CommandContext) !ParsedData {
@@ -65,6 +77,7 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
     const styles_str = ctx.flag("styles", []const u8);
     const datum_str = ctx.flag("datum", []const u8);
     const panes_str = ctx.flag("panes", []const u8);
+    const frames_str = ctx.flag("frames", []const u8);
 
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -78,6 +91,7 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
         std.debug.print("styles: {s}\n", .{styles_str});
         std.debug.print("datum: {s}\n", .{datum_str});
         std.debug.print("panes: {s}\n", .{panes_str});
+        std.debug.print("frames: {s}\n", .{frames_str});
     }
 
     const inputs_parse_result = try Inputs.inputsParser.parse(alloc, stdin_str);
@@ -128,11 +142,32 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
         return error.ParsePanesFailed;
     }
 
+    var paneNames = try alloc.alloc([]const u8, panes.len);
+    for (panes, 0..) |pane, i| {
+        paneNames[i] = try std.fmt.allocPrint(alloc, "p{}", .{pane.paneNumber});
+    }
+    defer {
+        for (paneNames) |name| alloc.free(name);
+        alloc.free(paneNames);
+    }
+
+    const frames_parse_result = try Frames.connectionParser.parse(alloc, frames_str);
+    const frames = switch (frames_parse_result.value) {
+        .ok => |f| f,
+        .err => {
+            return error.ParseFramesFailed;
+        },
+    };
+
+    const numberOfOutputs: u8 = @intCast(inputs.input.len);
+    const framesValidated = try Frames.validateConnection(alloc, numberOfOutputs, paneNames, frames);
+
     return ParsedData{
         .styles = styles,
         .inputs = inputs,
         .datum = datumValidated,
         .panes = panes,
+        .frames = framesValidated,
     };
 }
 
@@ -143,9 +178,13 @@ fn run(ctx: zli.CommandContext) !void {
             error.ParseInputsFailed => std.debug.print("error: failed to parse inputs (stdin) (ParseInputsFailed)\n", .{}),
             error.ParseDatumFailed => std.debug.print("error: failed to parse datum mapping (ParseDatumFailed)\n", .{}),
             error.ParsePanesFailed => std.debug.print("error: failed to parse panes (ParsePanesFailed)\n", .{}),
+            error.ParseFramesFailed => std.debug.print("error: failed to parse frames (ParseFramesFailed)\n", .{}),
             Datum.DataElementError.WrongNumberOfDatum => std.debug.print("error: number of inputs in datum mapping does not match number of input rows (WrongNumberOfDatum)\n", .{}),
             Datum.DataElementError.ElementInMappingInvalid => std.debug.print("error: element reference in datum mapping does not exist in styles (use e0, e1, etc.) (ElementInMappingInvalid)\n", .{}),
             Datum.DataElementError.DataInMappingInvalid => std.debug.print("error: data name in datum mapping does not match any input names (use names from stdin like vec) (DataInMappingInvalid)\n", .{}),
+            Frames.OutputPaneError.WrongNumberOfOutputStreams => std.debug.print("error: number of outputs in frames mapping does not match number of input rows (WrongNumberOfOutputStreams)\n", .{}),
+            Frames.OutputPaneError.PaneInMappingInvalid => std.debug.print("error: pane reference in frames mapping does not exist in panes (use p0, p1, etc.) (PaneInMappingInvalid)\n", .{}),
+            Frames.OutputPaneError.OutputInMappingInvalid => std.debug.print("error: output name in frames mapping does not match any output names (OutputInMappingInvalid)\n", .{}),
             else => std.debug.print("error: {s}\n", .{@errorName(err)}),
         }
         return;

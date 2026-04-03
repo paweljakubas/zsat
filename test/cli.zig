@@ -118,3 +118,37 @@ test "zsat draw with two styles, two panes" {
     try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
     try testing.expectEqual(@as(u8, 0), result.code);
 }
+
+test "zsat draw with frames" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--frames", "(out) -> out -> p0" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw with invalid frames" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--frames", "invalid" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseFramesFailed"));
+}
+
+test "zsat draw with invalid pane in frames" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--frames", "(out) -> out -> p5" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "PaneInMappingInvalid"));
+}
+
+test "zsat draw with styles, datum, panes and frames" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}", "--frames", "(out) -> out -> p0" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
