@@ -171,3 +171,29 @@ test "paneParser" {
     const pane1 = Pane{ .paneNumber = 7, .paneValue = v1 };
     try testing.expectEqual(pane1, r1.value.ok);
 }
+
+const paneSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
+pub const panesParser = mecha.many(paneParser, .{ .collect = true, .separator = paneSeparatorParser });
+
+test "panesParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r0 = try panesParser.parse(a, "p0:{size: 100x100, view:{(2,1.1), (10.0, 1.2)}}, p7:{view:{(0,0), (10, 10)}}");
+    const s0 = PaneSize{ .width = 100, .height = 100 };
+    const p0a = inputs.Point{ .x = 2.0, .y = 1.1 };
+    const p0b = inputs.Point{ .x = 10.0, .y = 1.2 };
+    const p0 = PaneView{ .from = p0a, .to = p0b };
+    const v0 = PaneValue{ .paneSize = s0, .view = p0 };
+    const pane0 = Pane{ .paneNumber = 0, .paneValue = v0 };
+
+    const p1a = inputs.Point{ .x = 0.0, .y = 0.0 };
+    const p1b = inputs.Point{ .x = 10.0, .y = 10.0 };
+    const p1 = PaneView{ .from = p1a, .to = p1b };
+    const v1 = PaneValue{ .paneSize = PaneSize.defaultPaneSize(), .view = p1 };
+    const pane1 = Pane{ .paneNumber = 7, .paneValue = v1 };
+
+    const exp_panes = [2]Pane{ pane0, pane1 };
+    try testing.expectEqualDeep(&exp_panes, r0.value.ok[0..2]);
+}

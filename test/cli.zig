@@ -83,3 +83,38 @@ test "zsat draw with invalid data in mapping" {
 
     try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "DataInMappingInvalid"));
 }
+
+test "zsat draw with two panes" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--panes", "p0:{view:{(0,0), (100, 100)}}, p1:{view:{(0,0), (50, 50)}}" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw with invalid panes" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--panes", "invalid" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParsePanesFailed"));
+}
+
+test "zsat draw with styles, datum and panes" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw with two styles, two panes" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--styles", "e0:{vec2d}, e1:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}, p1:{view:{(0,0), (50, 50)}}" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
