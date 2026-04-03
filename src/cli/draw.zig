@@ -86,10 +86,6 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
     const stdin_str = try std.fs.File.stdin().readToEndAlloc(alloc, 1024 * 1024);
     defer alloc.free(stdin_str);
 
-    if (debug) {
-        try ctx.writer.print("stdin:\n{s}\n", .{stdin_str});
-    }
-
     const inputs_parse_result = try Inputs.inputsParser.parse(alloc, stdin_str);
     const inputs = switch (inputs_parse_result.value) {
         .ok => |in| in,
@@ -157,6 +153,16 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
 
     const numberOfOutputs: u8 = @intCast(inputs.input.len);
     const framesValidated = try Frames.validateConnection(alloc, numberOfOutputs, paneNames, frames);
+
+    if (debug) {
+        try ctx.writer.print("stdin:\n{s}\n", .{stdin_str});
+        try ctx.writer.print("\n--styles {s}\n", .{styles_str});
+        try ctx.writer.print("--datum {s}", .{datum_str});
+        try datumValidated.print(ctx.writer);
+        try ctx.writer.print("--panes {s}\n", .{panes_str});
+        try ctx.writer.print("--frames {s}", .{frames_str});
+        try framesValidated.print(ctx.writer);
+    }
 
     return ParsedData{
         .styles = styles,
