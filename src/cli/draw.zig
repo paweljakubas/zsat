@@ -114,13 +114,13 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
 fn run(ctx: zli.CommandContext) !void {
     _ = parse(ctx) catch |err| {
         switch (err) {
-            error.ParseStylesFailed => std.debug.print("failed to parse: error.ParseStylesFailed\n", .{}),
-            error.ParseInputsFailed => std.debug.print("failed to parse: error.ParseInputsFailed\n", .{}),
-            error.ParseDatumFailed => std.debug.print("failed to parse: error.ParseDatumFailed\n", .{}),
-            Datum.DataElementError.WrongNumberOfDatum => std.debug.print("failed to parse: error.WrongNumberOfDatum\n", .{}),
-            Datum.DataElementError.ElementInMappingInvalid => std.debug.print("failed to parse: error.ElementInMappingInvalid\n", .{}),
-            Datum.DataElementError.DataInMappingInvalid => std.debug.print("failed to parse: error.DataInMappingInvalid\n", .{}),
-            else => std.debug.print("failed to parse: {}\n", .{err}),
+            error.ParseStylesFailed => std.debug.print("error: failed to parse styles (ParseStylesFailed)\n", .{}),
+            error.ParseInputsFailed => std.debug.print("error: failed to parse inputs (stdin) (ParseInputsFailed)\n", .{}),
+            error.ParseDatumFailed => std.debug.print("error: failed to parse datum mapping (ParseDatumFailed)\n", .{}),
+            Datum.DataElementError.WrongNumberOfDatum => std.debug.print("error: number of inputs in datum mapping does not match number of input rows (WrongNumberOfDatum)\n", .{}),
+            Datum.DataElementError.ElementInMappingInvalid => std.debug.print("error: element reference in datum mapping does not exist in styles (use e0, e1, etc.) (ElementInMappingInvalid)\n", .{}),
+            Datum.DataElementError.DataInMappingInvalid => std.debug.print("error: data name in datum mapping does not match any input names (use names from stdin like vec) (DataInMappingInvalid)\n", .{}),
+            else => std.debug.print("error: {s}\n", .{@errorName(err)}),
         }
         return;
     };
