@@ -1067,3 +1067,95 @@ test "styleParser" {
     };
     try testing.expectEqualDeep(exp_element3, r3.value.ok);
 }
+
+const styleSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
+pub const stylesParser = mecha.many(styleParser, .{ .collect = true, .separator = styleSeparatorParser });
+
+test "stylesParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r0 = try stylesParser.parse(a, "e0:{vec2d polar}, e8: {[lw:10]}");
+    const styles0 = Vec2dAttributes{
+        .lineWidth = .defaultLineWidthType(),
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = .defaultLineOpacityType(),
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = .defaultLineDashingType(),
+    };
+    const exp_value0 = StyleValue{
+        .styleType = .vec2d,
+        .coordinateSystem = .polar,
+        .coordinateOrientation = .fixed,
+        .attributes = styles0,
+    };
+    const exp_element0 = Style{
+        .styleNumber = 0,
+        .styleValue = exp_value0,
+    };
+
+    const styles1 = Vec2dAttributes{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = .defaultLineOpacityType(),
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = .defaultLineDashingType(),
+    };
+    const exp_value1 = StyleValue{
+        .styleType = .vec2d,
+        .coordinateSystem = .xy,
+        .coordinateOrientation = .fixed,
+        .attributes = styles1,
+    };
+    const exp_element1 = Style{
+        .styleNumber = 8,
+        .styleValue = exp_value1,
+    };
+    const exp_styles0 = [2]Style{ exp_element0, exp_element1 };
+    try testing.expectEqualDeep(&exp_styles0, r0.value.ok);
+
+    const r1 = try stylesParser.parse(a, " e8: {  vec2d  [lw:10, lo  :  6]}, e11: { vec2d polar [ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]}");
+    const styles2 = Vec2dAttributes{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = LineOpacityType{ .value = 6 },
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = .defaultLineDashingType(),
+    };
+    const exp_value2 = StyleValue{
+        .styleType = .vec2d,
+        .coordinateSystem = .xy,
+        .coordinateOrientation = .fixed,
+        .attributes = styles2,
+    };
+    const exp_element2 = Style{
+        .styleNumber = 8,
+        .styleValue = exp_value2,
+    };
+
+    const styles3 = Vec2dAttributes{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = LineOpacityType{ .value = 6 },
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
+    };
+    const exp_value3 = StyleValue{
+        .styleType = .vec2d,
+        .coordinateSystem = .polar,
+        .coordinateOrientation = .fixed,
+        .attributes = styles3,
+    };
+    const exp_element3 = Style{
+        .styleNumber = 11,
+        .styleValue = exp_value3,
+    };
+
+    const exp_styles1 = [2]Style{ exp_element2, exp_element3 };
+    try testing.expectEqualDeep(&exp_styles1, r1.value.ok);
+}
