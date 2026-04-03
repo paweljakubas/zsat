@@ -8,6 +8,7 @@ pub fn build(b: *std.Build) void {
     const zli_dep = b.dependency("zli", .{ .target = target, .optimize = optimize });
     const mecha_dep = b.dependency("mecha", .{ .target = target, .optimize = optimize });
     const cmdtest_dep = b.dependency("cmdtest", .{});
+    const z2d_dep = b.dependency("z2d", .{ .target = target, .optimize = optimize });
 
     {
         const exe_mod = b.createModule(.{
@@ -23,6 +24,7 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addImport("zli", zli_dep.module("zli"));
         exe.root_module.addImport("mecha", mecha_dep.module("mecha"));
         exe.root_module.addImport("cmdtest", cmdtest_dep.module("cmdtest"));
+        exe.root_module.addImport("z2d", z2d_dep.module("z2d"));
 
         b.installArtifact(exe);
         const run_cmd = b.addRunArtifact(exe);

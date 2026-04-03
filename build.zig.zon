@@ -48,6 +48,10 @@
             .url = "https://github.com/pyk/cmdtest/archive/v0.2.0.tar.gz",
             .hash = "cmdtest-0.2.0-j--Upt1_AAAR5fdDGL8l-YlVLmKNQtYM9Fh-N-8zmisb",
         },
+        .z2d = .{
+            .url = "git+https://github.com/vancluever/z2d#d7c9ea66afccb734293555af422f6f52b5f5de41",
+            .hash = "z2d-0.11.0-j5P_HtLWFgBMmJkg9hM-yqNjv1VJSKxiw2eaS8nCPTQE",
+        },
     },
     .paths = .{
         "build.zig",
