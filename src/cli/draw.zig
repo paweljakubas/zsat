@@ -44,7 +44,7 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
 }
 
 const ParsedData = struct {
-    styles: Styles.Style,
+    styles: []const Styles.Style,
     inputs: Inputs.Inputs,
     datum: Datum.DataElementValidated,
 };
@@ -75,13 +75,16 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
         },
     };
 
-    const styles_parse_result = try Styles.styleParser.parse(alloc, styles_str);
+    const styles_parse_result = try Styles.stylesParser.parse(alloc, styles_str);
     const styles = switch (styles_parse_result.value) {
         .ok => |s| s,
         .err => {
             return error.ParseStylesFailed;
         },
     };
+    if (styles.len == 0) {
+        return error.ParseStylesFailed;
+    }
 
     const datum_parse_result = try Datum.connectionParser.parse(alloc, datum_str);
     const datum = switch (datum_parse_result.value) {
@@ -91,14 +94,12 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
         },
     };
 
-    //here we are going to validate datum via validateConnection. We will take the number of inputs, array length of 'input' in Inputs,
-    //and also identifiers from style. Here we know that they are preceded by 's' and complemented by number being field 'styleNumber'.
-    //Hence, datumValidated is of type DataElementValidated.
     const numberOfDatum: u8 = @intCast(inputs.input.len);
 
-    var elements = try alloc.alloc([]const u8, 1);
-    elements[0] = try std.fmt.allocPrint(alloc, "e{}", .{styles.styleNumber});
-    defer alloc.free(elements[0]);
+    var elements = try alloc.alloc([]const u8, styles.len);
+    for (styles, 0..) |style, i| {
+        elements[i] = try std.fmt.allocPrint(alloc, "e{}", .{style.styleNumber});
+    }
     defer alloc.free(elements);
 
     const datumValidated = try Datum.validateConnection(alloc, numberOfDatum, elements, datum);

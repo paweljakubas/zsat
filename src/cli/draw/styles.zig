@@ -1069,7 +1069,15 @@ test "styleParser" {
 }
 
 const styleSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
-pub const stylesParser = mecha.many(styleParser, .{ .collect = true, .separator = styleSeparatorParser });
+const stylesParserRaw = mecha.many(styleParser, .{ .collect = true, .separator = styleSeparatorParser });
+const stylesParserRawP = @TypeOf(stylesParserRaw);
+fn toStylesSlice(arena: std.mem.Allocator, raw: stylesParserRawP.T) mecha.ConvertError![]Style {
+    const result = try arena.alloc(Style, raw.len);
+    @memcpy(result, raw);
+    arena.free(raw);
+    return result;
+}
+pub const stylesParser = stylesParserRaw.convert(toStylesSlice);
 
 test "stylesParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
