@@ -152,3 +152,31 @@ test "zsat draw with styles, datum, panes and frames" {
     try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
     try testing.expectEqual(@as(u8, 0), result.code);
 }
+
+test "zsat draw with debug" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--debug" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "stdin:"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--styles"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--datum"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--panes"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--frames"));
+}
+
+test "zsat draw with debug and custom options" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--debug", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}", "--frames", "(out) -> out -> p0" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "stdin:"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--styles e0:{vec2d}"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--datum (vec) -> (vec -> e0)"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--panes p0:{view:{(0,0), (100, 100)}}"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--frames (out) -> out -> p0"));
+}
