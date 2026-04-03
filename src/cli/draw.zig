@@ -181,6 +181,12 @@ fn checkTerminalSupportsKitty() bool {
     return std.mem.containsAtLeast(u8, term, 5, "xterm");
 }
 
+fn getSystemTmpDir(alloc: std.mem.Allocator) ![]u8 {
+    const tmp_env = std.posix.getenv("TMPDIR") orelse "/tmp";
+    const tmp_dir_path = if (tmp_env.len > 0) tmp_env else "/tmp";
+    return try alloc.dupe(u8, tmp_dir_path);
+}
+
 fn getNextOutputFilename(alloc: std.mem.Allocator) ![]u8 {
     var n: u32 = 0;
     while (true) : (n += 1) {
@@ -199,7 +205,6 @@ fn run(ctx: zli.CommandContext) !void {
     const alloc = arena.allocator();
 
     const parsed_data = try parse(ctx, alloc);
-    try Plot.plot_via_z2d(parsed_data);
 
     const out_filename = ctx.flag("out", []const u8);
     const force_file = out_filename.len > 0;
@@ -213,8 +218,18 @@ fn run(ctx: zli.CommandContext) !void {
 
     const can_display = blackcat_installed and checkTerminalSupportsKitty();
 
+    var output_path: ?[]u8 = null;
+    defer if (output_path) |p| alloc.free(p);
+
     if (force_file) {
-        try std.fs.cwd().rename("output.png", out_filename);
+        output_path = try alloc.dupe(u8, out_filename);
+    } else if (!can_display) {
+        output_path = try getNextOutputFilename(alloc);
+    }
+
+    try Plot.plot_via_z2d(parsed_data, output_path);
+
+    if (force_file) {
         std.debug.print("Saved to {s}\n", .{out_filename});
         if (can_display) {
             var stdin_file = try std.fs.cwd().openFile(out_filename, .{});
@@ -226,24 +241,26 @@ fn run(ctx: zli.CommandContext) !void {
             _ = blackcat_proc.wait() catch {};
         }
     } else if (can_display) {
-        var stdin_file = try std.fs.cwd().openFile("output.png", .{});
+        const system_tmp = try getSystemTmpDir(alloc);
+        const timestamp = std.time.timestamp();
+        const tmp_path = try std.fmt.allocPrint(alloc, "{s}/zsat_{}.png", .{ system_tmp, timestamp });
+        defer alloc.free(tmp_path);
+
+        try std.fs.cwd().rename("output.png", tmp_path);
+
+        var stdin_file = try std.fs.cwd().openFile(tmp_path, .{});
         defer stdin_file.close();
 
         var blackcat_proc = std.process.Child.init(&.{"blackcat"}, alloc);
         blackcat_proc.stdin = stdin_file;
         blackcat_proc.stdin_behavior = .Pipe;
         blackcat_proc.spawn() catch {
-            const filename = try getNextOutputFilename(alloc);
-            defer alloc.free(filename);
-            try std.fs.cwd().rename("output.png", filename);
-            std.debug.print("Saved to {s}\n", .{filename});
+            std.debug.print("Saved to {s}\n", .{tmp_path});
             return;
         };
         _ = blackcat_proc.wait() catch {};
     } else {
-        const filename = try getNextOutputFilename(alloc);
-        defer alloc.free(filename);
-        try std.fs.cwd().rename("output.png", filename);
+        const filename = output_path.?;
         std.debug.print("Saved to {s}\n", .{filename});
     }
 }

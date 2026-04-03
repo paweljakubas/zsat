@@ -82,6 +82,7 @@ pub fn build(b: *std.Build) void {
             .test_file = b.path("test/cli.zig"),
         });
         cli_test.setEnvironmentVariable("PATH", "zig-out/bin");
+        cli_test.setEnvironmentVariable("TMPDIR", "/tmp");
 
         test_step.dependOn(&cli_test.step);
     }

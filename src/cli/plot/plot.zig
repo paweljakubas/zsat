@@ -5,7 +5,7 @@ const Panes = @import("../draw/panes.zig");
 
 pub const ParsedData = @import("../draw.zig").ParsedData;
 
-pub fn plot_via_z2d(parsed_data: ParsedData) !void {
+pub fn plot_via_z2d(parsed_data: ParsedData, output_path: ?[]const u8) !void {
     if (parsed_data.panes.len == 0) {
         return error.NoPanes;
     }
@@ -27,5 +27,6 @@ pub fn plot_via_z2d(parsed_data: ParsedData) !void {
     try context.closePath();
     try context.fill();
 
-    try z2d.png_exporter.writeToPNGFile(surface, "output.png", .{});
+    const filename = output_path orelse "output.png";
+    try z2d.png_exporter.writeToPNGFile(surface, filename, .{});
 }
