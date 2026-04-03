@@ -13,7 +13,7 @@ const style_flag = zli.Flag{
     .shortcut = "s",
     .description = "Style(s) definition to be used in further steps when constructing the figure.",
     .type = .String,
-    .default_value = .{ .String = "e0:{vec2d xy fixed [lw:20, lc: black, lo: 100, le:none, lj: none]}" },
+    .default_value = .{ .String = "e0:{vec2d xy fixed [lw:20, lc: black, lo: 100, le:none, lj: none, ld: none]}" },
 };
 
 const datum_flag = zli.Flag{
@@ -35,7 +35,7 @@ const panes_flag = zli.Flag{
 const frames_flag = zli.Flag{
     .name = "frames",
     .shortcut = "f",
-    .description = "Frame(s) definition to be used in frame construction of the figure.",
+    .description = "Frame(s) definition of the figure.",
     .type = .String,
     .default_value = .{ .String = "(out) -> out -> p0" },
 };

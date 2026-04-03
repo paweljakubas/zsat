@@ -146,7 +146,7 @@ pub const Vec2dAttributes = struct {
     lineOpacity: LineOpacityType = .defaultLineOpacityType(),
     lineCap: LineCapType = .defaultLineCapType(),
     lineJoin: LineJoinType = .defaultLineJoinType(),
-    lineDashing: LineDashingType = .defaultLineDashingType(),
+    lineDashing: ?LineDashingType = null,
 };
 
 const Vec2dAttributesUnion = union(enum) {
@@ -155,7 +155,7 @@ const Vec2dAttributesUnion = union(enum) {
     lineOpacity: LineOpacityType,
     lineCap: LineCapType,
     lineJoin: LineJoinType,
-    lineDashing: LineDashingType,
+    lineDashing: ?LineDashingType,
 };
 
 //Parsers
@@ -668,6 +668,19 @@ fn toLineDashingUnion(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) me
 }
 const lineDashingUnionParser = lineDashingTypeParserRaw.convert(toLineDashingUnion);
 
+const lineDashingNullParserRaw = mecha.combine(.{
+    mecha.string("ld"),
+    common.skipWhitespace,
+    mecha.ascii.char(':').discard(),
+    common.skipWhitespace,
+    mecha.oneOf(.{ mecha.string("null"), mecha.string("none") }),
+});
+const lineDashingNullParser = lineDashingNullParserRaw.convert(struct {
+    fn toNull(_: std.mem.Allocator, _: anytype) mecha.ConvertError!Vec2dAttributesUnion {
+        return Vec2dAttributesUnion{ .lineDashing = null };
+    }
+}.toNull);
+
 test "LineDashingTypeParserTyped" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -690,6 +703,7 @@ const vec2dAttributeUnionParser = mecha.oneOf(.{
     lineOpacityUnionParser,
     lineCapUnionParser,
     lineJoinUnionParser,
+    lineDashingNullParser,
     lineDashingUnionParser,
 });
 
@@ -810,7 +824,7 @@ test "vec2dAttributesParser" {
         .lineOpacity = .defaultLineOpacityType(),
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     try testing.expectEqual(styles1, r1.value.ok);
 
@@ -821,7 +835,7 @@ test "vec2dAttributesParser" {
         .lineOpacity = LineOpacityType{ .value = 6 },
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     try testing.expectEqual(styles2, r2.value.ok);
 
@@ -849,7 +863,7 @@ test "vec2dAttributesParserUnion" {
         .lineOpacity = .defaultLineOpacityType(),
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     const exp_value1 = StyleValueUnion{ .attributes = styles1 };
     try testing.expectEqual(exp_value1, r1.value.ok);
@@ -861,7 +875,7 @@ test "vec2dAttributesParserUnion" {
         .lineOpacity = LineOpacityType{ .value = 6 },
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     const exp_value2 = StyleValueUnion{ .attributes = styles2 };
     try testing.expectEqual(exp_value2, r2.value.ok);
@@ -913,7 +927,7 @@ test "styleValueParser" {
         .lineOpacity = .defaultLineOpacityType(),
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     const exp_value0 = StyleValue{
         .styleType = .vec2d,
@@ -930,7 +944,7 @@ test "styleValueParser" {
         .lineOpacity = .defaultLineOpacityType(),
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     const exp_value1 = StyleValue{
         .styleType = .vec2d,
@@ -947,7 +961,7 @@ test "styleValueParser" {
         .lineOpacity = LineOpacityType{ .value = 6 },
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     const exp_value2 = StyleValue{
         .styleType = .vec2d,
@@ -990,7 +1004,7 @@ test "styleParser" {
         .lineOpacity = .defaultLineOpacityType(),
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     const exp_value0 = StyleValue{
         .styleType = .vec2d,
@@ -1011,7 +1025,7 @@ test "styleParser" {
         .lineOpacity = .defaultLineOpacityType(),
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     const exp_value1 = StyleValue{
         .styleType = .vec2d,
@@ -1032,7 +1046,7 @@ test "styleParser" {
         .lineOpacity = LineOpacityType{ .value = 6 },
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     const exp_value2 = StyleValue{
         .styleType = .vec2d,
@@ -1091,7 +1105,7 @@ test "stylesParser" {
         .lineOpacity = .defaultLineOpacityType(),
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     const exp_value0 = StyleValue{
         .styleType = .vec2d,
@@ -1110,7 +1124,7 @@ test "stylesParser" {
         .lineOpacity = .defaultLineOpacityType(),
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     const exp_value1 = StyleValue{
         .styleType = .vec2d,
@@ -1132,7 +1146,7 @@ test "stylesParser" {
         .lineOpacity = LineOpacityType{ .value = 6 },
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
-        .lineDashing = .defaultLineDashingType(),
+        .lineDashing = null,
     };
     const exp_value2 = StyleValue{
         .styleType = .vec2d,
