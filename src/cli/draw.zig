@@ -87,11 +87,7 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
     defer alloc.free(stdin_str);
 
     if (debug) {
-        std.debug.print("stdin: {s}\n", .{stdin_str});
-        std.debug.print("styles: {s}\n", .{styles_str});
-        std.debug.print("datum: {s}\n", .{datum_str});
-        std.debug.print("panes: {s}\n", .{panes_str});
-        std.debug.print("frames: {s}\n", .{frames_str});
+        try ctx.writer.print("stdin:\n{s}\n", .{stdin_str});
     }
 
     const inputs_parse_result = try Inputs.inputsParser.parse(alloc, stdin_str);
