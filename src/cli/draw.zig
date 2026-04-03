@@ -168,6 +168,23 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     };
 }
 
+fn checkTerminalSupportsKitty() bool {
+    const term = std.posix.getenv("TERM") orelse return false;
+    return std.mem.containsAtLeast(u8, term, 5, "xterm");
+}
+
+fn getNextOutputFilename(alloc: std.mem.Allocator) ![]u8 {
+    var n: u32 = 0;
+    while (true) : (n += 1) {
+        const filename = try std.fmt.allocPrint(alloc, "output{d}.png", .{n});
+        errdefer alloc.free(filename);
+        const file = std.fs.cwd().openFile(filename, .{}) catch {
+            return filename;
+        };
+        file.close();
+    }
+}
+
 fn run(ctx: zli.CommandContext) !void {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -175,4 +192,30 @@ fn run(ctx: zli.CommandContext) !void {
 
     const parsed_data = try parse(ctx, alloc);
     try Plot.plot_via_z2d(parsed_data);
+
+    const blackcat_installed = blk: {
+        var blackcat_check = std.process.Child.init(&.{ "blackcat", "--version" }, alloc);
+        blackcat_check.spawn() catch break :blk false;
+        const result = blackcat_check.wait() catch break :blk false;
+        break :blk result == .Exited and result.Exited == 0;
+    };
+
+    if (blackcat_installed and checkTerminalSupportsKitty()) {
+        var stdin_file = try std.fs.cwd().openFile("output.png", .{});
+        defer stdin_file.close();
+
+        var blackcat_proc = std.process.Child.init(&.{"blackcat"}, alloc);
+        blackcat_proc.stdin = stdin_file;
+        blackcat_proc.stdin_behavior = .Pipe;
+        blackcat_proc.spawn() catch {
+            std.debug.print("error: failed to run blackcat\n", .{});
+            return;
+        };
+        _ = blackcat_proc.wait() catch {};
+    } else {
+        const filename = try getNextOutputFilename(alloc);
+        defer alloc.free(filename);
+        try std.fs.cwd().rename("output.png", filename);
+        std.debug.print("Saved to {s}\n", .{filename});
+    }
 }
