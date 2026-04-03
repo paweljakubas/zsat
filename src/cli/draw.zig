@@ -7,6 +7,15 @@ const Inputs = @import("draw/inputs.zig");
 const Datum = @import("draw/datum.zig");
 const Panes = @import("draw/panes.zig");
 const Frames = @import("draw/frames.zig");
+const Plot = @import("plot/plot.zig");
+
+pub const ParsedData = struct {
+    styles: []const Styles.Style,
+    inputs: Inputs.Inputs,
+    datum: Datum.DataElementValidated,
+    panes: []const Panes.Pane,
+    frames: Frames.OutputPaneValidated,
+};
 
 const style_flag = zli.Flag{
     .name = "styles",
@@ -64,24 +73,12 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
     return cmd;
 }
 
-const ParsedData = struct {
-    styles: []const Styles.Style,
-    inputs: Inputs.Inputs,
-    datum: Datum.DataElementValidated,
-    panes: []const Panes.Pane,
-    frames: Frames.OutputPaneValidated,
-};
-
-fn parse(ctx: zli.CommandContext) !ParsedData {
+fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     const debug = ctx.flag("debug", bool);
     const styles_str = ctx.flag("styles", []const u8);
     const datum_str = ctx.flag("datum", []const u8);
     const panes_str = ctx.flag("panes", []const u8);
     const frames_str = ctx.flag("frames", []const u8);
-
-    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-    defer arena.deinit();
-    const alloc = arena.allocator();
 
     const stdin_str = try std.fs.File.stdin().readToEndAlloc(alloc, 1024 * 1024);
     defer alloc.free(stdin_str);
@@ -172,21 +169,10 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
 }
 
 fn run(ctx: zli.CommandContext) !void {
-    _ = parse(ctx) catch |err| {
-        switch (err) {
-            error.ParseStylesFailed => std.debug.print("error: failed to parse styles (ParseStylesFailed)\n", .{}),
-            error.ParseInputsFailed => std.debug.print("error: failed to parse inputs (stdin) (ParseInputsFailed)\n", .{}),
-            error.ParseDatumFailed => std.debug.print("error: failed to parse datum mapping (ParseDatumFailed)\n", .{}),
-            error.ParsePanesFailed => std.debug.print("error: failed to parse panes (ParsePanesFailed)\n", .{}),
-            error.ParseFramesFailed => std.debug.print("error: failed to parse frames (ParseFramesFailed)\n", .{}),
-            Datum.DataElementError.WrongNumberOfDatum => std.debug.print("error: number of inputs in datum mapping does not match number of input rows (WrongNumberOfDatum)\n", .{}),
-            Datum.DataElementError.ElementInMappingInvalid => std.debug.print("error: element reference in datum mapping does not exist in styles (use e0, e1, etc.) (ElementInMappingInvalid)\n", .{}),
-            Datum.DataElementError.DataInMappingInvalid => std.debug.print("error: data name in datum mapping does not match any input names (use names from stdin like vec) (DataInMappingInvalid)\n", .{}),
-            Frames.OutputPaneError.WrongNumberOfOutputStreams => std.debug.print("error: number of outputs in frames mapping does not match number of input rows (WrongNumberOfOutputStreams)\n", .{}),
-            Frames.OutputPaneError.PaneInMappingInvalid => std.debug.print("error: pane reference in frames mapping does not exist in panes (use p0, p1, etc.) (PaneInMappingInvalid)\n", .{}),
-            Frames.OutputPaneError.OutputInMappingInvalid => std.debug.print("error: output name in frames mapping does not match any output names (OutputInMappingInvalid)\n", .{}),
-            else => std.debug.print("error: {s}\n", .{@errorName(err)}),
-        }
-        return;
-    };
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const parsed_data = try parse(ctx, alloc);
+    try Plot.plot_via_z2d(parsed_data);
 }

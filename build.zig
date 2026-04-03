@@ -9,6 +9,7 @@ pub fn build(b: *std.Build) void {
     const mecha_dep = b.dependency("mecha", .{ .target = target, .optimize = optimize });
     const cmdtest_dep = b.dependency("cmdtest", .{});
     const z2d_dep = b.dependency("z2d", .{ .target = target, .optimize = optimize });
+    const blackcat_dep = b.dependency("blackcat", .{});
 
     {
         const exe_mod = b.createModule(.{
@@ -25,6 +26,9 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addImport("mecha", mecha_dep.module("mecha"));
         exe.root_module.addImport("cmdtest", cmdtest_dep.module("cmdtest"));
         exe.root_module.addImport("z2d", z2d_dep.module("z2d"));
+        exe.root_module.addImport("blackcat", b.createModule(.{
+            .root_source_file = blackcat_dep.path("src/main.zig"),
+        }));
 
         b.installArtifact(exe);
         const run_cmd = b.addRunArtifact(exe);
@@ -77,6 +81,7 @@ pub fn build(b: *std.Build) void {
             .name = "zsat",
             .test_file = b.path("test/cli.zig"),
         });
+        cli_test.setEnvironmentVariable("PATH", "zig-out/bin");
 
         test_step.dependOn(&cli_test.step);
     }
