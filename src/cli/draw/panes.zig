@@ -28,6 +28,10 @@ pub const PaneSize = struct {
 pub const PaneView = struct {
     from: inputs.Point,
     to: inputs.Point,
+
+    pub fn defaultPaneView() PaneView {
+        return PaneView{ .from = .{ .x = 0.0, .y = 0.0 }, .to = .{ .x = 100.0, .y = 100.0 } };
+    }
 };
 
 //Parsers
@@ -141,8 +145,17 @@ const paneValueParserRawWithoutSize = paneViewParser.convert(struct {
         };
     }
 }.toPaneValue);
+const paneValueParserRawOnlySize = paneSizeParser.convert(struct {
+    fn toPaneValue(_: std.mem.Allocator, res: PaneSize) mecha.ConvertError!PaneValue {
+        return PaneValue{
+            .paneSize = res,
+            .view = .defaultPaneView(),
+        };
+    }
+}.toPaneValue);
 const paneValueParser = mecha.oneOf(.{
     paneValueParserRawWithSize,
+    paneValueParserRawOnlySize,
     paneValueParserRawWithoutSize,
 });
 
