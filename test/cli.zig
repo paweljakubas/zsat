@@ -59,3 +59,27 @@ test "zsat draw with two styles" {
     try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
     try testing.expectEqual(@as(u8, 0), result.code);
 }
+
+test "zsat draw with wrong number of datum" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--datum", "(vec, vec) -> (vec -> e0)" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "WrongNumberOfDatum"));
+}
+
+test "zsat draw with invalid element in mapping" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e5)" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ElementInMappingInvalid"));
+}
+
+test "zsat draw with invalid data in mapping" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--datum", "(vec) -> (other -> e0)" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "DataInMappingInvalid"));
+}

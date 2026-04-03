@@ -113,7 +113,15 @@ fn parse(ctx: zli.CommandContext) !ParsedData {
 
 fn run(ctx: zli.CommandContext) !void {
     _ = parse(ctx) catch |err| {
-        std.debug.print("failed to parse: {}\n", .{err});
+        switch (err) {
+            error.ParseStylesFailed => std.debug.print("failed to parse: error.ParseStylesFailed\n", .{}),
+            error.ParseInputsFailed => std.debug.print("failed to parse: error.ParseInputsFailed\n", .{}),
+            error.ParseDatumFailed => std.debug.print("failed to parse: error.ParseDatumFailed\n", .{}),
+            Datum.DataElementError.WrongNumberOfDatum => std.debug.print("failed to parse: error.WrongNumberOfDatum\n", .{}),
+            Datum.DataElementError.ElementInMappingInvalid => std.debug.print("failed to parse: error.ElementInMappingInvalid\n", .{}),
+            Datum.DataElementError.DataInMappingInvalid => std.debug.print("failed to parse: error.DataInMappingInvalid\n", .{}),
+            else => std.debug.print("failed to parse: {}\n", .{err}),
+        }
         return;
     };
 }
