@@ -50,3 +50,12 @@ test "zsat draw with invalid styles and datum" {
 
     try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseStylesFailed"));
 }
+
+test "zsat draw with two styles" {
+    const argv = &[_][]const u8{ "./zig-out/bin/zsat", "draw", "--styles", "e0:{vec2d}, e8:{vec2d polar}", "--datum", "(vec) -> (vec -> e0)" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
