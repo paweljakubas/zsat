@@ -2,6 +2,7 @@ const std = @import("std");
 const Writer = std.Io.Writer;
 const Reader = std.Io.Reader;
 const zli = @import("zli");
+const z2d = @import("z2d");
 const zigimg = @import("zigimg");
 const Styles = @import("draw/styles.zig");
 const Inputs = @import("draw/inputs.zig");
@@ -179,7 +180,121 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
 
 fn checkTerminalSupportsKitty() bool {
     const term = std.posix.getenv("TERM") orelse return false;
-    return std.mem.containsAtLeast(u8, term, 5, "xterm");
+    if (!std.mem.containsAtLeast(u8, term, 1, "xterm")) return false;
+    return std.posix.isatty(std.posix.STDOUT_FILENO);
+}
+
+fn renderToStdout(allocator: std.mem.Allocator, img: Plot.RenderedImage, writer: anytype) !void {
+    const original_width = img.width;
+    const original_height = img.height;
+
+    var term_cols: u16 = 80;
+    var term_rows: u16 = 24;
+    var winsize: std.posix.winsize = undefined;
+    if (std.posix.system.ioctl(1, std.posix.system.T.IOCGWINSZ, @intFromPtr(&winsize)) == 0) {
+        term_cols = winsize.col;
+        term_rows = winsize.row;
+    }
+
+    const CELL_WIDTH: f32 = 8.0;
+    const CELL_HEIGHT: f32 = 16.0;
+
+    const max_pixel_w: f32 = @as(f32, @floatFromInt(term_cols)) * CELL_WIDTH;
+    const max_pixel_h: f32 = @as(f32, @floatFromInt(term_rows)) * CELL_HEIGHT;
+
+    const img_w: f32 = @floatFromInt(original_width);
+    const img_h: f32 = @floatFromInt(original_height);
+    const scale_x: f32 = max_pixel_w / img_w;
+    const scale_y: f32 = max_pixel_h / img_h;
+    const scale: f32 = @min(scale_x, scale_y);
+
+    const new_w: u32 = @intFromFloat(scale * img_w);
+    const new_h: u32 = @intFromFloat(scale * img_h);
+
+    var pixels = img.pixels;
+    if (new_w < original_width or new_h < original_height) {
+        const resized = try resizePixels(allocator, pixels, original_width, original_height, new_w, new_h);
+        defer allocator.free(resized);
+        pixels = resized;
+    }
+
+    var byte_data = try std.ArrayList(u8).initCapacity(allocator, pixels.len * 4);
+    defer byte_data.deinit(allocator);
+    for (pixels) |px| {
+        try byte_data.append(allocator, px.r);
+        try byte_data.append(allocator, px.g);
+        try byte_data.append(allocator, px.b);
+        try byte_data.append(allocator, px.a);
+    }
+
+    var encoded = try std.ArrayList(u8).initCapacity(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
+    defer encoded.deinit(allocator);
+    try encoded.resize(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
+    _ = std.base64.standard.Encoder.encode(encoded.items, byte_data.items);
+
+    try writer.writeAll("\n     ");
+    const chunk_size = 4096;
+    const data = encoded.items;
+    if (data.len <= chunk_size) {
+        try writer.print("\x1B_Gf=32,s={d},v={d},a=T;{s}\x1B\\", .{ img.width, img.height, data });
+    } else {
+        try writer.print("\x1B_Gf=32,s={d},v={d},a=T,m=1;{s}\x1B\\", .{ img.width, img.height, data[0..chunk_size] });
+        var start: usize = chunk_size;
+        while (start + chunk_size < data.len) {
+            try writer.print("\x1B_Gm=1;{s}\x1B\\", .{data[start..][0..chunk_size]});
+            start += chunk_size;
+        }
+        try writer.print("\x1B_Gm=0;{s}\x1B\\", .{data[start..]});
+    }
+    try writer.writeAll("\n\n");
+    try writer.flush();
+}
+
+fn resizePixels(
+    alloc: std.mem.Allocator,
+    pixels: []z2d.pixel.RGBA,
+    original_width: i32,
+    original_height: i32,
+    new_w: u32,
+    new_h: u32,
+) ![]z2d.pixel.RGBA {
+    const original_w_u: u32 = @intCast(original_width);
+    const original_h_u: u32 = @intCast(original_height);
+
+    const img_w_f = @as(f32, @floatFromInt(original_width));
+    const img_h_f = @as(f32, @floatFromInt(original_height));
+    const new_w_f = @as(f32, @floatFromInt(new_w));
+    const new_h_f = @as(f32, @floatFromInt(new_h));
+
+    var new_pixels = try alloc.alloc(z2d.pixel.RGBA, new_w * new_h);
+
+    for (0..new_h) |y| {
+        const sy = @as(f32, @floatFromInt(y)) * img_h_f / new_h_f;
+        const y0 = @as(usize, @intFromFloat(@floor(sy)));
+        const y1 = @min(y0 + 1, original_h_u - 1);
+        const dy = sy - @floor(sy);
+
+        for (0..new_w) |x| {
+            const sx = @as(f32, @floatFromInt(x)) * img_w_f / new_w_f;
+            const x0 = @as(usize, @intFromFloat(@floor(sx)));
+            const x1 = @min(x0 + 1, original_w_u - 1);
+            const dx = sx - @floor(sx);
+
+            const p00 = pixels[y0 * original_w_u + x0];
+            const p01 = pixels[y0 * original_w_u + x1];
+            const p10 = pixels[y1 * original_w_u + x0];
+            const p11 = pixels[y1 * original_w_u + x1];
+
+            new_pixels[y * new_w + x] = .{
+                .r = @intFromFloat((1 - dx) * (1 - dy) * @as(f32, @floatFromInt(p00.r)) + dx * (1 - dy) * @as(f32, @floatFromInt(p01.r)) + (1 - dx) * dy * @as(f32, @floatFromInt(p10.r)) + dx * dy * @as(f32, @floatFromInt(p11.r))),
+                .g = @intFromFloat((1 - dx) * (1 - dy) * @as(f32, @floatFromInt(p00.g)) + dx * (1 - dy) * @as(f32, @floatFromInt(p01.g)) + (1 - dx) * dy * @as(f32, @floatFromInt(p10.g)) + dx * dy * @as(f32, @floatFromInt(p11.g))),
+                .b = @intFromFloat((1 - dx) * (1 - dy) * @as(f32, @floatFromInt(p00.b)) + dx * (1 - dy) * @as(f32, @floatFromInt(p01.b)) + (1 - dx) * dy * @as(f32, @floatFromInt(p10.b)) + dx * dy * @as(f32, @floatFromInt(p11.b))),
+                .a = @intFromFloat((1 - dx) * (1 - dy) * @as(f32, @floatFromInt(p00.a)) + dx * (1 - dy) * @as(f32, @floatFromInt(p01.a)) + (1 - dx) * dy * @as(f32, @floatFromInt(p10.a)) + dx * dy * @as(f32, @floatFromInt(p11.a))),
+            };
+        }
+    }
+
+    return new_pixels;
 }
 
 fn renderImageToStdout(allocator: std.mem.Allocator, file: *std.fs.File, writer: anytype) !void {
@@ -339,22 +454,14 @@ fn run(ctx: zli.CommandContext) !void {
         output_path = try getNextOutputFilename(alloc);
     }
 
-    try Plot.plot_via_z2d(parsed_data, output_path);
+    const rendered = try Plot.plot_via_z2d(parsed_data, output_path);
+    defer rendered.allocator.free(rendered.pixels);
 
     if (force_file) {
         std.debug.print("Saved to {s}\n", .{out_filename});
-        if (can_display) {
-            var file = try std.fs.cwd().openFile(out_filename, .{});
-            defer file.close();
-            var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
-            try renderImageToStdout(alloc, &file, &stdout_writer.interface);
-        }
     } else if (can_display) {
-        try std.fs.cwd().rename("output.png", "output.png");
-        var file = try std.fs.cwd().openFile("output.png", .{});
-        defer file.close();
         var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
-        try renderImageToStdout(alloc, &file, &stdout_writer.interface);
+        try renderToStdout(alloc, rendered, &stdout_writer.interface);
     } else {
         const filename = output_path.?;
         std.debug.print("Saved to {s}\n", .{filename});

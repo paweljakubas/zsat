@@ -5,7 +5,14 @@ const Panes = @import("../draw/panes.zig");
 
 pub const ParsedData = @import("../draw.zig").ParsedData;
 
-pub fn plot_via_z2d(parsed_data: ParsedData, output_path: ?[]const u8) !void {
+pub const RenderedImage = struct {
+    pixels: []z2d.pixel.RGBA,
+    width: i32,
+    height: i32,
+    allocator: std.mem.Allocator,
+};
+
+pub fn plot_via_z2d(parsed_data: ParsedData, output_path: ?[]const u8) !RenderedImage {
     if (parsed_data.panes.len == 0) {
         return error.NoPanes;
     }
@@ -27,6 +34,20 @@ pub fn plot_via_z2d(parsed_data: ParsedData, output_path: ?[]const u8) !void {
     try context.closePath();
     try context.fill();
 
-    const filename = output_path orelse "output.png";
-    try z2d.png_exporter.writeToPNGFile(surface, filename, .{});
+    if (output_path) |filename| {
+        try z2d.png_exporter.writeToPNGFile(surface, filename, .{});
+    }
+
+    const pixels = switch (surface) {
+        .image_surface_rgba => |s| s.buf,
+        else => unreachable,
+    };
+    const duped = try std.heap.page_allocator.dupe(z2d.pixel.RGBA, pixels);
+
+    return .{
+        .pixels = duped,
+        .width = width,
+        .height = height,
+        .allocator = std.heap.page_allocator,
+    };
 }
