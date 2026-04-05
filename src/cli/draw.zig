@@ -40,7 +40,7 @@ const panes_flag = zli.Flag{
     .shortcut = "p",
     .description = "Pane(s) definition to be used in frame construction of the figure.",
     .type = .String,
-    .default_value = .{ .String = "p0:{size: 100x100}" },
+    .default_value = .{ .String = "p0:{size: 1200x800}" },
 };
 
 const frames_flag = zli.Flag{

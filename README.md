@@ -1,5 +1,3 @@
-# zsat
-
 **Z**ig-based **S**cience plotting and **A**nimation command line **T**ool
 
 [![Zig Version](https://img.shields.io/badge/Zig_Version-0.15.2-orange.svg?logo=zig)](README.md)
@@ -74,7 +72,7 @@ Flags:
    -s, --styles     Style(s) definition to be used in further steps when constructing the figure. [String] (default: "e0:{vec2d xy fixed [lw:20, lc: black, lo: 100, le:none, lj: none, ld: none]}")
    --debug          Dump the drawing representation for a command invoked. [Bool] (default: false)
    -f, --frames     Frame(s) definition of the figure. [String] (default: "(out) -> out -> p0")
-   -p, --panes      Pane(s) definition to be used in frame construction of the figure. [String] (default: "p0:{size: 100x100}")
+   -p, --panes      Pane(s) definition to be used in frame construction of the figure. [String] (default: "p0:{size: 1200x800}")
    --out            Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal. [String]
    -h, --help       Shows the help for a command [Bool] (default: false)
 ```
@@ -93,7 +91,7 @@ echo '[[1,1], [2,2]]' | zsat draw --out myplot.png
 
 With custom size:
 ```bash
-echo '[[1,1], [2,2]]' | zsat draw -p 'p0:{size: 800x600}'
+echo '[[1,1], [2,2]]' | zsat draw -p 'p0:{size: 1200x800}'
 ```
 
 ## Development

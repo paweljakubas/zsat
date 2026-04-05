@@ -21,7 +21,7 @@ pub const PaneSize = struct {
     height: u16,
 
     pub fn defaultPaneSize() PaneSize {
-        return PaneSize{ .width = 200, .height = 200 };
+        return PaneSize{ .width = 800, .height = 600 };
     }
 };
 
@@ -30,7 +30,7 @@ pub const PaneView = struct {
     to: inputs.Point,
 
     pub fn defaultPaneView() PaneView {
-        return PaneView{ .from = .{ .x = 0.0, .y = 0.0 }, .to = .{ .x = 100.0, .y = 100.0 } };
+        return PaneView{ .from = .{ .x = -100.0, .y = -100.0 }, .to = .{ .x = 100.0, .y = 100.0 } };
     }
 };
 

@@ -19,7 +19,8 @@ test "zsat version" {
     var result = try cmdtest.run(.{ .argv = argv });
     defer result.deinit();
 
-    try testing.expectEqualStrings("0.0.1\n", result.stdout);
+    try testing.expect(std.mem.startsWith(u8, result.stdout, "0.0.1\n"));
+    try testing.expect(result.stdout.len == 14); // "0.0.1\n" + 7 char commit + "\n"
 }
 
 test "zsat draw" {

@@ -12,11 +12,23 @@ pub fn build(b: *std.Build) void {
     const zigimg_dep = b.dependency("zigimg", .{ .target = target, .optimize = optimize });
 
     {
+        const git_argv = [_][]const u8{ "git", "rev-parse", "--short", "HEAD" };
+        const commit_hash = b.run(&git_argv);
+        const trimmed = std.mem.trim(u8, commit_hash, &std.ascii.whitespace);
+
+        const version_content = b.fmt("pub const commit = \"{s}\";\n", .{trimmed});
+        const write_step = b.addWriteFiles();
+        const version_path = write_step.add("src/cli/commit.zig", version_content);
+
         const exe_mod = b.createModule(.{
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = optimize,
         });
+        exe_mod.addImport("commit", b.createModule(.{
+            .root_source_file = version_path,
+        }));
+
         const exe = b.addExecutable(.{
             .name = "zsat",
             .root_module = exe_mod,
