@@ -2,6 +2,7 @@ const std = @import("std");
 const Writer = std.Io.Writer;
 const Reader = std.Io.Reader;
 const zli = @import("zli");
+const zigimg = @import("zigimg");
 const Styles = @import("draw/styles.zig");
 const Inputs = @import("draw/inputs.zig");
 const Datum = @import("draw/datum.zig");
@@ -181,6 +182,124 @@ fn checkTerminalSupportsKitty() bool {
     return std.mem.containsAtLeast(u8, term, 5, "xterm");
 }
 
+fn renderImageToStdout(allocator: std.mem.Allocator, file: *std.fs.File, writer: anytype) !void {
+    var read_buf: [65536]u8 = undefined;
+    var img = try zigimg.Image.fromFile(allocator, file.*, &read_buf);
+    defer img.deinit(allocator);
+
+    const original_width = img.width;
+    const original_height = img.height;
+
+    var term_cols: u16 = 80;
+    var term_rows: u16 = 24;
+    var winsize: std.posix.winsize = undefined;
+    if (std.posix.system.ioctl(1, std.posix.system.T.IOCGWINSZ, @intFromPtr(&winsize)) == 0) {
+        term_cols = winsize.col;
+        term_rows = winsize.row;
+    }
+
+    const CELL_WIDTH: f32 = 8.0;
+    const CELL_HEIGHT: f32 = 16.0;
+
+    const max_pixel_w: f32 = @as(f32, @floatFromInt(term_cols)) * CELL_WIDTH;
+    const max_pixel_h: f32 = @as(f32, @floatFromInt(term_rows)) * CELL_HEIGHT;
+
+    const img_w: f32 = @floatFromInt(original_width);
+    const img_h: f32 = @floatFromInt(original_height);
+    const scale_x: f32 = max_pixel_w / img_w;
+    const scale_y: f32 = max_pixel_h / img_h;
+    const scale: f32 = @min(scale_x, scale_y);
+
+    const new_w: u32 = @intFromFloat(scale * img_w);
+    const new_h: u32 = @intFromFloat(scale * img_h);
+
+    try img.convert(allocator, .rgba32);
+
+    if (new_w < original_width or new_h < original_height) {
+        try resizeImage(allocator, &img, new_w, new_h);
+    }
+
+    var byte_data = try std.ArrayList(u8).initCapacity(allocator, img.pixels.rgba32.len * 4);
+    defer byte_data.deinit(allocator);
+    for (img.pixels.rgba32) |px| {
+        try byte_data.append(allocator, px.r);
+        try byte_data.append(allocator, px.g);
+        try byte_data.append(allocator, px.b);
+        try byte_data.append(allocator, px.a);
+    }
+
+    var encoded = try std.ArrayList(u8).initCapacity(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
+    defer encoded.deinit(allocator);
+    try encoded.resize(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
+    _ = std.base64.standard.Encoder.encode(encoded.items, byte_data.items);
+
+    try writer.writeAll("\n     ");
+    const chunk_size = 4096;
+    const data = encoded.items;
+    if (data.len <= chunk_size) {
+        try writer.print("\x1B_Gf=32,s={d},v={d},a=T;{s}\x1B\\", .{ img.width, img.height, data });
+    } else {
+        try writer.print("\x1B_Gf=32,s={d},v={d},a=T,m=1;{s}\x1B\\", .{ img.width, img.height, data[0..chunk_size] });
+        var start: usize = chunk_size;
+        while (start + chunk_size < data.len) {
+            try writer.print("\x1B_Gm=1;{s}\x1B\\", .{data[start..][0..chunk_size]});
+            start += chunk_size;
+        }
+        try writer.print("\x1B_Gm=0;{s}\x1B\\", .{data[start..]});
+    }
+    try writer.writeAll("\n\n");
+    try writer.flush();
+}
+
+fn resizeImage(alloc: std.mem.Allocator, img: *zigimg.Image, new_w: u32, new_h: u32) !void {
+    if (img.pixelFormat() != .rgba32) {
+        try img.convert(alloc, .rgba32);
+    }
+
+    const original_width = img.width;
+    const original_height = img.height;
+
+    if (new_w == original_width and new_h == original_height) return;
+
+    const img_w_f = @as(f32, @floatFromInt(original_width));
+    const img_h_f = @as(f32, @floatFromInt(original_height));
+    const new_w_f = @as(f32, @floatFromInt(new_w));
+    const new_h_f = @as(f32, @floatFromInt(new_h));
+
+    var new_pixels = try alloc.alloc(zigimg.color.Rgba32, new_w * new_h);
+
+    for (0..new_h) |y| {
+        const sy = @as(f32, @floatFromInt(y)) * img_h_f / new_h_f;
+        const y0 = @as(usize, @intFromFloat(@floor(sy)));
+        const y1 = @min(y0 + 1, original_height - 1);
+        const dy = sy - @floor(sy);
+
+        for (0..new_w) |x| {
+            const sx = @as(f32, @floatFromInt(x)) * img_w_f / new_w_f;
+            const x0 = @as(usize, @intFromFloat(@floor(sx)));
+            const x1 = @min(x0 + 1, original_width - 1);
+            const dx = sx - @floor(sx);
+
+            const p00 = img.pixels.rgba32[y0 * original_width + x0];
+            const p01 = img.pixels.rgba32[y0 * original_width + x1];
+            const p10 = img.pixels.rgba32[y1 * original_width + x0];
+            const p11 = img.pixels.rgba32[y1 * original_width + x1];
+
+            new_pixels[y * new_w + x] = .{
+                .r = @intFromFloat(@round((1 - dx) * (1 - dy) * @as(f32, @floatFromInt(p00.r)) + dx * (1 - dy) * @as(f32, @floatFromInt(p01.r)) + (1 - dx) * dy * @as(f32, @floatFromInt(p10.r)) + dx * dy * @as(f32, @floatFromInt(p11.r)))),
+                .g = @intFromFloat(@round((1 - dx) * (1 - dy) * @as(f32, @floatFromInt(p00.g)) + dx * (1 - dy) * @as(f32, @floatFromInt(p01.g)) + (1 - dx) * dy * @as(f32, @floatFromInt(p10.g)) + dx * dy * @as(f32, @floatFromInt(p11.g)))),
+                .b = @intFromFloat(@round((1 - dx) * (1 - dy) * @as(f32, @floatFromInt(p00.b)) + dx * (1 - dy) * @as(f32, @floatFromInt(p01.b)) + (1 - dx) * dy * @as(f32, @floatFromInt(p10.b)) + dx * dy * @as(f32, @floatFromInt(p11.b)))),
+                .a = @intFromFloat(@round((1 - dx) * (1 - dy) * @as(f32, @floatFromInt(p00.a)) + dx * (1 - dy) * @as(f32, @floatFromInt(p01.a)) + (1 - dx) * dy * @as(f32, @floatFromInt(p10.a)) + dx * dy * @as(f32, @floatFromInt(p11.a)))),
+            };
+        }
+    }
+
+    alloc.free(img.pixels.rgba32);
+    img.pixels = .{ .rgba32 = new_pixels };
+    img.width = new_w;
+    img.height = new_h;
+}
+
 fn getSystemTmpDir(alloc: std.mem.Allocator) ![]u8 {
     const tmp_env = std.posix.getenv("TMPDIR") orelse "/tmp";
     const tmp_dir_path = if (tmp_env.len > 0) tmp_env else "/tmp";
@@ -209,14 +328,7 @@ fn run(ctx: zli.CommandContext) !void {
     const out_filename = ctx.flag("out", []const u8);
     const force_file = out_filename.len > 0;
 
-    const blackcat_installed = blk: {
-        var blackcat_check = std.process.Child.init(&.{ "blackcat", "--version" }, alloc);
-        blackcat_check.spawn() catch break :blk false;
-        const result = blackcat_check.wait() catch break :blk false;
-        break :blk result == .Exited and result.Exited == 0;
-    };
-
-    const can_display = blackcat_installed and checkTerminalSupportsKitty();
+    const can_display = checkTerminalSupportsKitty();
 
     var output_path: ?[]u8 = null;
     defer if (output_path) |p| alloc.free(p);
@@ -232,33 +344,17 @@ fn run(ctx: zli.CommandContext) !void {
     if (force_file) {
         std.debug.print("Saved to {s}\n", .{out_filename});
         if (can_display) {
-            var stdin_file = try std.fs.cwd().openFile(out_filename, .{});
-            defer stdin_file.close();
-            var blackcat_proc = std.process.Child.init(&.{"blackcat"}, alloc);
-            blackcat_proc.stdin = stdin_file;
-            blackcat_proc.stdin_behavior = .Pipe;
-            blackcat_proc.spawn() catch {};
-            _ = blackcat_proc.wait() catch {};
+            var file = try std.fs.cwd().openFile(out_filename, .{});
+            defer file.close();
+            var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+            try renderImageToStdout(alloc, &file, &stdout_writer.interface);
         }
     } else if (can_display) {
-        const system_tmp = try getSystemTmpDir(alloc);
-        const timestamp = std.time.timestamp();
-        const tmp_path = try std.fmt.allocPrint(alloc, "{s}/zsat_{}.png", .{ system_tmp, timestamp });
-        defer alloc.free(tmp_path);
-
-        try std.fs.cwd().rename("output.png", tmp_path);
-
-        var stdin_file = try std.fs.cwd().openFile(tmp_path, .{});
-        defer stdin_file.close();
-
-        var blackcat_proc = std.process.Child.init(&.{"blackcat"}, alloc);
-        blackcat_proc.stdin = stdin_file;
-        blackcat_proc.stdin_behavior = .Pipe;
-        blackcat_proc.spawn() catch {
-            std.debug.print("Saved to {s}\n", .{tmp_path});
-            return;
-        };
-        _ = blackcat_proc.wait() catch {};
+        try std.fs.cwd().rename("output.png", "output.png");
+        var file = try std.fs.cwd().openFile("output.png", .{});
+        defer file.close();
+        var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
+        try renderImageToStdout(alloc, &file, &stdout_writer.interface);
     } else {
         const filename = output_path.?;
         std.debug.print("Saved to {s}\n", .{filename});

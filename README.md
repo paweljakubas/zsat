@@ -40,8 +40,7 @@ You are good, but you will need to open the plot/run animation separately - for 
 If one wants to have a full experience I advocated for, and enlisted as one of the five crucial features in the Rationale section above,
 then terminal emulator that implements [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) is required.
 The terminals supporting **kitty graphics protocol** includes Kitty, WezTerm and Ghostty, to name a few.
-`zsat` enables using a tool supporting the protocol via [blackcat](https://github.com/j-c-m/blackcat) under the hood.
-Meaning **blackcat** is also required to be installed.
+`zsat` supports the protocol natively using [zigimg](https://github.com/zigimg/zigimg).
 
 ## Current state of the tool
 
@@ -113,5 +112,5 @@ Vector plots - coming soon!
 - [**zli**](https://github.com/xcaeser/zli) CLI development support
 - [**macha**](https://github.com/Hejsil/mecha) Parser combinator library
 - [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app
-- [**blackcat**](https://github.com/j-c-m/blackcat) cat enabling png/gif opening valid in **kitty graphics protocol** supported terminals
+- [**zigimg**](https://github.com/zigimg/zigimg) Image processing for **kitty graphics protocol** support
 - [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend
