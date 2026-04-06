@@ -7,15 +7,16 @@ const zigimg = @import("zigimg");
 const Styles = @import("draw/styles.zig");
 const Inputs = @import("draw/inputs.zig");
 const Datum = @import("draw/datum.zig");
-const Panes = @import("draw/panes.zig");
 const Frames = @import("draw/frames.zig");
+const Panes = @import("draw_panes");
+
 const Plot = @import("plot/plot.zig");
 
 pub const ParsedData = struct {
     styles: []const Styles.Style,
     inputs: Inputs.Inputs,
     datum: Datum.DataElementValidated,
-    panes: []const Panes.Pane,
+    panes: []const @import("panes").Pane,
     frames: Frames.OutputPaneValidated,
 };
 

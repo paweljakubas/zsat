@@ -11,6 +11,21 @@ pub fn build(b: *std.Build) void {
     const z2d_dep = b.dependency("z2d", .{ .target = target, .optimize = optimize });
     const zigimg_dep = b.dependency("zigimg", .{ .target = target, .optimize = optimize });
 
+    const draw_common_mod = b.createModule(.{
+        .root_source_file = b.path("src/cli/draw/common.zig"),
+    });
+
+    const inputs_mod = b.createModule(.{
+        .root_source_file = b.path("src/cli/draw/inputs.zig"),
+    });
+    inputs_mod.addImport("common", draw_common_mod);
+
+    const panes_mod = b.createModule(.{
+        .root_source_file = b.path("src/cli/draw/panes.zig"),
+    });
+    panes_mod.addImport("common", draw_common_mod);
+    panes_mod.addImport("inputs", inputs_mod);
+
     {
         const git_argv = [_][]const u8{ "git", "rev-parse", "--short", "HEAD" };
         const commit_hash = b.run(&git_argv);
@@ -39,13 +54,12 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addImport("cmdtest", cmdtest_dep.module("cmdtest"));
         exe.root_module.addImport("z2d", z2d_dep.module("z2d"));
         exe.root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
+        exe.root_module.addImport("draw_panes", panes_mod);
 
         b.installArtifact(exe);
         const run_cmd = b.addRunArtifact(exe);
         run_cmd.step.dependOn(b.getInstallStep());
 
-        // This allows the user to pass arguments to the application in the build
-        // command itself, like this: `zig build run -- arg1 arg2 etc`
         if (b.args) |args| {
             run_cmd.addArgs(args);
         }
@@ -57,7 +71,7 @@ pub fn build(b: *std.Build) void {
     {
         const test_step = b.step("test", "Run unit tests");
 
-        for ([_][]const u8{
+        const test_files = [_][]const u8{
             "src/cli/draw/common.zig",
             "src/cli/draw/datum.zig",
             "src/cli/draw/frames.zig",
@@ -66,7 +80,9 @@ pub fn build(b: *std.Build) void {
             "src/cli/draw/panes.zig",
             "src/cli/draw/styles.zig",
             "src/cli/transform/geometry.zig",
-        }) |test_file| {
+        };
+
+        for (test_files) |test_file| {
             const test_mod = b.createModule(.{
                 .root_source_file = b.path(test_file),
                 .optimize = optimize,
@@ -78,15 +94,33 @@ pub fn build(b: *std.Build) void {
 
             test_mod.addImport("zli", zli_dep.module("zli"));
             test_mod.addImport("mecha", mecha_dep.module("mecha"));
-            test_mod.addImport("cli", b.createModule(.{
-                .root_source_file = b.path("src/cli/draw/inputs.zig"),
-            }));
+            test_mod.addImport("cli", inputs_mod);
 
             const run_unit_tests = b.addRunArtifact(unit_tests);
             test_step.dependOn(&run_unit_tests.step);
         }
 
-        // Register new test
+        // Test plot.zig separately - doesn't include panes dependency
+        {
+            const plot_test_mod = b.createModule(.{
+                .root_source_file = b.path("src/cli/plot/plot.zig"),
+                .optimize = optimize,
+                .target = target,
+            });
+            const plot_unit_tests = b.addTest(.{
+                .root_module = plot_test_mod,
+            });
+
+            plot_test_mod.addImport("zli", zli_dep.module("zli"));
+            plot_test_mod.addImport("mecha", mecha_dep.module("mecha"));
+            plot_test_mod.addImport("cli", inputs_mod);
+            plot_test_mod.addImport("z2d", z2d_dep.module("z2d"));
+            // Note: don't add draw_panes to avoid module conflict
+
+            const run_plot_tests = b.addRunArtifact(plot_unit_tests);
+            test_step.dependOn(&run_plot_tests.step);
+        }
+
         const cli_test = cmdtest.add(b, .{
             .name = "zsat",
             .test_file = b.path("test/cli.zig"),
