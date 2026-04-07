@@ -8,15 +8,15 @@ const Styles = @import("draw/styles.zig");
 const Inputs = @import("draw/inputs.zig");
 const Datum = @import("draw/datum.zig");
 const Frames = @import("draw/frames.zig");
-const Panes = @import("draw_panes");
+const Panes = @import("draw/panes.zig");
 
-const Plot = @import("plot/plot.zig");
+const Plot = @import("plot");
 
 pub const ParsedData = struct {
     styles: []const Styles.Style,
     inputs: Inputs.Inputs,
     datum: Datum.DataElementValidated,
-    panes: []const @import("panes").Pane,
+    panes: []const Panes.Pane,
     frames: Frames.OutputPaneValidated,
 };
 
@@ -66,6 +66,13 @@ const out_flag = zli.Flag{
     .default_value = .{ .String = "" },
 };
 
+const display_flag = zli.Flag{
+    .name = "display",
+    .description = "Force display output to terminal.",
+    .type = .Bool,
+    .default_value = .{ .Bool = false },
+};
+
 pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) !*zli.Command {
     const cmd = try zli.Command.init(writer, reader, allocator, .{
         .name = "draw",
@@ -80,6 +87,7 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
 
     try cmd.addFlag(debug_flag);
     try cmd.addFlag(out_flag);
+    try cmd.addFlag(display_flag);
 
     return cmd;
 }
@@ -181,8 +189,14 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
 
 fn checkTerminalSupportsKitty() bool {
     const term = std.posix.getenv("TERM") orelse return false;
-    if (!std.mem.containsAtLeast(u8, term, 1, "xterm")) return false;
-    return std.posix.isatty(std.posix.STDOUT_FILENO);
+    return std.mem.containsAtLeast(u8, term, 1, "xterm") or
+        std.mem.containsAtLeast(u8, term, 1, "kitty") or
+        std.mem.containsAtLeast(u8, term, 1, "ghostty");
+}
+
+fn shouldRenderToStdout() bool {
+    if (!std.posix.isatty(std.posix.STDOUT_FILENO)) return false;
+    return checkTerminalSupportsKitty();
 }
 
 fn renderToStdout(allocator: std.mem.Allocator, img: Plot.RenderedImage, writer: anytype) !void {
@@ -443,15 +457,17 @@ fn run(ctx: zli.CommandContext) !void {
 
     const out_filename = ctx.flag("out", []const u8);
     const force_file = out_filename.len > 0;
-
-    const can_display = checkTerminalSupportsKitty();
+    const force_display = ctx.flag("display", bool);
+    const terminal_supports_kitty = checkTerminalSupportsKitty();
+    const is_tty = std.posix.isatty(std.posix.STDOUT_FILENO);
+    const should_display = (terminal_supports_kitty and is_tty) or force_display;
 
     var output_path: ?[]u8 = null;
     defer if (output_path) |p| alloc.free(p);
 
     if (force_file) {
         output_path = try alloc.dupe(u8, out_filename);
-    } else if (!can_display) {
+    } else if (!should_display) {
         output_path = try getNextOutputFilename(alloc);
     }
 
@@ -460,7 +476,7 @@ fn run(ctx: zli.CommandContext) !void {
 
     if (force_file) {
         std.debug.print("Saved to {s}\n", .{out_filename});
-    } else if (can_display) {
+    } else if (should_display) {
         var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
         try renderToStdout(alloc, rendered, &stdout_writer.interface);
     } else {

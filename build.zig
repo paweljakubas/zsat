@@ -54,7 +54,18 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addImport("cmdtest", cmdtest_dep.module("cmdtest"));
         exe.root_module.addImport("z2d", z2d_dep.module("z2d"));
         exe.root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
-        exe.root_module.addImport("draw_panes", panes_mod);
+        exe.root_module.addImport("cli", inputs_mod);
+        exe.root_module.addImport("plot_types", b.createModule(.{
+            .root_source_file = b.path("src/cli/plot/plot_types.zig"),
+        }));
+        const plot_mod = b.createModule(.{
+            .root_source_file = b.path("src/cli/plot/plot.zig"),
+        });
+        plot_mod.addImport("z2d", z2d_dep.module("z2d"));
+        plot_mod.addImport("plot_types", b.createModule(.{
+            .root_source_file = b.path("src/cli/plot/plot_types.zig"),
+        }));
+        exe.root_module.addImport("plot", plot_mod);
 
         b.installArtifact(exe);
         const run_cmd = b.addRunArtifact(exe);
@@ -107,6 +118,10 @@ pub fn build(b: *std.Build) void {
                 .optimize = optimize,
                 .target = target,
             });
+            plot_test_mod.addImport("z2d", z2d_dep.module("z2d"));
+            plot_test_mod.addImport("plot_types", b.createModule(.{
+                .root_source_file = b.path("src/cli/plot/plot_types.zig"),
+            }));
             const plot_unit_tests = b.addTest(.{
                 .root_module = plot_test_mod,
             });
@@ -115,7 +130,9 @@ pub fn build(b: *std.Build) void {
             plot_test_mod.addImport("mecha", mecha_dep.module("mecha"));
             plot_test_mod.addImport("cli", inputs_mod);
             plot_test_mod.addImport("z2d", z2d_dep.module("z2d"));
-            // Note: don't add draw_panes to avoid module conflict
+            plot_test_mod.addImport("plot_types", b.createModule(.{
+                .root_source_file = b.path("src/cli/plot/plot_types.zig"),
+            }));
 
             const run_plot_tests = b.addRunArtifact(plot_unit_tests);
             test_step.dependOn(&run_plot_tests.step);
@@ -129,5 +146,8 @@ pub fn build(b: *std.Build) void {
         cli_test.setEnvironmentVariable("TMPDIR", "/tmp");
 
         test_step.dependOn(&cli_test.step);
+
+        const cli_test_step = b.step("cli-test", "Run CLI integration tests");
+        cli_test_step.dependOn(&cli_test.step);
     }
 }
