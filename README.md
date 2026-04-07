@@ -40,6 +40,9 @@ then terminal emulator that implements [kitty graphics protocol](https://sw.kovi
 The terminals supporting **kitty graphics protocol** includes Kitty, WezTerm and Ghostty, to name a few.
 `zsat` supports the protocol natively using [zigimg](https://github.com/zigimg/zigimg).
 
+**Terminal detection**: `zsat` checks the `TERM` environment variable for kitty graphics protocol support (xterm, kitty, ghostty).
+When `--out` is specified, output goes to file; otherwise displays in-terminal if supported.
+
 ## Current state of the tool
 
 ```bash

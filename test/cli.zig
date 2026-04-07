@@ -25,7 +25,7 @@ test "zsat version" {
 
 test "zsat draw" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -35,7 +35,7 @@ test "zsat draw" {
 
 test "zsat draw with invalid styles" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--styles", "invalid" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "invalid" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -44,7 +44,7 @@ test "zsat draw with invalid styles" {
 
 test "zsat draw with invalid stdin" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "invalid" });
     defer result.deinit();
 
@@ -53,7 +53,7 @@ test "zsat draw with invalid stdin" {
 
 test "zsat draw with invalid datum" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--datum", "invalid" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--datum", "invalid" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -62,7 +62,7 @@ test "zsat draw with invalid datum" {
 
 test "zsat draw with invalid styles and datum" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--styles", "invalid", "--datum", "invalid" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "invalid", "--datum", "invalid" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -71,7 +71,7 @@ test "zsat draw with invalid styles and datum" {
 
 test "zsat draw with two styles" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--styles", "e0:{vec2d}, e8:{vec2d polar}", "--datum", "(vec) -> (vec -> e0)" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{vec2d}, e8:{vec2d polar}", "--datum", "(vec) -> (vec -> e0)" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -81,7 +81,7 @@ test "zsat draw with two styles" {
 
 test "zsat draw with wrong number of datum" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--datum", "(vec, vec) -> (vec -> e0)" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--datum", "(vec, vec) -> (vec -> e0)" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -90,7 +90,7 @@ test "zsat draw with wrong number of datum" {
 
 test "zsat draw with invalid element in mapping" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e5)" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e5)" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -99,7 +99,7 @@ test "zsat draw with invalid element in mapping" {
 
 test "zsat draw with invalid data in mapping" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--datum", "(vec) -> (other -> e0)" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--datum", "(vec) -> (other -> e0)" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -108,7 +108,7 @@ test "zsat draw with invalid data in mapping" {
 
 test "zsat draw with two panes" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--panes", "p0:{view:{(0,0), (100, 100)}}, p1:{view:{(0,0), (50, 50)}}" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--panes", "p0:{view:{(0,0), (100, 100)}}, p1:{view:{(0,0), (50, 50)}}" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -118,7 +118,7 @@ test "zsat draw with two panes" {
 
 test "zsat draw with invalid panes" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--panes", "invalid" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--panes", "invalid" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -127,7 +127,7 @@ test "zsat draw with invalid panes" {
 
 test "zsat draw with styles, datum and panes" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -137,7 +137,7 @@ test "zsat draw with styles, datum and panes" {
 
 test "zsat draw with two styles, two panes" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--styles", "e0:{vec2d}, e1:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}, p1:{view:{(0,0), (50, 50)}}" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{vec2d}, e1:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}, p1:{view:{(0,0), (50, 50)}}" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -147,7 +147,7 @@ test "zsat draw with two styles, two panes" {
 
 test "zsat draw with frames" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--frames", "(out) -> out -> p0" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--frames", "(out) -> out -> p0" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -157,7 +157,7 @@ test "zsat draw with frames" {
 
 test "zsat draw with invalid frames" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--frames", "invalid" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--frames", "invalid" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -166,7 +166,7 @@ test "zsat draw with invalid frames" {
 
 test "zsat draw with invalid pane in frames" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--frames", "(out) -> out -> p5" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--frames", "(out) -> out -> p5" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -175,7 +175,7 @@ test "zsat draw with invalid pane in frames" {
 
 test "zsat draw with styles, datum, panes and frames" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}", "--frames", "(out) -> out -> p0" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}", "--frames", "(out) -> out -> p0" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -185,7 +185,7 @@ test "zsat draw with styles, datum, panes and frames" {
 
 test "zsat draw with debug" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--debug" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -200,7 +200,7 @@ test "zsat draw with debug" {
 
 test "zsat draw with debug and custom options" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--debug", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}", "--frames", "(out) -> out -> p0" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{view:{(0,0), (100, 100)}}", "--frames", "(out) -> out -> p0" };
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 

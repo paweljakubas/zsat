@@ -66,13 +66,6 @@ const out_flag = zli.Flag{
     .default_value = .{ .String = "" },
 };
 
-const display_flag = zli.Flag{
-    .name = "display",
-    .description = "Force display output to terminal.",
-    .type = .Bool,
-    .default_value = .{ .Bool = false },
-};
-
 pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) !*zli.Command {
     const cmd = try zli.Command.init(writer, reader, allocator, .{
         .name = "draw",
@@ -87,7 +80,6 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
 
     try cmd.addFlag(debug_flag);
     try cmd.addFlag(out_flag);
-    try cmd.addFlag(display_flag);
 
     return cmd;
 }
@@ -457,10 +449,7 @@ fn run(ctx: zli.CommandContext) !void {
 
     const out_filename = ctx.flag("out", []const u8);
     const force_file = out_filename.len > 0;
-    const force_display = ctx.flag("display", bool);
-    const terminal_supports_kitty = checkTerminalSupportsKitty();
-    const is_tty = std.posix.isatty(std.posix.STDOUT_FILENO);
-    const should_display = (terminal_supports_kitty and is_tty) or force_display;
+    const should_display = !force_file and checkTerminalSupportsKitty();
 
     var output_path: ?[]u8 = null;
     defer if (output_path) |p| alloc.free(p);
