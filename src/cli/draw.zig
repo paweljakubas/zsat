@@ -193,10 +193,15 @@ fn renderToStdout(allocator: std.mem.Allocator, img: Plot.RenderedImage, writer:
 
     var term_cols: u16 = 80;
     var term_rows: u16 = 24;
-    var winsize: std.posix.winsize = undefined;
-    if (std.posix.system.ioctl(1, std.posix.system.T.IOCGWINSZ, @intFromPtr(&winsize)) == 0) {
-        term_cols = winsize.col;
-        term_rows = winsize.row;
+
+    if (std.posix.isatty(std.posix.STDOUT_FILENO)) {
+        var winsize: std.posix.winsize = undefined;
+        if (std.posix.system.ioctl(1, std.posix.T.IOCGWINSZ, @intFromPtr(&winsize)) == 0 and
+            winsize.col > 0 and winsize.col < 1000 and winsize.row > 0 and winsize.row < 1000)
+        {
+            term_cols = winsize.col;
+            term_rows = winsize.row;
+        }
     }
 
     const CELL_WIDTH: f32 = 8.0;

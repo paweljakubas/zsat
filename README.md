@@ -82,7 +82,7 @@ Flags:
 
 ### Examples
 
-Basic usage (outputs to `output0.png`, `output1.png`, etc.):
+Basic usage (single input stream - vectors connected from origin):
 ```bash
 echo '[[1,1], [2,2]]' | zsat draw
 ```
@@ -96,6 +96,22 @@ With custom size:
 ```bash
 echo '[[1,1], [2,2]]' | zsat draw -p 'p0:{size: 1200x800}'
 ```
+
+Multiple input streams - each line is a separate series starting from origin:
+```bash
+printf '[[1,0]]\n[[0,1]]' | zsat draw --datum "(vec, vec) -> (vec -> e0)" --frames "(out, out) -> out -> p0" -p 'p0:{size: 100x100}'
+```
+
+Display in terminal (requires kitty graphics protocol support - Kitty, WezTerm, Ghostty):
+```bash
+printf '[[3,1], [-3,1]]\n[[2,-1]]' | zsat draw --datum "(vec, vec) -> (vec -> e0)" --frames "(out, out) -> out -> p0"
+```
+
+Note: When using multiple input streams, you must update `--datum` and `--frames` to match the number of inputs:
+- `--datum "(vec, vec) -> (vec -> e0)"` for 2 inputs
+- `--frames "(out, out) -> out -> p0"` for 2 outputs
+
+Tip: Use `echo -e` instead of `echo` to ensure newlines are properly interpreted in the input data.
 
 ## Development
 

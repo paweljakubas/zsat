@@ -33,7 +33,6 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
 
     var context = z2d.Context.init(std.heap.page_allocator, &surface);
 
-    // White background (RGBA: 255, 255, 255, 255)
     context.setSourceToPixel(.{ .rgba = .{ .r = 255, .g = 255, .b = 255, .a = 255 } });
     try context.moveTo(0, 0);
     try context.lineTo(@floatFromInt(width), 0);
@@ -42,39 +41,41 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     try context.closePath();
     try context.fill();
 
-    // Black lines (RGBA: 0, 0, 0, 255) - stroke
     context.setSourceToPixel(.{ .rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 } });
     context.setLineWidth(2.0);
 
-    const bounds = determine_pane_bounds(@ptrCast(@constCast(&parsed_data.inputs)));
-    const x_min = bounds.x[0];
-    const x_max = bounds.x[1];
-    const y_min = bounds.y[0];
-    const y_max = bounds.y[1];
-    const x_range = x_max - x_min;
-    const y_range = y_max - y_min;
+    const bounds = determine_pane_bounds(@ptrCast(&parsed_data.inputs));
+    const x_range = bounds.x[1] - bounds.x[0];
+    const y_range = bounds.y[1] - bounds.y[0];
 
     const margin: f64 = 20.0;
     const draw_width = @as(f64, @floatFromInt(width)) - 2 * margin;
     const draw_height = @as(f64, @floatFromInt(height)) - 2 * margin;
-    std.debug.print("DEBUG: draw area: {d}x{d}, margin={d}\n", .{ draw_width, draw_height, margin });
 
-    if (x_range > 0 and y_range > 0) {
-        const rX = draw_width / @as(f64, x_range);
-        const rY = draw_height / @as(f64, y_range);
-        const scale = @min(rX, rY);
+    if (x_range >= 0 and y_range >= 0) {
+        const rX = if (x_range > 0) draw_width / @as(f64, x_range) else draw_width;
+        const rY = if (y_range > 0) draw_height / @as(f64, y_range) else draw_height;
+
+        const x_scale = rX;
+        const y_scale = rY;
+
+        const origin_x = margin - @as(f64, bounds.x[0]) * x_scale;
+        const origin_y = @as(f64, @floatFromInt(height)) - margin;
+        const min_y = margin;
+        const max_y = @as(f64, @floatFromInt(height)) - margin;
 
         for (parsed_data.inputs.input) |row| {
-            var cur_x: f64 = margin;
-            var cur_y: f64 = @as(f64, @floatFromInt(height)) - margin;
-
+            var cur_x = origin_x;
+            var cur_y = origin_y;
             try context.moveTo(cur_x, cur_y);
 
             for (row.row) |elem| {
                 switch (elem) {
                     .vector => |v| {
-                        cur_x += @as(f64, v.x) * scale;
-                        cur_y -= @as(f64, v.y) * scale;
+                        cur_x += @as(f64, v.x) * x_scale;
+                        cur_y -= @as(f64, v.y) * y_scale;
+                        if (cur_y < min_y) cur_y = min_y;
+                        if (cur_y > max_y) cur_y = max_y;
                         try context.lineTo(cur_x, cur_y);
                     },
                     .point => {},

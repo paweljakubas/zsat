@@ -13,8 +13,8 @@ pub const Point = extern struct {
 };
 
 pub const InputElement = union(enum) {
-    vector: Vector,
     point: Point,
+    vector: Vector,
 };
 
 pub const InputElementRow = struct {
@@ -77,52 +77,39 @@ test "determine_pane_bounds" {
 }
 
 pub fn determine_pane_bounds(rows: *const Inputs) ValsRange {
-    var min_x: f32 = 0.0;
-    var max_x: f32 = 0.0;
-    var min_y: f32 = 0.0;
-    var max_y: f32 = 0.0;
-    var cur_x: f32 = 0.0;
-    var cur_y: f32 = 0.0;
-    var first = true;
+    var minX: f32 = 0.0;
+    var maxX: f32 = 0.0;
+    var minY: f32 = 0.0;
+    var maxY: f32 = 0.0;
 
     for (rows.input) |row| {
+        if (row.row.len == 0) continue;
+
+        var curX: f32 = 0.0;
+        var curY: f32 = 0.0;
+
+        if (curX < minX) minX = curX;
+        if (curX > maxX) maxX = curX;
+        if (curY < minY) minY = curY;
+        if (curY > maxY) maxY = curY;
+
         for (row.row) |elem| {
             switch (elem) {
                 .vector => |v| {
-                    cur_x += v.x;
-                    cur_y += v.y;
-                    if (first) {
-                        min_x = cur_x;
-                        max_x = cur_x;
-                        min_y = cur_y;
-                        max_y = cur_y;
-                        first = false;
-                    } else {
-                        if (cur_x < min_x) min_x = cur_x;
-                        if (cur_x > max_x) max_x = cur_x;
-                        if (cur_y < min_y) min_y = cur_y;
-                        if (cur_y > max_y) max_y = cur_y;
-                    }
+                    curX = curX + v.x;
+                    curY = curY + v.y;
                 },
                 .point => |p| {
-                    cur_x = p.x;
-                    cur_y = p.y;
-                    if (first) {
-                        min_x = cur_x;
-                        max_x = cur_x;
-                        min_y = cur_y;
-                        max_y = cur_y;
-                        first = false;
-                    } else {
-                        if (cur_x < min_x) min_x = cur_x;
-                        if (cur_x > max_x) max_x = cur_x;
-                        if (cur_y < min_y) min_y = cur_y;
-                        if (cur_y > max_y) max_y = cur_y;
-                    }
+                    curX = p.x;
+                    curY = p.y;
                 },
             }
+            if (curX < minX) minX = curX;
+            if (curX > maxX) maxX = curX;
+            if (curY < minY) minY = curY;
+            if (curY > maxY) maxY = curY;
         }
     }
 
-    return .{ .x = .{ min_x, max_x }, .y = .{ min_y, max_y } };
+    return .{ .x = .{ minX, maxX }, .y = .{ minY, maxY } };
 }
