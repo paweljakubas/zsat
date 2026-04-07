@@ -57,6 +57,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     const margin: f64 = 20.0;
     const draw_width = @as(f64, @floatFromInt(width)) - 2 * margin;
     const draw_height = @as(f64, @floatFromInt(height)) - 2 * margin;
+    std.debug.print("DEBUG: draw area: {d}x{d}, margin={d}\n", .{ draw_width, draw_height, margin });
 
     if (x_range > 0 and y_range > 0) {
         const rX = draw_width / @as(f64, x_range);

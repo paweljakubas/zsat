@@ -181,14 +181,10 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
 
 fn checkTerminalSupportsKitty() bool {
     const term = std.posix.getenv("TERM") orelse return false;
-    return std.mem.containsAtLeast(u8, term, 1, "xterm") or
-        std.mem.containsAtLeast(u8, term, 1, "kitty") or
-        std.mem.containsAtLeast(u8, term, 1, "ghostty");
-}
-
-fn shouldRenderToStdout() bool {
-    if (!std.posix.isatty(std.posix.STDOUT_FILENO)) return false;
-    return checkTerminalSupportsKitty();
+    if (!std.mem.containsAtLeast(u8, term, 1, "xterm") and
+        !std.mem.containsAtLeast(u8, term, 1, "kitty") and
+        !std.mem.containsAtLeast(u8, term, 1, "ghostty")) return false;
+    return true;
 }
 
 fn renderToStdout(allocator: std.mem.Allocator, img: Plot.RenderedImage, writer: anytype) !void {
@@ -449,7 +445,8 @@ fn run(ctx: zli.CommandContext) !void {
 
     const out_filename = ctx.flag("out", []const u8);
     const force_file = out_filename.len > 0;
-    const should_display = !force_file and checkTerminalSupportsKitty();
+    const term_supports = checkTerminalSupportsKitty();
+    const should_display = !force_file and term_supports;
 
     var output_path: ?[]u8 = null;
     defer if (output_path) |p| alloc.free(p);

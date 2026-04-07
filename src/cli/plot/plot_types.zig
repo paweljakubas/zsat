@@ -77,40 +77,49 @@ test "determine_pane_bounds" {
 }
 
 pub fn determine_pane_bounds(rows: *const Inputs) ValsRange {
-    var min_x: f32 = undefined;
-    var max_x: f32 = undefined;
-    var min_y: f32 = undefined;
-    var max_y: f32 = undefined;
-    var initialized = false;
+    var min_x: f32 = 0.0;
+    var max_x: f32 = 0.0;
+    var min_y: f32 = 0.0;
+    var max_y: f32 = 0.0;
+    var cur_x: f32 = 0.0;
+    var cur_y: f32 = 0.0;
+    var first = true;
 
     for (rows.input) |row| {
-        var cur_x: f32 = 0.0;
-        var cur_y: f32 = 0.0;
-
-        if (!initialized) {
-            min_x = cur_x;
-            max_x = cur_x;
-            min_y = cur_y;
-            max_y = cur_y;
-            initialized = true;
-        } else {
-            if (cur_x < min_x) min_x = cur_x;
-            if (cur_x > max_x) max_x = cur_x;
-            if (cur_y < min_y) min_y = cur_y;
-            if (cur_y > max_y) max_y = cur_y;
-        }
-
         for (row.row) |elem| {
             switch (elem) {
                 .vector => |v| {
                     cur_x += v.x;
                     cur_y += v.y;
-                    if (cur_x < min_x) min_x = cur_x;
-                    if (cur_x > max_x) max_x = cur_x;
-                    if (cur_y < min_y) min_y = cur_y;
-                    if (cur_y > max_y) max_y = cur_y;
+                    if (first) {
+                        min_x = cur_x;
+                        max_x = cur_x;
+                        min_y = cur_y;
+                        max_y = cur_y;
+                        first = false;
+                    } else {
+                        if (cur_x < min_x) min_x = cur_x;
+                        if (cur_x > max_x) max_x = cur_x;
+                        if (cur_y < min_y) min_y = cur_y;
+                        if (cur_y > max_y) max_y = cur_y;
+                    }
                 },
-                .point => {},
+                .point => |p| {
+                    cur_x = p.x;
+                    cur_y = p.y;
+                    if (first) {
+                        min_x = cur_x;
+                        max_x = cur_x;
+                        min_y = cur_y;
+                        max_y = cur_y;
+                        first = false;
+                    } else {
+                        if (cur_x < min_x) min_x = cur_x;
+                        if (cur_x > max_x) max_x = cur_x;
+                        if (cur_y < min_y) min_y = cur_y;
+                        if (cur_y > max_y) max_y = cur_y;
+                    }
+                },
             }
         }
     }
