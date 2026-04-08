@@ -202,6 +202,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     var line_r: u8 = 0;
     var line_g: u8 = 0;
     var line_b: u8 = 0;
+    var line_a: u8 = 255; // Default fully opaque
     if (parsed_data.styles.len > 0) {
         const default_style = parsed_data.styles[0];
         if (default_style.styleValue.attributes) |attrs| {
@@ -230,9 +231,14 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
             line_r = rgb.r;
             line_g = rgb.g;
             line_b = rgb.b;
+            const alpha: u16 = @intCast(@as(u16, attrs.lineOpacity.value) * 255 / 100);
+            line_r = @intCast(@as(u16, line_r) * alpha / 255);
+            line_g = @intCast(@as(u16, line_g) * alpha / 255);
+            line_b = @intCast(@as(u16, line_b) * alpha / 255);
+            line_a = @intCast(alpha);
         }
     }
-    context.setSourceToPixel(.{ .rgba = .{ .r = line_r, .g = line_g, .b = line_b, .a = 255 } });
+    context.setSourceToPixel(.{ .rgba = .{ .r = line_r, .g = line_g, .b = line_b, .a = line_a } });
     context.setLineWidth(line_width);
 
     const bounds = determine_pane_bounds(@ptrCast(&parsed_data.inputs));
