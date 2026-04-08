@@ -27,13 +27,7 @@ As AI agentic era has started it is going to be probably more recreational progr
 And, by a design, both __flexibility__ and __power__ were chosen over _simplicity_.
 Meaning, if you are in pursuit of the simplicity **zsat** might not be the best choice.
 
-## Backend
-The tool uses `z2d` under the hood to create 'png' panes which are later merged using `ffmpeg`.
-Hence, **ffmpeg** is required.
-
-## Front end
-If one wants PNG or GIF file as an output then no front end is required.
-You are good, but you will need to open the plot/run animation separately - for example, in separate window.
+## Terminal
 
 If one wants to have a full experience I advocated for, and enlisted as one of the five crucial features in the Rationale section above,
 then terminal emulator that implements [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) is required.
@@ -41,7 +35,9 @@ The terminals supporting **kitty graphics protocol** includes Kitty, WezTerm and
 `zsat` supports the protocol natively using [zigimg](https://github.com/zigimg/zigimg).
 
 **Terminal detection**: `zsat` checks the `TERM` environment variable for kitty graphics protocol support (xterm, kitty, ghostty).
-When `--out` is specified, output goes to file; otherwise displays in-terminal if supported.
+If not supported it is outputing to file automatically.
+
+When `--out` is specified, irrespective of the terminal, output goes to file.
 
 ## Current state of the tool
 
@@ -49,6 +45,7 @@ When `--out` is specified, output goes to file; otherwise displays in-terminal i
 $ zsat --help
 Zig-powered science animation and plot command line tool
 v0.0.1
+<commit>
 
 Usage: zsat [options]
 
@@ -66,7 +63,7 @@ Use "zsat [command] --help" for more information.
 
 ```bash
 $ zsat draw --help
-Construct figure from elements, sources, outputs, panes and frames
+Construct figure for stdin data using styles, datum, outputs, panes and frames
 
 Usage: zsat draw [options]
 
@@ -75,7 +72,7 @@ Flags:
    -s, --styles     Style(s) definition to be used in further steps when constructing the figure. [String] (default: "e0:{vec2d xy fixed [lw:20, lc: black, lo: 100, le:none, lj: none, ld: none]}")
    --debug          Dump the drawing representation for a command invoked. [Bool] (default: false)
    -f, --frames     Frame(s) definition of the figure. [String] (default: "(out) -> out -> p0")
-   -p, --panes      Pane(s) definition to be used in frame construction of the figure. [String] (default: "p0:{size: 1200x800}")
+   -p, --panes      Pane(s) definition to be used in frame construction of the figure. [String] (default: "p0:{size: 600x600}")
    --out            Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal. [String]
    -h, --help       Shows the help for a command [Bool] (default: false)
 ```
@@ -99,7 +96,7 @@ echo '[[1,1], [2,2]]' | zsat draw -p 'p0:{size: 1200x800}'
 
 Multiple input streams - each line is a separate series starting from origin:
 ```bash
-printf '[[1,0]]\n[[0,1]]' | zsat draw --datum "(vec, vec) -> (vec -> e0)" --frames "(out, out) -> out -> p0" -p 'p0:{size: 100x100}'
+printf '[[1,0]]\n[[0,1]]' | zsat draw -d "(vec, vec) -> (vec -> e0)" -f "(out, out) -> out -> p0" -p 'p0:{size: 100x100}'
 ```
 
 Display in terminal (requires kitty graphics protocol support - Kitty, WezTerm, Ghostty):
@@ -107,9 +104,9 @@ Display in terminal (requires kitty graphics protocol support - Kitty, WezTerm, 
 printf '[[3,1], [-3,1]]\n[[2,-1]]' | zsat draw --datum "(vec, vec) -> (vec -> e0)" --frames "(out, out) -> out -> p0"
 ```
 
-Note: When using multiple input streams, you must update `--datum` and `--frames` to match the number of inputs:
-- `--datum "(vec, vec) -> (vec -> e0)"` for 2 inputs
-- `--frames "(out, out) -> out -> p0"` for 2 outputs
+Note: When using multiple input streams, you must update `--datum` to match the number of inputs:
+- `--datum "(vec, vec) -> (vec -> e0)"` for 2 inputs using the same style
+- `--datum "(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)"` for 2 inputs using different styles
 
 Tip: Use `echo -e` instead of `echo` to ensure newlines are properly interpreted in the input data.
 

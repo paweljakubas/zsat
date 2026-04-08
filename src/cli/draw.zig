@@ -41,7 +41,7 @@ const panes_flag = zli.Flag{
     .shortcut = "p",
     .description = "Pane(s) definition to be used in frame construction of the figure.",
     .type = .String,
-    .default_value = .{ .String = "p0:{size: 1200x800}" },
+    .default_value = .{ .String = "p0:{size: 600x600}" },
 };
 
 const frames_flag = zli.Flag{
@@ -70,7 +70,7 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
     const cmd = try zli.Command.init(writer, reader, allocator, .{
         .name = "draw",
         .shortcut = "d",
-        .description = "Construct figure from elements, sources, outputs, panes and frames",
+        .description = "Construct figure for stdin data using styles, datum, outputs, panes and frames",
     }, run);
 
     try cmd.addFlag(style_flag);
