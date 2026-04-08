@@ -19,6 +19,11 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cli/draw/inputs.zig"),
     });
     inputs_mod.addImport("common", draw_common_mod);
+    const styles_mod = b.createModule(.{
+        .root_source_file = b.path("src/cli/draw/styles.zig"),
+    });
+    styles_mod.addImport("common", draw_common_mod);
+    inputs_mod.addImport("styles", styles_mod);
 
     const panes_mod = b.createModule(.{
         .root_source_file = b.path("src/cli/draw/panes.zig"),
@@ -64,6 +69,10 @@ pub fn build(b: *std.Build) void {
         plot_mod.addImport("z2d", z2d_dep.module("z2d"));
         plot_mod.addImport("plot_types", b.createModule(.{
             .root_source_file = b.path("src/cli/plot/plot_types.zig"),
+        }));
+        plot_mod.addImport("common", draw_common_mod);
+        plot_mod.addImport("styles", b.createModule(.{
+            .root_source_file = b.path("src/cli/draw/styles.zig"),
         }));
         exe.root_module.addImport("plot", plot_mod);
 
@@ -121,6 +130,10 @@ pub fn build(b: *std.Build) void {
             plot_test_mod.addImport("z2d", z2d_dep.module("z2d"));
             plot_test_mod.addImport("plot_types", b.createModule(.{
                 .root_source_file = b.path("src/cli/plot/plot_types.zig"),
+            }));
+            plot_test_mod.addImport("common", draw_common_mod);
+            plot_test_mod.addImport("styles", b.createModule(.{
+                .root_source_file = b.path("src/cli/draw/styles.zig"),
             }));
             const plot_unit_tests = b.addTest(.{
                 .root_module = plot_test_mod,
