@@ -1,6 +1,7 @@
 const std = @import("std");
 const z2d = @import("z2d");
 const inputs = @import("plot_types");
+const styles = @import("../draw/styles");
 
 const Vector = inputs.Vector;
 const InputElement = inputs.InputElement;
@@ -42,7 +43,34 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     try context.fill();
 
     context.setSourceToPixel(.{ .rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 } });
-    context.setLineWidth(10.0);
+
+    var line_width: f64 = 10.0;
+    if (parsed_data.styles.len > 0) {
+        const default_style = parsed_data.styles[0];
+        if (default_style.styleValue.attributes) |attrs| {
+            const lw = attrs.lineWidth;
+            switch (lw.reference) {
+                .normalized => {
+                    const h: f64 = @floatFromInt(height);
+                    const v: f64 = @floatFromInt(lw.value);
+                    line_width = v * h / 1000.0;
+                },
+                .global => {
+                    const v: f64 = @floatFromInt(lw.value);
+                    line_width = v / 10.0;
+                },
+                .output => {
+                    const v: f64 = @floatFromInt(lw.value);
+                    line_width = v;
+                },
+                .local => {
+                    const v: f64 = @floatFromInt(lw.value);
+                    line_width = v / 10.0;
+                },
+            }
+        }
+    }
+    context.setLineWidth(line_width);
 
     const bounds = determine_pane_bounds(@ptrCast(&parsed_data.inputs));
     const x_range = bounds.x[1] - bounds.x[0];
