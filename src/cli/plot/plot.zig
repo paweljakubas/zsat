@@ -21,7 +21,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
         return error.NoPanes;
     }
     const pane = parsed_data.panes[0];
-    var width: i32 = 800;
+    var width: i32 = 600;
     var height: i32 = 600;
     if (pane.paneValue.paneSize) |s| {
         width = @intCast(s.width);
@@ -42,7 +42,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     try context.fill();
 
     context.setSourceToPixel(.{ .rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 } });
-    context.setLineWidth(2.0);
+    context.setLineWidth(10.0);
 
     const bounds = determine_pane_bounds(@ptrCast(&parsed_data.inputs));
     const x_range = bounds.x[1] - bounds.x[0];
