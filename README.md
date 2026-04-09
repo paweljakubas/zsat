@@ -99,6 +99,14 @@ Multiple input streams - each line is a separate series starting from origin:
 printf '[[1,0]]\n[[0,1]]' | zsat draw -d "(vec, vec) -> (vec -> e0)" -f "(out, out) -> out -> p0" -p 'p0:{size: 100x100}'
 ```
 
+Multiple styles with different colors, line widths, and opacities:
+```bash
+echo -e '[[0,1]]\n[[1,1], [2,2]]\n[[-1,0], [-2,0]]' | zsat draw \
+  -s 'e0:{vec2d xy fixed [lw:5, lc: red, lo: 100]}, e1:{vec2d xy fixed [lw:20, lc: green, lo: 50]}, e2:{vec2d xy fixed [lw:30, lc: blue, lo: 75]}' \
+  -d '(vec1, vec2, vec3) -> (vec1 -> e0, vec2 -> e1, vec3 -> e2)' \
+  -f '(out1, out2, out3) -> (out1 -> p0, out2 -> p0, out3 -> p0)'
+```
+
 Display in terminal (requires kitty graphics protocol support - Kitty, WezTerm, Ghostty):
 ```bash
 printf '[[3,1], [-3,1]]\n[[2,-1]]' | zsat draw --datum "(vec, vec) -> (vec -> e0)" --frames "(out, out) -> out -> p0"
