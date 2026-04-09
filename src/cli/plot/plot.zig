@@ -197,50 +197,6 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     context.setLineWidth(10.0); // Re-enable for data lines
     context.resetPath(); // Clear path state after fill
 
-    // Now set up the actual line color from styles
-    var line_width: f64 = 10.0;
-    var line_r: u8 = 0;
-    var line_g: u8 = 0;
-    var line_b: u8 = 0;
-    var line_a: u8 = 255; // Default fully opaque
-    if (parsed_data.styles.len > 0) {
-        const default_style = parsed_data.styles[0];
-        if (default_style.styleValue.attributes) |attrs| {
-            const lw = attrs.lineWidth;
-            switch (lw.reference) {
-                .normalized => {
-                    const h2: f64 = @floatFromInt(height);
-                    const v: f64 = @floatFromInt(lw.value);
-                    line_width = v * h2 / 1000.0;
-                },
-                .global => {
-                    const v: f64 = @floatFromInt(lw.value);
-                    line_width = v / 10.0;
-                },
-                .output => {
-                    const v: f64 = @floatFromInt(lw.value);
-                    line_width = v;
-                },
-                .local => {
-                    const v: f64 = @floatFromInt(lw.value);
-                    line_width = v / 10.0;
-                },
-            }
-            const lc = attrs.lineColor;
-            const rgb = colorNameToRGB(lc.value);
-            line_r = rgb.r;
-            line_g = rgb.g;
-            line_b = rgb.b;
-            const alpha: u16 = @intCast(@as(u16, attrs.lineOpacity.value) * 255 / 100);
-            line_r = @intCast(@as(u16, line_r) * alpha / 255);
-            line_g = @intCast(@as(u16, line_g) * alpha / 255);
-            line_b = @intCast(@as(u16, line_b) * alpha / 255);
-            line_a = @intCast(alpha);
-        }
-    }
-    context.setSourceToPixel(.{ .rgba = .{ .r = line_r, .g = line_g, .b = line_b, .a = line_a } });
-    context.setLineWidth(line_width);
-
     const bounds = determine_pane_bounds(@ptrCast(&parsed_data.inputs));
     const x_range = bounds.x[1] - bounds.x[0];
     const y_range = bounds.y[1] - bounds.y[0];
@@ -261,7 +217,63 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
         const min_y = margin;
         const max_y = @as(f64, @floatFromInt(height)) - margin;
 
-        for (parsed_data.inputs.input) |row| {
+        const mappings = parsed_data.datum.mappings;
+
+        for (parsed_data.inputs.input, 0..) |row, row_idx| {
+            var style_idx: usize = 0;
+            for (mappings) |mapping| {
+                if (mapping.from == row_idx) {
+                    style_idx = mapping.to;
+                    break;
+                }
+            }
+
+            var line_width: f64 = 10.0;
+            var line_r: u8 = 0;
+            var line_g: u8 = 0;
+            var line_b: u8 = 0;
+            var line_a: u8 = 255;
+
+            if (style_idx < parsed_data.styles.len) {
+                const style = parsed_data.styles[style_idx];
+                if (style.styleValue.attributes) |attrs| {
+                    const lw = attrs.lineWidth;
+                    switch (lw.reference) {
+                        .normalized => {
+                            const h2: f64 = @floatFromInt(height);
+                            const v: f64 = @floatFromInt(lw.value);
+                            line_width = v * h2 / 1000.0;
+                        },
+                        .global => {
+                            const v: f64 = @floatFromInt(lw.value);
+                            line_width = v / 10.0;
+                        },
+                        .output => {
+                            const v: f64 = @floatFromInt(lw.value);
+                            line_width = v;
+                        },
+                        .local => {
+                            const v: f64 = @floatFromInt(lw.value);
+                            line_width = v / 10.0;
+                        },
+                    }
+                    const lc = attrs.lineColor;
+                    const rgb = colorNameToRGB(lc.value);
+                    line_r = rgb.r;
+                    line_g = rgb.g;
+                    line_b = rgb.b;
+                    const alpha: u16 = @intCast(@as(u16, attrs.lineOpacity.value) * 255 / 100);
+                    line_r = @intCast(@as(u16, line_r) * alpha / 255);
+                    line_g = @intCast(@as(u16, line_g) * alpha / 255);
+                    line_b = @intCast(@as(u16, line_b) * alpha / 255);
+                    line_a = @intCast(alpha);
+                }
+            }
+
+            context.setSourceToPixel(.{ .rgba = .{ .r = line_r, .g = line_g, .b = line_b, .a = line_a } });
+            context.setLineWidth(line_width);
+
+            context.resetPath(); // Ensure fresh path for each row
             var cur_x = origin_x;
             var cur_y = origin_y;
             try context.moveTo(cur_x, cur_y);
