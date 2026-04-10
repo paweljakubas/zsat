@@ -69,6 +69,16 @@ test "zsat draw with invalid styles and datum" {
     try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseStylesFailed"));
 }
 
+test "zsat draw with style missing vec2d" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{[lw:10]}", "--datum", "(vec) -> (vec -> e0)" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 1 }, result.term);
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseStylesFailed"));
+}
+
 test "zsat draw with two styles" {
     defer cleanupOutputFiles();
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{vec2d}, e8:{vec2d polar}", "--datum", "(vec) -> (vec -> e0)" };

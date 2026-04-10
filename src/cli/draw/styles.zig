@@ -40,7 +40,7 @@ pub const Style = struct {
 };
 
 pub const StyleValue = struct {
-    styleType: ?StyleType = .defaultStyleType(),
+    styleType: StyleType = .defaultStyleType(),
     coordinateSystem: ?CoordinateType = .defaultCoordinateType(),
     coordinateOrientation: ?CoordinateOrientation = .defaultCoordinateOrientation(),
     attributes: ?Vec2dAttributes = Vec2dAttributes{},
@@ -903,12 +903,19 @@ const styleValueUnionParser = mecha.oneOf(.{
 const many_styleValueUnionParser = mecha.many(styleValueUnionParser, .{ .separator = common.skipWhitespace });
 fn manyToStyleValue(arena: std.mem.Allocator, fields: []StyleValueUnion) mecha.ConvertError!StyleValue {
     var res = StyleValue{};
+    var hasStyleType = false;
     for (fields) |field| switch (field) {
-        .styleType => |f| res.styleType = f,
+        .styleType => |f| {
+            res.styleType = f;
+            hasStyleType = true;
+        },
         .coordinateSystem => |f| res.coordinateSystem = f,
         .coordinateOrientation => |f| res.coordinateOrientation = f,
         .attributes => |f| res.attributes = f,
     };
+    if (!hasStyleType) {
+        return error.ConversionFailed;
+    }
 
     arena.free(fields);
     return res;
@@ -937,11 +944,11 @@ test "styleValueParser" {
     };
     try testing.expectEqual(exp_value0, r0.value.ok);
 
-    const r1 = try styleValueParser.parse(a, "[lw:10]");
+    const r1 = try styleValueParser.parse(a, "vec2d [lw:10, lo  :  6]");
     const styles1 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
-        .lineOpacity = .defaultLineOpacityType(),
+        .lineOpacity = LineOpacityType{ .value = 6 },
         .lineCap = .defaultLineCapType(),
         .lineJoin = .defaultLineJoinType(),
         .lineDashing = null,
@@ -1018,7 +1025,7 @@ test "styleParser" {
     };
     try testing.expectEqual(exp_element0, r0.value.ok);
 
-    const r1 = try styleParser.parse(a, "e8: {[lw:10]}");
+    const r1 = try styleParser.parse(a, "e8: {vec2d [lw:10]}");
     const styles1 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = .defaultLineColorType(),
@@ -1080,6 +1087,27 @@ test "styleParser" {
         .styleValue = exp_value3,
     };
     try testing.expectEqualDeep(exp_element3, r3.value.ok);
+
+    const r4 = try styleParser.parse(a, "e1: {vec2d }");
+    const styles4 = Vec2dAttributes{
+        .lineWidth = .defaultLineWidthType(),
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = .defaultLineOpacityType(),
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = null,
+    };
+    const exp_value4 = StyleValue{
+        .styleType = .vec2d,
+        .coordinateSystem = .xy,
+        .coordinateOrientation = .fixed,
+        .attributes = styles4,
+    };
+    const exp_element4 = Style{
+        .styleNumber = 1,
+        .styleValue = exp_value4,
+    };
+    try testing.expectEqualDeep(exp_element4, r4.value.ok);
 }
 
 const styleSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
@@ -1098,7 +1126,7 @@ test "stylesParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r0 = try stylesParser.parse(a, "e0:{vec2d polar}, e8: {[lw:10]}");
+    const r0 = try stylesParser.parse(a, "e0:{vec2d polar}, e8:{vec2d [lw:10]}");
     const styles0 = Vec2dAttributes{
         .lineWidth = .defaultLineWidthType(),
         .lineColor = .defaultLineColorType(),
