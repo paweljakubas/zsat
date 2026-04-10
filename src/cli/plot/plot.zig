@@ -234,6 +234,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
             var line_b: u8 = 0;
             var line_a: u8 = 255;
             var line_cap_mode: z2d.options.CapMode = .butt;
+            var line_join_mode: z2d.options.JoinMode = .miter;
 
             if (style_idx < parsed_data.styles.len) {
                 const style = parsed_data.styles[style_idx];
@@ -289,12 +290,21 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                         .round => .round,
                         .square => .square,
                     };
+
+                    const join = attrs.lineJoin.value;
+                    line_join_mode = switch (join) {
+                        .none => .miter,
+                        .mitter => .miter,
+                        .round => .round,
+                        .bevel => .bevel,
+                    };
                 }
             }
 
             context.setSourceToPixel(.{ .rgba = .{ .r = line_r, .g = line_g, .b = line_b, .a = line_a } });
             context.setLineWidth(line_width);
             context.setLineCapMode(line_cap_mode);
+            context.setLineJoinMode(line_join_mode);
 
             context.resetPath(); // Ensure fresh path for each row
             var cur_x = origin_x;
