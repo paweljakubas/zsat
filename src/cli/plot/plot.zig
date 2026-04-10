@@ -267,6 +267,18 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                     line_g = @intCast(@as(u16, line_g) * alpha / 255);
                     line_b = @intCast(@as(u16, line_b) * alpha / 255);
                     line_a = @intCast(alpha);
+
+                    if (attrs.lineDashing) |ld| {
+                        var dashes = try std.heap.page_allocator.alloc(f64, ld.onOff.len);
+                        for (ld.onOff, 0..) |val, i| {
+                            dashes[i] = @floatFromInt(val);
+                        }
+                        context.setDashes(dashes);
+                        const offset_px: f64 = @floatFromInt(ld.offset);
+                        context.setDashOffset(offset_px);
+                    } else {
+                        context.setDashes(&.{});
+                    }
                 }
             }
 

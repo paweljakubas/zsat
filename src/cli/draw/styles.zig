@@ -610,7 +610,7 @@ test "LineJoinTypeParserTyped" {
 
 //LineDashing parser
 const lineDashingTypeParserRaw =
-    mecha.combine(.{ mecha.oneOf(.{ mecha.string("ldL"), mecha.string("ldG"), mecha.string("ldN"), mecha.string("ldO"), mecha.string("ld") }), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.string("[").discard(), common.skipWhitespace, mecha.int(u16, .{}).many(.{ .collect = true, .min = 2, .separator = mecha.combine(.{ common.skipWhitespace, mecha.string(","), common.skipWhitespace }).discard() }), common.skipWhitespace, mecha.string("]").discard(), common.skipWhitespace, mecha.int(u16, .{}) });
+    mecha.combine(.{ mecha.oneOf(.{ mecha.string("ldL"), mecha.string("ldG"), mecha.string("ldN"), mecha.string("ldO"), mecha.string("ld") }), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.string("[").discard(), common.skipWhitespace, mecha.int(u16, .{}).many(.{ .collect = true, .min = 2, .separator = mecha.combine(.{ common.skipWhitespace, mecha.string(","), common.skipWhitespace }).discard() }), common.skipWhitespace, mecha.string("]").discard(), common.skipWhitespace, mecha.opt(mecha.int(u16, .{})) });
 const lineDashingTypeParserRawP = @TypeOf(lineDashingTypeParserRaw);
 const LineDashingT = enum {
     ld,
@@ -626,17 +626,17 @@ fn toLineDashingType(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mec
         }
     }.to;
     if (to(res[0])) |validT| {
-        const switchRes: ReferenceFrame = switch (validT) {
-            .ld => .normalized,
+        const reference: ReferenceFrame = switch (validT) {
+            .ld => .output,
             .ldL => .local,
             .ldG => .global,
             .ldN => .normalized,
             .ldO => .output,
         };
         return .{
-            .reference = switchRes,
+            .reference = reference,
             .onOff = res[1],
-            .offset = res[2],
+            .offset = res[2] orelse 0,
         };
     } else {
         return error.ConversionFailed;
@@ -650,17 +650,17 @@ fn toLineDashingUnion(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) me
         }
     }.to;
     if (to(res[0])) |validT| {
-        const switchRes: ReferenceFrame = switch (validT) {
-            .ld => .normalized,
+        const reference: ReferenceFrame = switch (validT) {
+            .ld => .output,
             .ldL => .local,
             .ldG => .global,
             .ldN => .normalized,
             .ldO => .output,
         };
         return Vec2dAttributesUnion{ .lineDashing = .{
-            .reference = switchRes,
+            .reference = reference,
             .onOff = res[1],
-            .offset = res[2],
+            .offset = res[2] orelse 0,
         } };
     } else {
         return error.ConversionFailed;
@@ -687,10 +687,10 @@ test "LineDashingTypeParserTyped" {
     const a = arena.allocator();
 
     const r1 = try lineDashingTypeParserTyped.parse(a, "ld: [2 , 3] 1");
-    try testing.expectEqualDeep(LineDashingType{ .reference = .normalized, .onOff = &[2]u16{ 2, 3 }, .offset = 1 }, r1.value.ok);
+    try testing.expectEqualDeep(LineDashingType{ .reference = .output, .onOff = &[2]u16{ 2, 3 }, .offset = 1 }, r1.value.ok);
 
     const r2 = try lineDashingTypeParserTyped.parse(a, "ld  :  [2   ,    3]    1");
-    try testing.expectEqualDeep(LineDashingType{ .reference = .normalized, .onOff = &[_]u16{ 2, 3 }, .offset = 1 }, r2.value.ok);
+    try testing.expectEqualDeep(LineDashingType{ .reference = .output, .onOff = &[_]u16{ 2, 3 }, .offset = 1 }, r2.value.ok);
 
     const r3 = try lineDashingTypeParserTyped.parse(a, "ldG  :  [ 2,3,10] 0");
     try testing.expectEqualDeep(LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 }, r3.value.ok);
@@ -758,10 +758,10 @@ test "vec2dAttributeUnionParser" {
     try testing.expectEqual(Vec2dAttributesUnion{ .lineJoin = .{ .value = .bevel } }, r15.value.ok);
 
     const r16 = try vec2dAttributeUnionParser.parse(a, "ld: [2 , 3] 1");
-    try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .normalized, .onOff = &[2]u16{ 2, 3 }, .offset = 1 } }, r16.value.ok);
+    try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .output, .onOff = &[2]u16{ 2, 3 }, .offset = 1 } }, r16.value.ok);
 
     const r17 = try vec2dAttributeUnionParser.parse(a, "ld  :  [2   ,    3]    1");
-    try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .normalized, .onOff = &[_]u16{ 2, 3 }, .offset = 1 } }, r17.value.ok);
+    try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .output, .onOff = &[_]u16{ 2, 3 }, .offset = 1 } }, r17.value.ok);
 
     const r18 = try vec2dAttributeUnionParser.parse(a, "ldG  :  [ 2,3,10] 0");
     try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, r18.value.ok);
