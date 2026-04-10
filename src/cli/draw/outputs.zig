@@ -39,10 +39,9 @@ pub const Hook = struct {
 };
 
 //Compose (&) like in J
-//(op1 & op2) x == op1 (op2 x)
+//(op1 & op2 & op3) x == op1 (op2 (op3 x))
 pub const Compose = struct {
-    left: OneArgFunctionPartial,
-    right: OneArgFunctionPartial,
+    ops: []const OneArgFunctionPartial,
 };
 
 pub const TwoArgCombinator = enum {
@@ -1020,18 +1019,25 @@ test "trainParser" {
     try testing.expectEqualDeep(t3, r3.value.ok);
 }
 
-const composeParserRaw = mecha.combine(.{
-    common.skipOpenBracket,
-    oneArgFunctionPartialParser,
+const composePartialItemParserRaw = mecha.combine(.{
     common.skipWhitespace,
     mecha.ascii.char('&').discard(),
     common.skipWhitespace,
     oneArgFunctionPartialParser,
+});
+const many_composePartialItemParserRaw = mecha.many(composePartialItemParserRaw, .{ .min = 1 });
+const composeParserRaw = mecha.combine(.{
+    common.skipOpenBracket,
+    oneArgFunctionPartialParser,
+    many_composePartialItemParserRaw,
     common.skipCloseBracket,
 });
 const composeParserRawP = @TypeOf(composeParserRaw);
-fn toCompose(_: std.mem.Allocator, args: composeParserRawP.T) mecha.ConvertError!Compose {
-    return Compose{ .left = args[0], .right = args[1] };
+fn toCompose(arena: std.mem.Allocator, args: composeParserRawP.T) mecha.ConvertError!Compose {
+    var ops = try arena.alloc(OneArgFunctionPartial, 1 + args[1].len);
+    ops[0] = args[0];
+    @memcpy(ops[1..], args[1]);
+    return Compose{ .ops = ops };
 }
 const composeParser = composeParserRaw.convert(toCompose);
 
@@ -1040,7 +1046,7 @@ test "composeParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try composeParser.parse(a, "(pin (0% self) & scale [[2,3]]))");
+    const r1 = try composeParser.parse(a, "(pin (0% self) & scale [[2,3]])");
 
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const gp1 = GeneralPoint{ .fraction = f1 };
@@ -1051,6 +1057,22 @@ test "composeParser" {
     const alloc2 = try a.dupe(ScaleArg, &[1]ScaleArg{s2});
     const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc2 } };
 
-    const c1 = Compose{ .left = o1, .right = o2 };
+    const c1 = Compose{ .ops = &[2]OneArgFunctionPartial{ o1, o2 } };
     try testing.expectEqualDeep(c1, r1.value.ok);
+
+    const r2 = try composeParser.parse(a, "(p {(1,2)} & scale [[2,3]] & r [-120 a (10% self)])");
+    try testing.expectEqual(@as(usize, 3), r2.value.ok.ops.len);
 }
+
+////Handling the mapping of the name of output to the transformation of it
+//pub const OutputTransformationPair = struct {
+//    outputName: []const u8,
+//    operation: Compose,
+//};
+//
+////Raw, pre-validation result of parsing the connection
+//pub const Connection = struct {
+//    outputs: []const Output,
+//    transformationPairs: []const OutputTransformationPair,
+//};
+//
