@@ -233,6 +233,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
             var line_g: u8 = 0;
             var line_b: u8 = 0;
             var line_a: u8 = 255;
+            var line_cap_mode: z2d.options.CapMode = .butt;
 
             if (style_idx < parsed_data.styles.len) {
                 const style = parsed_data.styles[style_idx];
@@ -280,11 +281,20 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                         context.setDashes(&.{});
                         context.setDashOffset(0);
                     }
+
+                    const cap = attrs.lineCap.value;
+                    line_cap_mode = switch (cap) {
+                        .none => .butt,
+                        .butt => .butt,
+                        .round => .round,
+                        .square => .square,
+                    };
                 }
             }
 
             context.setSourceToPixel(.{ .rgba = .{ .r = line_r, .g = line_g, .b = line_b, .a = line_a } });
             context.setLineWidth(line_width);
+            context.setLineCapMode(line_cap_mode);
 
             context.resetPath(); // Ensure fresh path for each row
             var cur_x = origin_x;
