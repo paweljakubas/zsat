@@ -52,14 +52,14 @@ pub const TwoArgCombinator = enum {
 };
 
 pub const OneArgFunctionPartial = union(enum) {
-    pin: PinPartial,
+    pin: AnchorPartial,
     rotate: RotatePartial,
     scale: ScalePartial,
     mirror: MirrorPartial,
 };
 
 //Pin obj to point
-pub const PinPartial = struct {
+pub const AnchorPartial = struct {
     point: GeneralPoint,
 };
 
@@ -590,116 +590,112 @@ test "scalePartialParser" {
     try testing.expectEqualDeep(s4, r4.value.ok.elements[0]);
 }
 
-const pinPartialParserRawWithout = mecha.combine(.{
+const anchorPartialParserRawWithout = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{
+        mecha.string("anchor"),
+        mecha.string("a"),
         mecha.string("pin"),
         mecha.string("p"),
     }).discard(),
-    common.skipWhitespace,
-    mecha.combine(.{
-        mecha.string("at").discard(),
-    }).opt().discard(),
     common.skipWhitespace,
     generalPointParser,
 });
-const pinPartialParserRawWith = mecha.combine(.{
+const anchorPartialParserRawWith = mecha.combine(.{
     common.skipOpenBracket,
     common.skipWhitespace,
     mecha.oneOf(.{
+        mecha.string("anchor"),
+        mecha.string("a"),
         mecha.string("pin"),
         mecha.string("p"),
     }).discard(),
-    common.skipWhitespace,
-    mecha.combine(.{
-        mecha.string("at").discard(),
-    }).opt().discard(),
     common.skipWhitespace,
     generalPointParser,
     common.skipWhitespace,
     common.skipCloseBracket,
 });
 
-const pinPartialParserRaw = mecha.oneOf(.{
-    pinPartialParserRawWith,
-    pinPartialParserRawWithout,
+const anchorPartialParserRaw = mecha.oneOf(.{
+    anchorPartialParserRawWith,
+    anchorPartialParserRawWithout,
 });
-const pinPartialParserRawP = @TypeOf(pinPartialParserRaw);
-fn toPinPartial(_: std.mem.Allocator, a: anytype) mecha.ConvertError!PinPartial {
-    return PinPartial{ .point = a };
+const anchorPartialParserRawP = @TypeOf(anchorPartialParserRaw);
+fn toAnchorPartial(_: std.mem.Allocator, a: anytype) mecha.ConvertError!AnchorPartial {
+    return AnchorPartial{ .point = a };
 }
-const pinPartialParser = pinPartialParserRaw.convert(toPinPartial);
+const anchorPartialParser = anchorPartialParserRaw.convert(toAnchorPartial);
 
-test "pinPartialParser" {
+test "anchorPartialParser" {
     const fa = testing.failing_allocator;
 
-    const r1 = try pinPartialParser.parse(fa, "pin (0% self)");
+    const r1 = try anchorPartialParser.parse(fa, "anchor (0% self)");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const gp1 = GeneralPoint{ .fraction = f1 };
-    const o1 = PinPartial{ .point = gp1 };
+    const o1 = AnchorPartial{ .point = gp1 };
     try testing.expectEqualDeep(o1, r1.value.ok);
 
-    const r2 = try pinPartialParser.parse(fa, "p (10% self)");
+    const r2 = try anchorPartialParser.parse(fa, "a (10% self)");
     const f2 = ElementFraction{ .fromStart = 10, .element = .self };
     const gp2 = GeneralPoint{ .fraction = f2 };
-    const o2 = PinPartial{ .point = gp2 };
+    const o2 = AnchorPartial{ .point = gp2 };
     try testing.expectEqualDeep(o2, r2.value.ok);
 
-    const r3 = try pinPartialParser.parse(fa, "pin at ( beg self)");
+    const r3 = try anchorPartialParser.parse(fa, "a ( beg self)");
     const gp3 = GeneralPoint{ .beginning = .self };
-    const o3 = PinPartial{ .point = gp3 };
+    const o3 = AnchorPartial{ .point = gp3 };
     try testing.expectEqualDeep(o3, r3.value.ok);
 
-    const r4 = try pinPartialParser.parse(fa, "pin (beginning dot1)");
+    const r4 = try anchorPartialParser.parse(fa, "anchor (beginning dot1)");
     const gp4 = GeneralPoint{ .beginning = ElementReference{ .other = "dot1" } };
-    const o4 = PinPartial{ .point = gp4 };
+    const o4 = AnchorPartial{ .point = gp4 };
     try testing.expectEqualDeep(o4, r4.value.ok);
 
-    const r5 = try pinPartialParser.parse(fa, "p (b dot1)");
+    const r5 = try anchorPartialParser.parse(fa, "a (b dot1)");
     const gp5 = GeneralPoint{ .beginning = ElementReference{ .other = "dot1" } };
-    const o5 = PinPartial{ .point = gp5 };
+    const o5 = AnchorPartial{ .point = gp5 };
     try testing.expectEqualDeep(o5, r5.value.ok);
 
-    const r6 = try pinPartialParser.parse(fa, "pin at (end     self)");
+    const r6 = try anchorPartialParser.parse(fa, "a (end     self)");
     const gp6 = GeneralPoint{ .end = .self };
-    const o6 = PinPartial{ .point = gp6 };
+    const o6 = AnchorPartial{ .point = gp6 };
     try testing.expectEqualDeep(o6, r6.value.ok);
 
-    const r7 = try pinPartialParser.parse(fa, "p (e vec1)");
+    const r7 = try anchorPartialParser.parse(fa, "a (e vec1)");
     const gp7 = GeneralPoint{ .end = ElementReference{ .other = "vec1" } };
-    const o7 = PinPartial{ .point = gp7 };
+    const o7 = AnchorPartial{ .point = gp7 };
     try testing.expectEqualDeep(o7, r7.value.ok);
 
-    const r8 = try pinPartialParser.parse(fa, "p (m vec1)");
+    const r8 = try anchorPartialParser.parse(fa, "a (m vec1)");
     const gp8 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
-    const o8 = PinPartial{ .point = gp8 };
+    const o8 = AnchorPartial{ .point = gp8 };
     try testing.expectEqualDeep(o8, r8.value.ok);
 
-    const r9 = try pinPartialParser.parse(fa, "pin at (mid vec1)");
+    const r9 = try anchorPartialParser.parse(fa, "anchor (mid vec1)");
     const gp9 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
-    const o9 = PinPartial{ .point = gp9 };
+    const o9 = AnchorPartial{ .point = gp9 };
     try testing.expectEqualDeep(o9, r9.value.ok);
 
-    const r10 = try pinPartialParser.parse(fa, "pin at (middle vec1)");
+    const r10 = try anchorPartialParser.parse(fa, "anchor (middle vec1)");
     const gp10 = GeneralPoint{ .middle = ElementReference{ .other = "vec1" } };
-    const o10 = PinPartial{ .point = gp10 };
+    const o10 = AnchorPartial{ .point = gp10 };
     try testing.expectEqualDeep(o10, r10.value.ok);
 
-    const r11 = try pinPartialParser.parse(fa, "p at {(-12,2.1)} ");
+    const r11 = try anchorPartialParser.parse(fa, "p {(-12,2.1)} ");
     const p11 = inputs.Point{ .x = -12.0, .y = 2.1 };
     const gp11 = GeneralPoint{ .point = p11 };
-    const o11 = PinPartial{ .point = gp11 };
+    const o11 = AnchorPartial{ .point = gp11 };
     try testing.expectEqualDeep(o11, r11.value.ok);
 
-    const r12 = try pinPartialParser.parse(fa, "(pin at ( beg self))");
+    const r12 = try anchorPartialParser.parse(fa, "(a ( beg self))");
     const gp12 = GeneralPoint{ .beginning = .self };
-    const o12 = PinPartial{ .point = gp12 };
+    const o12 = AnchorPartial{ .point = gp12 };
     try testing.expectEqualDeep(o12, r12.value.ok);
 
-    const r13 = try pinPartialParser.parse(fa, "( p at {(-12,2.1)} )");
+    const r13 = try anchorPartialParser.parse(fa, "( anchor {(-12,2.1)} )");
     const p13 = inputs.Point{ .x = -12.0, .y = 2.1 };
     const gp13 = GeneralPoint{ .point = p13 };
-    const o13 = PinPartial{ .point = gp13 };
+    const o13 = AnchorPartial{ .point = gp13 };
     try testing.expectEqualDeep(o13, r13.value.ok);
 }
 
@@ -797,18 +793,18 @@ fn toScalePartialUnion(arena: std.mem.Allocator, res: scalePartialParserRawP.T) 
     return OneArgFunctionPartial{ .scale = s };
 }
 const scalePartialUnionParser = scalePartialParserRaw.convert(toScalePartialUnion);
-fn toPinPartialUnion(_: std.mem.Allocator, res: anytype) mecha.ConvertError!OneArgFunctionPartial {
-    const p = PinPartial{ .point = res };
+fn toAnchorPartialUnion(_: std.mem.Allocator, res: anytype) mecha.ConvertError!OneArgFunctionPartial {
+    const p = AnchorPartial{ .point = res };
     return OneArgFunctionPartial{ .pin = p };
 }
-const pinPartialUnionParser = pinPartialParserRaw.convert(toPinPartialUnion);
+const anchorPartialUnionParser = anchorPartialParserRaw.convert(toAnchorPartialUnion);
 fn toMirrorPartialUnion(_: std.mem.Allocator, res: MirrorPartial) mecha.ConvertError!OneArgFunctionPartial {
     return OneArgFunctionPartial{ .mirror = res };
 }
 const mirrorPartialUnionParser = mirrorPartialParser.convert(toMirrorPartialUnion);
 
 const oneArgFunctionPartialParser = mecha.oneOf(.{
-    pinPartialUnionParser,
+    anchorPartialUnionParser,
     rotatePartialUnionParser,
     scalePartialUnionParser,
     mirrorPartialUnionParser,
@@ -822,7 +818,7 @@ test "oneArgFunctionPartialParser" {
     const r1 = try oneArgFunctionPartialParser.parse(a, "pin (0% self)");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const gp1 = GeneralPoint{ .fraction = f1 };
-    const p1 = PinPartial{ .point = gp1 };
+    const p1 = AnchorPartial{ .point = gp1 };
     const o1 = OneArgFunctionPartial{ .pin = p1 };
     try testing.expectEqualDeep(o1, r1.value.ok);
 
@@ -957,7 +953,7 @@ test "hookParser" {
     const r1 = try hookParser.parse(a, "((pin (0% self)) with)");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const gp1 = GeneralPoint{ .fraction = f1 };
-    const p1 = PinPartial{ .point = gp1 };
+    const p1 = AnchorPartial{ .point = gp1 };
     const o1 = OneArgFunctionPartial{ .pin = p1 };
     const h1 = Hook{ .left = CompositeInside{ .stop = o1 }, .right = .with };
     try testing.expectEqualDeep(h1, r1.value.ok);
@@ -979,12 +975,12 @@ test "trainParser" {
     const r1 = try trainParser.parse(a, "((pin (0% self)) with (pin {(-12,2.1)}))");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const gp1a = GeneralPoint{ .fraction = f1 };
-    const p1a = PinPartial{ .point = gp1a };
+    const p1a = AnchorPartial{ .point = gp1a };
     const o1a = OneArgFunctionPartial{ .pin = p1a };
 
     const p1b_point = inputs.Point{ .x = -12.0, .y = 2.1 };
     const gp1b = GeneralPoint{ .point = p1b_point };
-    const p1b = PinPartial{ .point = gp1b };
+    const p1b = AnchorPartial{ .point = gp1b };
     const o1b = OneArgFunctionPartial{ .pin = p1b };
 
     const t1 = Train{ .left = CompositeInside{ .stop = o1a }, .middle = .with, .right = CompositeInside{ .stop = o1b } };
@@ -1000,7 +996,7 @@ test "trainParser" {
 
     const p2b_point = inputs.Point{ .x = -12.0, .y = 2.1 };
     const gp2b = GeneralPoint{ .point = p2b_point };
-    const p2b = PinPartial{ .point = gp2b };
+    const p2b = AnchorPartial{ .point = gp2b };
     const o2b = OneArgFunctionPartial{ .pin = p2b };
 
     const t2 = Train{ .left = CompositeInside{ .stop = o2a }, .middle = .with, .right = CompositeInside{ .stop = o2b } };
@@ -1017,7 +1013,7 @@ test "trainParser" {
 
     const p3b_point = inputs.Point{ .x = -12.0, .y = 2.1 };
     const gp3b = GeneralPoint{ .point = p3b_point };
-    const p3b = PinPartial{ .point = gp3b };
+    const p3b = AnchorPartial{ .point = gp3b };
     const o3b = OneArgFunctionPartial{ .pin = p3b };
 
     const t3 = Train{ .left = CompositeInside{ .inside = &Composite{ .hook = &h3 } }, .middle = .with, .right = CompositeInside{ .stop = o3b } };
@@ -1048,7 +1044,7 @@ test "composeParser" {
 
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const gp1 = GeneralPoint{ .fraction = f1 };
-    const p1 = PinPartial{ .point = gp1 };
+    const p1 = AnchorPartial{ .point = gp1 };
     const o1 = OneArgFunctionPartial{ .pin = p1 };
     const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
     const s2 = ScaleArg{ .translation = v2 };
