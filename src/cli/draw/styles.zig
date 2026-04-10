@@ -128,8 +128,8 @@ pub const LineJoinType = struct {
 
 pub const LineDashingType = struct {
     reference: ReferenceFrame,
-    onOff: []const u16, // in 0.1 % for local/global/normalized (i.e., 10 = 1%) and in number of pixels for output
-    offset: u16, // in 0.1 % for local/global/normalized (i.e., 10 = 1%) and in number of pixels for output
+    onOff: []const u16, // dash segments: pixels for output, 0.1%/10 for local/global (10=1%), 0.1%/1000 for normalized (10=1%)
+    offset: u16, // dash offset from path origin: pixels for output, same units as onOff for others
 
     pub fn defaultLineDashingType() LineDashingType {
         return LineDashingType{

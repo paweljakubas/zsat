@@ -278,6 +278,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                         context.setDashOffset(offset_px);
                     } else {
                         context.setDashes(&.{});
+                        context.setDashOffset(0);
                     }
                 }
             }
