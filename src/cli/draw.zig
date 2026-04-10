@@ -159,7 +159,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         },
     };
 
-    const numberOfOutputs: u8 = @intCast(inputs.input.len);
+    const numberOfOutputs: u8 = 1;
     const framesValidated = try Frames.validateConnection(alloc, numberOfOutputs, paneNames, frames);
 
     if (debug) {
