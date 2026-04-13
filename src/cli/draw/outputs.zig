@@ -1025,7 +1025,7 @@ const composePartialItemParserRaw = mecha.combine(.{
     common.skipWhitespace,
     oneArgFunctionPartialParser,
 });
-const many_composePartialItemParserRaw = mecha.many(composePartialItemParserRaw, .{ .min = 1 });
+const many_composePartialItemParserRaw = mecha.many(composePartialItemParserRaw, .{ .min = 0 });
 const composeParserRaw = mecha.combine(.{
     common.skipOpenBracket,
     oneArgFunctionPartialParser,
@@ -1064,15 +1064,85 @@ test "composeParser" {
     try testing.expectEqual(@as(usize, 3), r2.value.ok.ops.len);
 }
 
-////Handling the mapping of the name of output to the transformation of it
-//pub const OutputTransformationPair = struct {
-//    outputName: []const u8,
-//    operation: Compose,
-//};
-//
-////Raw, pre-validation result of parsing the connection
+//Handling the mapping of the name of output to the transformation of it
+pub const OutputTransformationPair = struct {
+    outputName: []const u8,
+    operation: Compose,
+};
+
+const outputNameStrParser = mecha.many(outputCharacterParser, .{ .collect = true, .min = 1 }).asStr();
+const outputTransformationPairParserRaw = mecha.combine(.{
+    composeParser,
+    common.skipWhitespace,
+    outputNameStrParser,
+});
+const outputTransformationPairParserRawP = @TypeOf(outputTransformationPairParserRaw);
+fn toOutputTransformationPair(_: std.mem.Allocator, args: outputTransformationPairParserRawP.T) mecha.ConvertError!OutputTransformationPair {
+    return OutputTransformationPair{
+        .outputName = args[1],
+        .operation = args[0],
+    };
+}
+const outputTransformationPairParser = outputTransformationPairParserRaw.convert(toOutputTransformationPair);
+
+test "outputTransformationPairParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try outputTransformationPairParser.parse(a, "(pin (0% self)) out");
+
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gp1 = GeneralPoint{ .fraction = f1 };
+    const p1 = AnchorPartial{ .point = gp1 };
+    const o1 = OneArgFunctionPartial{ .pin = p1 };
+    const c1 = Compose{ .ops = &[1]OneArgFunctionPartial{o1} };
+
+    const out1 = OutputTransformationPair{
+        .outputName = "out",
+        .operation = c1,
+    };
+    try testing.expectEqualDeep(out1, r1.value.ok);
+
+    const r2 = try outputTransformationPairParser.parse(a, "(pin {(1,2)} & scale [[2,3]]) out1");
+
+    const pt2 = inputs.Point{ .x = 1.0, .y = 2 };
+    const gp2 = GeneralPoint{ .point = pt2 };
+    const p2 = AnchorPartial{ .point = gp2 };
+    const o2a = OneArgFunctionPartial{ .pin = p2 };
+    const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
+    const s2 = ScaleArg{ .translation = v2 };
+    const alloc2 = try a.dupe(ScaleArg, &[1]ScaleArg{s2});
+    const o2b = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc2 } };
+    const c2 = Compose{ .ops = &[2]OneArgFunctionPartial{ o2a, o2b } };
+
+    const out2 = OutputTransformationPair{
+        .outputName = "out1",
+        .operation = c2,
+    };
+    try testing.expectEqualDeep(out2, r2.value.ok);
+}
+
+//Raw, pre-validation result of parsing the connection
 //pub const Connection = struct {
 //    outputs: []const Output,
 //    transformationPairs: []const OutputTransformationPair,
 //};
+//
+//pub const connectionParser = undefined;
+//
+//test "connectionParser" {
+//    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+//    defer arena.deinit();
+//    const a = arena.allocator();
+//
+//    const r1 = try composeParser.parse(a, "(out) -> (pin (0% self)) out");
+//
+//    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+//    const gp1 = GeneralPoint{ .fraction = f1 };
+//    const p1 = AnchorPartial{ .point = gp1 };
+//    const o1 = OneArgFunctionPartial{ .pin = p1 };
+//    const c1 = Compose{ .ops = &[1]OneArgFunctionPartial{o1} };
+//    try testing.expectEqualDeep(c1, r1.value.ok);
+//}
 //
