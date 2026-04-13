@@ -1124,25 +1124,106 @@ test "outputTransformationPairParser" {
 }
 
 //Raw, pre-validation result of parsing the connection
-//pub const Connection = struct {
-//    outputs: []const Output,
-//    transformationPairs: []const OutputTransformationPair,
-//};
-//
-//pub const connectionParser = undefined;
-//
-//test "connectionParser" {
-//    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
-//    defer arena.deinit();
-//    const a = arena.allocator();
-//
-//    const r1 = try composeParser.parse(a, "(out) -> (pin (0% self)) out");
-//
-//    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
-//    const gp1 = GeneralPoint{ .fraction = f1 };
-//    const p1 = AnchorPartial{ .point = gp1 };
-//    const o1 = OneArgFunctionPartial{ .pin = p1 };
-//    const c1 = Compose{ .ops = &[1]OneArgFunctionPartial{o1} };
-//    try testing.expectEqualDeep(c1, r1.value.ok);
-//}
-//
+pub const Connection = struct {
+    outputs: []const Output,
+    transformationPairs: []const OutputTransformationPair,
+};
+
+const transformationPairsSeparatorParser = mecha.combine(.{common.skipComma});
+const transformationPairsParser = mecha.many(outputTransformationPairParser, .{ .collect = true, .separator = transformationPairsSeparatorParser });
+const transformationPairsWithBracketsParser = mecha.combine(.{
+    common.skipOpenBracket,
+    transformationPairsParser,
+    common.skipCloseBracket,
+});
+const connectionParserRawSingle = mecha.combine(.{
+    outputsParser,
+    common.skipWhitespace,
+    common.skipArrow,
+    common.skipWhitespace,
+    outputTransformationPairParser,
+}).convert(struct {
+    fn toSingle(_: std.mem.Allocator, args: anytype) mecha.ConvertError!Connection {
+        return Connection{
+            .outputs = args[0],
+            .transformationPairs = &[1]OutputTransformationPair{args[1]},
+        };
+    }
+}.toSingle);
+const connectionParserRawMultiple = mecha.combine(.{
+    outputsParser,
+    common.skipWhitespace,
+    common.skipArrow,
+    common.skipWhitespace,
+    transformationPairsWithBracketsParser,
+}).convert(struct {
+    fn toMultiple(_: std.mem.Allocator, args: anytype) mecha.ConvertError!Connection {
+        return Connection{
+            .outputs = args[0],
+            .transformationPairs = args[1],
+        };
+    }
+}.toMultiple);
+pub const connectionParser = mecha.oneOf(.{
+    connectionParserRawMultiple,
+    connectionParserRawSingle,
+});
+
+test "connectionParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try connectionParser.parse(a, "(out) -> (pin (0% self)) out");
+
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gpa1 = GeneralPoint{ .fraction = f1 };
+    const ap1 = AnchorPartial{ .point = gpa1 };
+    const of1 = OneArgFunctionPartial{ .pin = ap1 };
+    const c1 = Compose{ .ops = &[1]OneArgFunctionPartial{of1} };
+
+    const tp1 = OutputTransformationPair{
+        .outputName = "out",
+        .operation = c1,
+    };
+    const out1 = Output{ .name = &[_]u8{ 'o', 'u', 't' } };
+    const exp1 = Connection{
+        .outputs = &[1]Output{out1},
+        .transformationPairs = &[1]OutputTransformationPair{tp1},
+    };
+    try testing.expectEqualDeep(exp1, r1.value.ok);
+
+    const r2 = try connectionParser.parse(a, "(out1, out2) -> ( (pin (30% self)) out1, (pin {(1,2)} & scale [[2,3]]) out2 )");
+
+    const f2a = ElementFraction{ .fromStart = 30, .element = .self };
+    const gpa2a = GeneralPoint{ .fraction = f2a };
+    const ap2a = AnchorPartial{ .point = gpa2a };
+    const of2a = OneArgFunctionPartial{ .pin = ap2a };
+    const c2a = Compose{ .ops = &[1]OneArgFunctionPartial{of2a} };
+    const tp2a = OutputTransformationPair{
+        .outputName = "out1",
+        .operation = c2a,
+    };
+
+    const pt2b = inputs.Point{ .x = 1.0, .y = 2 };
+    const gpa2b = GeneralPoint{ .point = pt2b };
+    const ap2b = AnchorPartial{ .point = gpa2b };
+    const of2b_first = OneArgFunctionPartial{ .pin = ap2b };
+    const v2b = inputs.Vector{ .x = 2.0, .y = 3.0 };
+    const s2b = ScaleArg{ .translation = v2b };
+    const alloc2b = try a.dupe(ScaleArg, &[1]ScaleArg{s2b});
+    const of2b_second = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc2b } };
+    const c2b = Compose{ .ops = &[2]OneArgFunctionPartial{ of2b_first, of2b_second } };
+    const tp2b = OutputTransformationPair{
+        .outputName = "out2",
+        .operation = c2b,
+    };
+
+    const out2a = Output{ .name = &[_]u8{ 'o', 'u', 't', '1' } };
+    const out2b = Output{ .name = &[_]u8{ 'o', 'u', 't', '2' } };
+    const exp2 = Connection{
+        .outputs = &[2]Output{ out2a, out2b },
+        .transformationPairs = &[2]OutputTransformationPair{ tp2a, tp2b },
+    };
+    try testing.expectEqualDeep(exp2, r2.value.ok);
+}
