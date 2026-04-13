@@ -1227,3 +1227,125 @@ test "connectionParser" {
     };
     try testing.expectEqualDeep(exp2, r2.value.ok);
 }
+
+pub const OutputError = error{
+    ArgumentInPairInvalid,
+    WrongNumberOfOutputs,
+};
+
+pub const OutputValidated = struct {
+    transformationPairs: []const OutputTransformationPair,
+};
+
+// Validate 'Connection' to get 'OutputsValidated' if
+// (a) outputName's in each transformationPairs of the connection is in 'outputs' (if not `OutputError.ArgumentInPairInvalid` triggered)
+// (b) the number of outputs is the same as the one specified in numberOfOutputs arg (if not `OutputError.WrongNumberOfOutputs` triggered)
+// Otherwise, one of the errors from OutputError is emitted
+pub fn validateConnection(_: std.mem.Allocator, numberOfOutputs: u8, connection: Connection) !OutputValidated {
+    if (connection.outputs.len != numberOfOutputs) {
+        return OutputError.WrongNumberOfOutputs;
+    }
+
+    for (connection.transformationPairs) |pair| {
+        const found = for (connection.outputs) |output| {
+            if (std.mem.eql(u8, output.name, pair.outputName)) {
+                break true;
+            }
+        } else false;
+
+        if (!found) {
+            return OutputError.ArgumentInPairInvalid;
+        }
+    }
+
+    return OutputValidated{
+        .transformationPairs = connection.transformationPairs,
+    };
+}
+
+test "connection validation" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gpa1 = GeneralPoint{ .fraction = f1 };
+    const ap1 = AnchorPartial{ .point = gpa1 };
+    const of1 = OneArgFunctionPartial{ .pin = ap1 };
+    const c1 = Compose{ .ops = &[1]OneArgFunctionPartial{of1} };
+
+    const tp1 = OutputTransformationPair{
+        .outputName = "out",
+        .operation = c1,
+    };
+    const out1 = Output{ .name = &[_]u8{ 'o', 'u', 't' } };
+    const connection1 = Connection{
+        .outputs = &[1]Output{out1},
+        .transformationPairs = &[1]OutputTransformationPair{tp1},
+    };
+    const connectionValidated1 = OutputValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp1},
+    };
+
+    const validation1 = validateConnection(a, 1, connection1);
+    try testing.expectEqualDeep(try validation1, connectionValidated1);
+
+    const validation2 = validateConnection(a, 2, connection1);
+    try testing.expectError(OutputError.WrongNumberOfOutputs, validation2);
+
+    const f2 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gpa2 = GeneralPoint{ .fraction = f2 };
+    const ap2 = AnchorPartial{ .point = gpa2 };
+    const of2 = OneArgFunctionPartial{ .pin = ap2 };
+    const c2 = Compose{ .ops = &[1]OneArgFunctionPartial{of2} };
+
+    const tp2 = OutputTransformationPair{
+        .outputName = "out1",
+        .operation = c2,
+    };
+    const out2 = Output{ .name = &[_]u8{ 'o', 'u', 't' } };
+    const connection2 = Connection{
+        .outputs = &[1]Output{out2},
+        .transformationPairs = &[1]OutputTransformationPair{tp2},
+    };
+
+    const validation3 = validateConnection(a, 1, connection2);
+    try testing.expectError(OutputError.ArgumentInPairInvalid, validation3);
+
+    const f3a = ElementFraction{ .fromStart = 30, .element = .self };
+    const gpa3a = GeneralPoint{ .fraction = f3a };
+    const ap3a = AnchorPartial{ .point = gpa3a };
+    const of3a = OneArgFunctionPartial{ .pin = ap3a };
+    const c3a = Compose{ .ops = &[1]OneArgFunctionPartial{of3a} };
+    const tp3a = OutputTransformationPair{
+        .outputName = "out1",
+        .operation = c3a,
+    };
+
+    const pt3b = inputs.Point{ .x = 1.0, .y = 2 };
+    const gpa3b = GeneralPoint{ .point = pt3b };
+    const ap3b = AnchorPartial{ .point = gpa3b };
+    const of3b_first = OneArgFunctionPartial{ .pin = ap3b };
+    const v3b = inputs.Vector{ .x = 2.0, .y = 3.0 };
+    const s3b = ScaleArg{ .translation = v3b };
+    const alloc3b = try a.dupe(ScaleArg, &[1]ScaleArg{s3b});
+    const of3b_second = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc3b } };
+    const c3b = Compose{ .ops = &[2]OneArgFunctionPartial{ of3b_first, of3b_second } };
+    const tp3b = OutputTransformationPair{
+        .outputName = "out2",
+        .operation = c3b,
+    };
+
+    const out3a = Output{ .name = &[_]u8{ 'o', 'u', 't', '1' } };
+    const out3b = Output{ .name = &[_]u8{ 'o', 'u', 't', '3' } };
+    const connection3 = Connection{
+        .outputs = &[2]Output{ out3a, out3b },
+        .transformationPairs = &[2]OutputTransformationPair{ tp3a, tp3b },
+    };
+
+    const validation4 = validateConnection(a, 2, connection3);
+    try testing.expectError(OutputError.ArgumentInPairInvalid, validation4);
+
+    const validation5 = validateConnection(a, 3, connection3);
+    try testing.expectError(OutputError.WrongNumberOfOutputs, validation5);
+}
