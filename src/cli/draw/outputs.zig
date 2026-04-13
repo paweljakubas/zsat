@@ -51,6 +51,7 @@ pub const TwoArgCombinator = enum {
 };
 
 pub const OneArgFunctionPartial = union(enum) {
+    none,
     pin: AnchorPartial,
     rotate: RotatePartial,
     scale: ScalePartial,
@@ -1164,9 +1165,35 @@ const connectionParserRawMultiple = mecha.combine(.{
         };
     }
 }.toMultiple);
+const identityTransformationParser = outputNameStrParser.convert(struct {
+    fn toIdentityTransformation(arena: std.mem.Allocator, name: []const u8) mecha.ConvertError!OutputTransformationPair {
+        const identityOp = OneArgFunctionPartial{ .none = {} };
+        const ops = try arena.alloc(OneArgFunctionPartial, 1);
+        ops[0] = identityOp;
+        return OutputTransformationPair{
+            .outputName = name,
+            .operation = Compose{ .ops = ops },
+        };
+    }
+}.toIdentityTransformation);
+const connectionParserRawIdentity = mecha.combine(.{
+    outputsParser,
+    common.skipWhitespace,
+    common.skipArrow,
+    common.skipWhitespace,
+    identityTransformationParser,
+}).convert(struct {
+    fn toIdentity(_: std.mem.Allocator, args: anytype) mecha.ConvertError!Connection {
+        return Connection{
+            .outputs = args[0],
+            .transformationPairs = &[1]OutputTransformationPair{args[1]},
+        };
+    }
+}.toIdentity);
 pub const connectionParser = mecha.oneOf(.{
     connectionParserRawMultiple,
     connectionParserRawSingle,
+    connectionParserRawIdentity,
 });
 
 test "connectionParser" {
@@ -1233,7 +1260,7 @@ pub const OutputError = error{
     WrongNumberOfOutputs,
 };
 
-pub const OutputValidated = struct {
+pub const OutputsValidated = struct {
     transformationPairs: []const OutputTransformationPair,
 };
 
@@ -1241,7 +1268,7 @@ pub const OutputValidated = struct {
 // (a) outputName's in each transformationPairs of the connection is in 'outputs' (if not `OutputError.ArgumentInPairInvalid` triggered)
 // (b) the number of outputs is the same as the one specified in numberOfOutputs arg (if not `OutputError.WrongNumberOfOutputs` triggered)
 // Otherwise, one of the errors from OutputError is emitted
-pub fn validateConnection(_: std.mem.Allocator, numberOfOutputs: u8, connection: Connection) !OutputValidated {
+pub fn validateConnection(_: std.mem.Allocator, numberOfOutputs: u8, connection: Connection) !OutputsValidated {
     if (connection.outputs.len != numberOfOutputs) {
         return OutputError.WrongNumberOfOutputs;
     }
@@ -1258,7 +1285,7 @@ pub fn validateConnection(_: std.mem.Allocator, numberOfOutputs: u8, connection:
         }
     }
 
-    return OutputValidated{
+    return OutputsValidated{
         .transformationPairs = connection.transformationPairs,
     };
 }
@@ -1283,7 +1310,7 @@ test "connection validation" {
         .outputs = &[1]Output{out1},
         .transformationPairs = &[1]OutputTransformationPair{tp1},
     };
-    const connectionValidated1 = OutputValidated{
+    const connectionValidated1 = OutputsValidated{
         .transformationPairs = &[1]OutputTransformationPair{tp1},
     };
 

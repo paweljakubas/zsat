@@ -6,6 +6,7 @@ const z2d = @import("z2d");
 const zigimg = @import("zigimg");
 const Styles = @import("draw/styles.zig");
 const Inputs = @import("draw/inputs.zig");
+const Outputs = @import("draw/outputs.zig");
 const Datum = @import("draw/datum.zig");
 const Frames = @import("draw/frames.zig");
 const Panes = @import("draw/panes.zig");
@@ -16,6 +17,7 @@ pub const ParsedData = struct {
     styles: []const Styles.Style,
     inputs: Inputs.Inputs,
     datum: Datum.DataElementValidated,
+    outputs: Outputs.OutputsValidated,
     panes: []const Panes.Pane,
     frames: Frames.OutputPaneValidated,
 };
@@ -34,6 +36,14 @@ const datum_flag = zli.Flag{
     .description = "Mapping data streams to the defined styles.",
     .type = .String,
     .default_value = .{ .String = "(vec) -> (vec -> e0)" },
+};
+
+const outputs_flag = zli.Flag{
+    .name = "outputs",
+    .shortcut = "o",
+    .description = "Input(s) transformation definition of the outputs.",
+    .type = .String,
+    .default_value = .{ .String = "(out) -> out" },
 };
 
 const panes_flag = zli.Flag{
@@ -75,6 +85,7 @@ pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) 
 
     try cmd.addFlag(style_flag);
     try cmd.addFlag(datum_flag);
+    try cmd.addFlag(outputs_flag);
     try cmd.addFlag(panes_flag);
     try cmd.addFlag(frames_flag);
 
@@ -90,6 +101,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     const datum_str = ctx.flag("datum", []const u8);
     const panes_str = ctx.flag("panes", []const u8);
     const frames_str = ctx.flag("frames", []const u8);
+    const output_str = ctx.flag("outputs", []const u8);
 
     const stdin_str = try std.fs.File.stdin().readToEndAlloc(alloc, 1024 * 1024);
     defer alloc.free(stdin_str);
@@ -131,6 +143,16 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
 
     const datumValidated = try Datum.validateConnection(alloc, numberOfDatum, elements, datum);
 
+    const outputs_parse_result = try Outputs.connectionParser.parse(alloc, output_str);
+    const outputsConnection = switch (outputs_parse_result.value) {
+        .ok => |o| o,
+        .err => {
+            return error.ParseOutputsFailed;
+        },
+    };
+
+    const outputsValidated = try Outputs.validateConnection(alloc, numberOfDatum, outputsConnection);
+
     const panes_parse_result = try Panes.panesParser.parse(alloc, panes_str);
     const panes = switch (panes_parse_result.value) {
         .ok => |p| p,
@@ -166,6 +188,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         try ctx.writer.print("stdin:\n{s}\n", .{stdin_str});
         try ctx.writer.print("\n--styles {s}\n", .{styles_str});
         try ctx.writer.print("--datum {s}\n", .{datum_str});
+        try ctx.writer.print("--outputs {s}\n", .{output_str});
         try ctx.writer.print("--panes {s}\n", .{panes_str});
         try ctx.writer.print("--frames {s}\n", .{frames_str});
     }
@@ -174,6 +197,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         .styles = styles,
         .inputs = inputs,
         .datum = datumValidated,
+        .outputs = outputsValidated,
         .panes = panes,
         .frames = framesValidated,
     };
