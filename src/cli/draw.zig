@@ -20,6 +20,7 @@ pub const ParsedData = struct {
     outputs: Outputs.OutputsValidated,
     panes: []const Panes.Pane,
     frames: Frames.OutputPaneValidated,
+    anchor_points: []const ?Inputs.Vector,
 };
 
 const style_flag = zli.Flag{
@@ -43,7 +44,7 @@ const outputs_flag = zli.Flag{
     .shortcut = "o",
     .description = "Input(s) transformation definition of the outputs.",
     .type = .String,
-    .default_value = .{ .String = "(out) -> out" },
+    .default_value = .{ .String = "(out) -> (a {(0,0)}) out" },
 };
 
 const panes_flag = zli.Flag{
@@ -193,6 +194,27 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         try ctx.writer.print("--frames {s}\n", .{frames_str});
     }
 
+    var anchor_points = try alloc.alloc(?Inputs.Vector, numberOfDatum);
+    for (0..numberOfDatum) |i| {
+        anchor_points[i] = null;
+    }
+    for (outputsValidated.transformationPairs, 0..) |pair, i| {
+        if (i >= numberOfDatum) break;
+        const ops = pair.operation.ops;
+        if (ops.len > 0) {
+            const first_op = ops[0];
+            const is_pin = @as(u1, @intFromBool(first_op == .pin));
+            if (is_pin == 1) {
+                const anchor = first_op.pin;
+                const is_point = @as(u1, @intFromBool(anchor.point == .point));
+                if (is_point == 1) {
+                    const p = anchor.point.point;
+                    anchor_points[i] = Inputs.Vector{ .x = p.x, .y = p.y };
+                }
+            }
+        }
+    }
+
     return ParsedData{
         .styles = styles,
         .inputs = inputs,
@@ -200,6 +222,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         .outputs = outputsValidated,
         .panes = panes,
         .frames = framesValidated,
+        .anchor_points = anchor_points,
     };
 }
 

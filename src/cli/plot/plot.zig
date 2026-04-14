@@ -9,6 +9,26 @@ const Inputs = inputs.Inputs;
 const ValsRange = inputs.ValsRange;
 const determine_pane_bounds = inputs.determine_pane_bounds;
 
+fn getAnchorPoint(transformationPairs: anytype, output_index: usize) ?Vector {
+    if (transformationPairs.len == 0 or output_index >= transformationPairs.len) {
+        return null;
+    }
+    const pair = transformationPairs[output_index];
+    const ops = pair.operation.ops;
+    if (ops.len == 0) {
+        return null;
+    }
+    for (ops) |op| {
+        if (@as(u1, @intFromBool(op == .pin)) == 1) {
+            if (@as(u1, @intFromBool(op.pin.point == .point)) == 1) {
+                const p = op.pin.point.point;
+                return Vector{ .x = p.x, .y = p.y };
+            }
+        }
+    }
+    return null;
+}
+
 pub const RenderedImage = struct {
     pixels: []z2d.pixel.RGBA,
     width: i32,
@@ -72,6 +92,15 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                 if (mapping.from == row_idx) {
                     style_idx = mapping.to;
                     break;
+                }
+            }
+
+            var start_x: f64 = 0.0;
+            var start_y: f64 = 0.0;
+            if (parsed_data.anchor_points.len > row_idx) {
+                if (parsed_data.anchor_points[row_idx]) |anchor| {
+                    start_x = @as(f64, anchor.x);
+                    start_y = @as(f64, anchor.y);
                 }
             }
 
@@ -154,8 +183,8 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
             context.setLineJoinMode(line_join_mode);
 
             context.resetPath(); // Ensure fresh path for each row
-            var cur_x = origin_x;
-            var cur_y = origin_y;
+            var cur_x = origin_x + start_x * x_scale;
+            var cur_y = origin_y - start_y * y_scale;
             try context.moveTo(cur_x, cur_y);
 
             for (row.row) |elem| {

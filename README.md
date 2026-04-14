@@ -116,6 +116,15 @@ Note: When using multiple input streams, you must update `--datum` to match the 
 - `--datum "(vec, vec) -> (vec -> e0)"` for 2 inputs using the same style
 - `--datum "(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)"` for 2 inputs using different styles
 
+Using anchor points to set explicit start positions for vector segments:
+```bash
+# out1 starts at (1,2), out2 starts at (0,0) - both must have explicit transformation
+echo -e '[[0,1]]\n[[1,1], [2,2]]' | zsat draw \
+  -s 'e0:{vec2d xy fixed [lw:5, lc: red, lo: 100]}, e1:{vec2d xy fixed [lw:20, lc: green, lo: 50]}' \
+  -d '(vec1, vec2) -> (vec1 -> e0, vec2 -> e1)' \
+  -o '(out1, out2) -> ((a {(1,2)}) out1, (a {(0,0)}) out2)'
+```
+
 Tip: Use `echo -e` instead of `echo` to ensure newlines are properly interpreted in the input data.
 
 ## Development

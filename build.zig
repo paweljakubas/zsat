@@ -23,6 +23,12 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cli/draw/styles.zig"),
     });
     styles_mod.addImport("common", draw_common_mod);
+    const outputs_mod = b.createModule(.{
+        .root_source_file = b.path("src/cli/draw/outputs.zig"),
+    });
+    outputs_mod.addImport("common", draw_common_mod);
+    outputs_mod.addImport("cli", inputs_mod);
+    styles_mod.addImport("outputs", outputs_mod);
     inputs_mod.addImport("styles", styles_mod);
 
     const panes_mod = b.createModule(.{
@@ -71,9 +77,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/cli/plot/plot_types.zig"),
         }));
         plot_mod.addImport("common", draw_common_mod);
-        plot_mod.addImport("styles", b.createModule(.{
-            .root_source_file = b.path("src/cli/draw/styles.zig"),
-        }));
+        plot_mod.addImport("styles", styles_mod);
         exe.root_module.addImport("plot", plot_mod);
 
         b.installArtifact(exe);
@@ -132,9 +136,7 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path("src/cli/plot/plot_types.zig"),
             }));
             plot_test_mod.addImport("common", draw_common_mod);
-            plot_test_mod.addImport("styles", b.createModule(.{
-                .root_source_file = b.path("src/cli/draw/styles.zig"),
-            }));
+            plot_test_mod.addImport("draw_styles", styles_mod);
             const plot_unit_tests = b.addTest(.{
                 .root_module = plot_test_mod,
             });
