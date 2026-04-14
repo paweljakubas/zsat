@@ -1258,6 +1258,7 @@ test "connectionParser" {
 pub const OutputError = error{
     ArgumentInPairInvalid,
     WrongNumberOfOutputs,
+    CannotDetermineExplicitPoint,
 };
 
 pub const OutputsValidated = struct {
@@ -1295,8 +1296,8 @@ test "connection validation" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
-    const gpa1 = GeneralPoint{ .fraction = f1 };
+    const p1 = inputs.Point{ .x = 1.0, .y = 2 };
+    const gpa1 = GeneralPoint{ .point = p1 };
     const ap1 = AnchorPartial{ .point = gpa1 };
     const of1 = OneArgFunctionPartial{ .pin = ap1 };
     const c1 = Compose{ .ops = &[1]OneArgFunctionPartial{of1} };
@@ -1320,8 +1321,8 @@ test "connection validation" {
     const validation2 = validateConnection(a, 2, connection1);
     try testing.expectError(OutputError.WrongNumberOfOutputs, validation2);
 
-    const f2 = ElementFraction{ .fromStart = 0, .element = .self };
-    const gpa2 = GeneralPoint{ .fraction = f2 };
+    const p2 = inputs.Point{ .x = 1.0, .y = 2 };
+    const gpa2 = GeneralPoint{ .point = p2 };
     const ap2 = AnchorPartial{ .point = gpa2 };
     const of2 = OneArgFunctionPartial{ .pin = ap2 };
     const c2 = Compose{ .ops = &[1]OneArgFunctionPartial{of2} };
@@ -1339,8 +1340,8 @@ test "connection validation" {
     const validation3 = validateConnection(a, 1, connection2);
     try testing.expectError(OutputError.ArgumentInPairInvalid, validation3);
 
-    const f3a = ElementFraction{ .fromStart = 30, .element = .self };
-    const gpa3a = GeneralPoint{ .fraction = f3a };
+    const pt3a = inputs.Point{ .x = 1.0, .y = 2 };
+    const gpa3a = GeneralPoint{ .point = pt3a };
     const ap3a = AnchorPartial{ .point = gpa3a };
     const of3a = OneArgFunctionPartial{ .pin = ap3a };
     const c3a = Compose{ .ops = &[1]OneArgFunctionPartial{of3a} };
@@ -1349,7 +1350,7 @@ test "connection validation" {
         .operation = c3a,
     };
 
-    const pt3b = inputs.Point{ .x = 1.0, .y = 2 };
+    const pt3b = inputs.Point{ .x = 10.0, .y = 2 };
     const gpa3b = GeneralPoint{ .point = pt3b };
     const ap3b = AnchorPartial{ .point = gpa3b };
     const of3b_first = OneArgFunctionPartial{ .pin = ap3b };
@@ -1375,4 +1376,343 @@ test "connection validation" {
 
     const validation5 = validateConnection(a, 3, connection3);
     try testing.expectError(OutputError.WrongNumberOfOutputs, validation5);
+}
+
+pub const ToExplicitPointError = error{
+    CannotDetermineExplicitPoint,
+    OutOfMemory,
+};
+
+// Each point in OutputTransformationPair must be explicitely determined, ie. as .point in GeneralPoint (if not `CannotDetermineExplicitPoint` triggered)
+//
+// Details on (c)
+// There are five cases for input (general point):
+// (i) point => the same point is returned
+// (ii) beginning => we have to have reference point in explicit form and then it is the beginning of this point
+// (iii) end => we have to have reference point in explicit form and then it is the end of this point
+// (iv) middle => we have to have reference point in explicit form and then it is the middle of this point
+// (v) fraction => we have to have reference point in explicit form and then it is the fraction of the length, starting from the beginning.
+//     If the number is negative then it is in the opposite direction as the vector.
+//     If we have vector segments, then the length is counted as a length of the segment that lies on the line connecting start and end point of the last segment.
+//     The resultant point lies also on the same line.
+// So if the general point is referring to other point then, first, this point needs to be expressed as explicit point, and only then it can convert itself
+pub fn toExplicitPoint(inp: inputs.Inputs, outputs: OutputsValidated) ToExplicitPointError!OutputsValidated {
+    var result_pairs = try std.heap.page_allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
+
+    for (outputs.transformationPairs, 0..) |pair, idx| {
+        var new_ops = try std.heap.page_allocator.alloc(OneArgFunctionPartial, pair.operation.ops.len);
+
+        for (pair.operation.ops, 0..) |op, op_idx| {
+            switch (op) {
+                .pin => |anchor| {
+                    var new_point = anchor.point;
+                    switch (anchor.point) {
+                        .point => {},
+                        .beginning => |eref| {
+                            const explicit = try getExplicitPoint(inp, outputs, eref, idx, .{ .beginning = .self });
+                            new_point = .{ .point = explicit };
+                        },
+                        .end => |eref| {
+                            const explicit = try getExplicitPoint(inp, outputs, eref, idx, .{ .end = .self });
+                            new_point = .{ .point = explicit };
+                        },
+                        .middle => |eref| {
+                            const explicit = try getExplicitPoint(inp, outputs, eref, idx, .{ .middle = .self });
+                            new_point = .{ .point = explicit };
+                        },
+                        .fraction => |frac| {
+                            const explicit = try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac });
+                            new_point = .{ .point = explicit };
+                        },
+                    }
+                    new_ops[op_idx] = OneArgFunctionPartial{ .pin = .{ .point = new_point } };
+                },
+                else => {
+                    new_ops[op_idx] = op;
+                },
+            }
+        }
+
+        result_pairs[idx] = OutputTransformationPair{
+            .outputName = pair.outputName,
+            .operation = .{ .ops = new_ops },
+        };
+    }
+
+    return OutputsValidated{ .transformationPairs = result_pairs };
+}
+
+fn getExplicitPoint(inp: inputs.Inputs, outputs: OutputsValidated, ref: ElementReference, current_idx: usize, pt_type: GeneralPoint) ToExplicitPointError!inputs.Point {
+    const target_idx: usize = switch (ref) {
+        .self => current_idx,
+        .other => |name| blk: {
+            for (outputs.transformationPairs, 0..) |pair, i| {
+                if (std.mem.eql(u8, pair.outputName, name)) {
+                    break :blk i;
+                }
+            }
+            return ToExplicitPointError.CannotDetermineExplicitPoint;
+        },
+    };
+
+    // For .self references, we cannot determine explicit point at any index
+    // because there's no accumulated path to reference
+    if (ref == .self) {
+        return ToExplicitPointError.CannotDetermineExplicitPoint;
+    }
+
+    // For .other, can reference any other output - we look at their raw input data
+
+    if (target_idx >= inp.input.len) {
+        return ToExplicitPointError.CannotDetermineExplicitPoint;
+    }
+
+    const row = inp.input[target_idx];
+    if (row.row.len == 0) {
+        return ToExplicitPointError.CannotDetermineExplicitPoint;
+    }
+
+    var start_x: f32 = 0.0;
+    var start_y: f32 = 0.0;
+    var end_x: f32 = 0.0;
+    var end_y: f32 = 0.0;
+
+    for (row.row) |elem| {
+        switch (elem) {
+            .vector => |v| {
+                end_x = start_x + v.x;
+                end_y = start_y + v.y;
+                start_x = end_x;
+                start_y = end_y;
+            },
+            .point => {},
+        }
+    }
+
+    return switch (pt_type) {
+        .point => .{ .x = 0.0, .y = 0.0 }, // shouldn't happen, handled before
+        .beginning => .{ .x = 0.0, .y = 0.0 },
+        .end => .{ .x = end_x, .y = end_y },
+        .middle => .{ .x = end_x / 2.0, .y = end_y / 2.0 },
+        .fraction => |frac| {
+            if (end_x == 0.0 and end_y == 0.0) {
+                return ToExplicitPointError.CannotDetermineExplicitPoint;
+            }
+            // fraction: point beyond the reference point by percentage
+            const factor = 1.0 + @as(f32, @floatFromInt(frac.fromStart)) / 100.0;
+            const x = end_x * factor;
+            const y = end_y * factor;
+            return .{ .x = x, .y = y };
+        },
+    };
+}
+
+test "toExplicitPoint" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const p1 = inputs.Point{ .x = 1.0, .y = 2 };
+    const gpa1 = GeneralPoint{ .point = p1 };
+    const ap1 = AnchorPartial{ .point = gpa1 };
+    const of1 = OneArgFunctionPartial{ .pin = ap1 };
+    const c1 = Compose{ .ops = &[1]OneArgFunctionPartial{of1} };
+
+    const tp1 = OutputTransformationPair{
+        .outputName = "out",
+        .operation = c1,
+    };
+    const outputValidated1 = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp1},
+    };
+    const v1 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row1 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v1} };
+    const input1 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row1} };
+
+    const res1 = try toExplicitPoint(input1, outputValidated1);
+    try testing.expectEqualDeep(res1, outputValidated1);
+
+    const p2 = ElementFraction{ .fromStart = 30, .element = .self };
+    const gpa2 = GeneralPoint{ .fraction = p2 };
+    const ap2 = AnchorPartial{ .point = gpa2 };
+    const of2 = OneArgFunctionPartial{ .pin = ap2 };
+    const c2 = Compose{ .ops = &[1]OneArgFunctionPartial{of2} };
+
+    const tp2 = OutputTransformationPair{
+        .outputName = "out",
+        .operation = c2,
+    };
+    const outputValidated2 = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp2},
+    };
+    const v2 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row2 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v2} };
+    const input2 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row2} };
+
+    const res2 = toExplicitPoint(input2, outputValidated2);
+    try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, res2);
+
+    const f3a = ElementFraction{ .fromStart = 50, .element = ElementReference{ .other = "out2" } };
+    const gpa3a = GeneralPoint{ .fraction = f3a };
+    const ap3a = AnchorPartial{ .point = gpa3a };
+    const of3a = OneArgFunctionPartial{ .pin = ap3a };
+    const c3a = Compose{ .ops = &[1]OneArgFunctionPartial{of3a} };
+    const tp3a = OutputTransformationPair{
+        .outputName = "out1",
+        .operation = c3a,
+    };
+
+    const pt3b = inputs.Point{ .x = 1.0, .y = 1.0 };
+    const gpa3b = GeneralPoint{ .point = pt3b };
+    const ap3b = AnchorPartial{ .point = gpa3b };
+    const of3b = OneArgFunctionPartial{ .pin = ap3b };
+    const c3b = Compose{ .ops = &[1]OneArgFunctionPartial{of3b} };
+    const tp3b = OutputTransformationPair{
+        .outputName = "out2",
+        .operation = c3b,
+    };
+
+    const outputValidated3 = OutputsValidated{
+        .transformationPairs = &[2]OutputTransformationPair{ tp3a, tp3b },
+    };
+    const v3a = inputs.InputElement{ .vector = inputs.Vector{ .x = 0.0, .y = 1.0 } };
+    const v3b = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row3a = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v3a} };
+    const row3b = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v3b} };
+    const input3 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row3a, row3b } };
+
+    const pt3c = inputs.Point{ .x = 1.5, .y = 1.5 };
+    const gpa3c = GeneralPoint{ .point = pt3c };
+    const ap3c = AnchorPartial{ .point = gpa3c };
+    const of3c = OneArgFunctionPartial{ .pin = ap3c };
+    const c3c = Compose{ .ops = &[1]OneArgFunctionPartial{of3c} };
+    const tp3c = OutputTransformationPair{
+        .outputName = "out1",
+        .operation = c3c,
+    };
+
+    const outputValidated3post = OutputsValidated{
+        .transformationPairs = &[2]OutputTransformationPair{ tp3c, tp3b },
+    };
+    const res3 = try toExplicitPoint(input3, outputValidated3);
+    try testing.expectEqualDeep(res3, outputValidated3post);
+
+    const f4a = ElementFraction{ .fromStart = 50, .element = ElementReference{ .other = "out2" } };
+    const gpa4a = GeneralPoint{ .fraction = f4a };
+    const ap4a = AnchorPartial{ .point = gpa4a };
+    const of4a = OneArgFunctionPartial{ .pin = ap4a };
+    const c4a = Compose{ .ops = &[1]OneArgFunctionPartial{of4a} };
+    const tp4a = OutputTransformationPair{
+        .outputName = "out1",
+        .operation = c4a,
+    };
+    const p4 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gpa4b = GeneralPoint{ .fraction = p4 };
+    const ap4b = AnchorPartial{ .point = gpa4b };
+    const of4b = OneArgFunctionPartial{ .pin = ap4b };
+    const c4b = Compose{ .ops = &[1]OneArgFunctionPartial{of4b} };
+    const tp4b = OutputTransformationPair{
+        .outputName = "out2",
+        .operation = c4b,
+    };
+    const outputValidated4 = OutputsValidated{
+        .transformationPairs = &[2]OutputTransformationPair{ tp4a, tp4b },
+    };
+    const v4a = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row4a = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v4a} };
+    const v4b = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row4b = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v4b} };
+    const input4 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row4a, row4b } };
+
+    const res4 = toExplicitPoint(input4, outputValidated4);
+    try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, res4);
+
+    const f5a = ElementFraction{ .fromStart = -50, .element = ElementReference{ .other = "out2" } };
+    const gpa5a = GeneralPoint{ .fraction = f5a };
+    const ap5a = AnchorPartial{ .point = gpa5a };
+    const of5a = OneArgFunctionPartial{ .pin = ap5a };
+    const c5a = Compose{ .ops = &[1]OneArgFunctionPartial{of5a} };
+    const tp5a = OutputTransformationPair{
+        .outputName = "out1",
+        .operation = c5a,
+    };
+
+    const pt5b = inputs.Point{ .x = 1.0, .y = 1.0 };
+    const gpa5b = GeneralPoint{ .point = pt5b };
+    const ap5b = AnchorPartial{ .point = gpa5b };
+    const of5b = OneArgFunctionPartial{ .pin = ap5b };
+    const c5b = Compose{ .ops = &[1]OneArgFunctionPartial{of5b} };
+    const tp5b = OutputTransformationPair{
+        .outputName = "out2",
+        .operation = c5b,
+    };
+
+    const outputValidated5 = OutputsValidated{
+        .transformationPairs = &[2]OutputTransformationPair{ tp5a, tp5b },
+    };
+    const v5a = inputs.InputElement{ .vector = inputs.Vector{ .x = 0.0, .y = 1.0 } };
+    const v5b = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row5a = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v5a} };
+    const row5b = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v5b} };
+    const input5 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row5a, row5b } };
+
+    const pt5c = inputs.Point{ .x = 0.5, .y = 0.5 };
+    const gpa5c = GeneralPoint{ .point = pt5c };
+    const ap5c = AnchorPartial{ .point = gpa5c };
+    const of5c = OneArgFunctionPartial{ .pin = ap5c };
+    const c5c = Compose{ .ops = &[1]OneArgFunctionPartial{of5c} };
+    const tp5c = OutputTransformationPair{
+        .outputName = "out1",
+        .operation = c5c,
+    };
+
+    const outputValidated5post = OutputsValidated{
+        .transformationPairs = &[2]OutputTransformationPair{ tp5c, tp5b },
+    };
+    const res5 = try toExplicitPoint(input5, outputValidated5);
+    try testing.expectEqualDeep(res5, outputValidated5post);
+
+    const f6a = ElementFraction{ .fromStart = 30, .element = ElementReference{ .other = "out1" } };
+    const gpa6a = GeneralPoint{ .fraction = f6a };
+    const ap6a = AnchorPartial{ .point = gpa6a };
+    const of6a = OneArgFunctionPartial{ .pin = ap6a };
+    const c6a = Compose{ .ops = &[1]OneArgFunctionPartial{of6a} };
+    const tp6a = OutputTransformationPair{
+        .outputName = "out2",
+        .operation = c6a,
+    };
+
+    const pt6b = inputs.Point{ .x = 1.0, .y = 1.0 };
+    const gpa6b = GeneralPoint{ .point = pt6b };
+    const ap6b = AnchorPartial{ .point = gpa6b };
+    const of6b = OneArgFunctionPartial{ .pin = ap6b };
+    const c6b = Compose{ .ops = &[1]OneArgFunctionPartial{of6b} };
+    const tp6b = OutputTransformationPair{
+        .outputName = "out1",
+        .operation = c6b,
+    };
+
+    const outputValidated6 = OutputsValidated{
+        .transformationPairs = &[2]OutputTransformationPair{ tp6b, tp6a },
+    };
+    const v6a = inputs.InputElement{ .vector = inputs.Vector{ .x = 0.0, .y = 1.0 } };
+    const v6b = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } };
+    const v6c = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row6a = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v6a, v6b } };
+    const row6b = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v6c} };
+    const input6 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row6a, row6b } };
+
+    const pt6c = inputs.Point{ .x = 1.3, .y = 1.3 };
+    const gpa6c = GeneralPoint{ .point = pt6c };
+    const ap6c = AnchorPartial{ .point = gpa6c };
+    const of6c = OneArgFunctionPartial{ .pin = ap6c };
+    const c6c = Compose{ .ops = &[1]OneArgFunctionPartial{of6c} };
+    const tp6c = OutputTransformationPair{
+        .outputName = "out2",
+        .operation = c6c,
+    };
+
+    const outputValidated6post = OutputsValidated{
+        .transformationPairs = &[2]OutputTransformationPair{ tp6b, tp6c },
+    };
+    const res6 = try toExplicitPoint(input6, outputValidated6);
+    try testing.expectEqualDeep(res6, outputValidated6post);
 }
