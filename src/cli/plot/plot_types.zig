@@ -76,17 +76,24 @@ test "determine_pane_bounds" {
     try testing.expectEqual(range5, r5);
 }
 
-pub fn determine_pane_bounds(rows: *const Inputs) ValsRange {
+pub fn determine_paneBoundsWithAnchors(rows: *const Inputs, anchor_points: anytype) ValsRange {
     var minX: f32 = 0.0;
     var maxX: f32 = 0.0;
     var minY: f32 = 0.0;
     var maxY: f32 = 0.0;
 
-    for (rows.input) |row| {
+    for (rows.input, 0..) |row, row_idx| {
         if (row.row.len == 0) continue;
 
         var curX: f32 = 0.0;
         var curY: f32 = 0.0;
+
+        if (anchor_points.len > row_idx) {
+            if (anchor_points[row_idx]) |anchor| {
+                curX = anchor.x;
+                curY = anchor.y;
+            }
+        }
 
         if (curX < minX) minX = curX;
         if (curX > maxX) maxX = curX;
@@ -112,4 +119,8 @@ pub fn determine_pane_bounds(rows: *const Inputs) ValsRange {
     }
 
     return .{ .x = .{ minX, maxX }, .y = .{ minY, maxY } };
+}
+
+pub fn determine_pane_bounds(rows: *const Inputs) ValsRange {
+    return determine_paneBoundsWithAnchors(rows, &.{});
 }

@@ -7,7 +7,7 @@ const InputElement = inputs.InputElement;
 const InputElementRow = inputs.InputElementRow;
 const Inputs = inputs.Inputs;
 const ValsRange = inputs.ValsRange;
-const determine_pane_bounds = inputs.determine_pane_bounds;
+const determine_pane_bounds = inputs.determine_paneBoundsWithAnchors;
 
 fn getAnchorPoint(transformationPairs: anytype, output_index: usize) ?Vector {
     if (transformationPairs.len == 0 or output_index >= transformationPairs.len) {
@@ -64,7 +64,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     context.setLineWidth(10.0); // Re-enable for data lines
     context.resetPath(); // Clear path state after fill
 
-    const bounds = determine_pane_bounds(@ptrCast(&parsed_data.inputs));
+    const bounds = determine_pane_bounds(@ptrCast(&parsed_data.inputs), parsed_data.anchor_points);
     const x_range = bounds.x[1] - bounds.x[0];
     const y_range = bounds.y[1] - bounds.y[0];
 

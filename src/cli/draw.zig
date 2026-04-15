@@ -44,7 +44,7 @@ const outputs_flag = zli.Flag{
     .shortcut = "o",
     .description = "Input(s) transformation definition of the outputs.",
     .type = .String,
-    .default_value = .{ .String = "(out) -> (a {(0,0)}) out" },
+    .default_value = .{ .String = "(out) -> (pin {(0,0)}) out" },
 };
 
 const panes_flag = zli.Flag{
@@ -152,7 +152,11 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         },
     };
 
-    const outputsValidated = try Outputs.validateConnection(alloc, numberOfDatum, outputsConnection);
+    const numberOfOutputsForValidation: u8 = @intCast(outputsConnection.outputs.len);
+
+    const outputsValidated = try Outputs.validateConnection(alloc, numberOfOutputsForValidation, outputsConnection);
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const outputsExplicit = try Outputs.toExplicitPoint(gpa.allocator(), inputs, outputsValidated);
 
     const panes_parse_result = try Panes.panesParser.parse(alloc, panes_str);
     const panes = switch (panes_parse_result.value) {
@@ -182,8 +186,8 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         },
     };
 
-    const numberOfOutputs: u8 = 1;
-    const framesValidated = try Frames.validateConnection(alloc, numberOfOutputs, paneNames, frames);
+    const framesNum: u8 = 1;
+    const framesValidated = try Frames.validateConnection(alloc, framesNum, paneNames, frames);
 
     if (debug) {
         try ctx.writer.print("stdin:\n{s}\n", .{stdin_str});
@@ -198,7 +202,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     for (0..numberOfDatum) |i| {
         anchor_points[i] = null;
     }
-    for (outputsValidated.transformationPairs, 0..) |pair, i| {
+    for (outputsExplicit.transformationPairs, 0..) |pair, i| {
         if (i >= numberOfDatum) break;
         const ops = pair.operation.ops;
         if (ops.len > 0) {
@@ -219,7 +223,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         .styles = styles,
         .inputs = inputs,
         .datum = datumValidated,
-        .outputs = outputsValidated,
+        .outputs = outputsExplicit,
         .panes = panes,
         .frames = framesValidated,
         .anchor_points = anchor_points,
