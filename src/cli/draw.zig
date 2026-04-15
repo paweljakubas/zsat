@@ -504,6 +504,10 @@ fn run(ctx: zli.CommandContext) !void {
     const term_supports = checkTerminalSupportsKitty();
     const should_display = !force_file and term_supports;
 
+    if (std.mem.eql(u8, out_filename, "/dev/null")) {
+        return;
+    }
+
     var output_path: ?[]u8 = null;
     defer if (output_path) |p| alloc.free(p);
 
