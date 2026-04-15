@@ -7,7 +7,7 @@ const InputElement = inputs.InputElement;
 const InputElementRow = inputs.InputElementRow;
 const Inputs = inputs.Inputs;
 const ValsRange = inputs.ValsRange;
-const determine_pane_bounds = inputs.determine_paneBoundsWithAnchors;
+const determine_pane_bounds = inputs.determine_pane_bounds;
 
 fn getAnchorPoint(transformationPairs: anytype, output_index: usize) ?Vector {
     if (transformationPairs.len == 0 or output_index >= transformationPairs.len) {
