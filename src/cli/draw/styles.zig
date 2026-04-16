@@ -27,7 +27,8 @@ pub const CoordinateType = enum {
 // coordinate axis position
 pub const CoordinateOrientation = enum {
     fixed, //coordinate always stays the same positioned in the space, following figure borders
-    adjusting, //coordinate starts as Fixed and then rotates in such a way that x or r axis follows the last segment
+    origin, //origin of the coordinate system will "move" to the end of the previous calculation
+    coord, //origin will be the end of the previous calculation, and x axis will be along last element, y axis will be perpendicular and crossing new origin
 
     pub fn defaultCoordinateOrientation() CoordinateOrientation {
         return .fixed;
@@ -262,7 +263,7 @@ test "coordinateTypeUnion" {
 }
 
 const coordinateOrientationParserRaw =
-    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("fixed"), mecha.string("adjusting") }).asStr(), mecha.toEnum(CoordinateOrientation)) });
+    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("fixed"), mecha.string("origin"), mecha.string("coord") }).asStr(), mecha.toEnum(CoordinateOrientation)) });
 const coordinateOrientationParserRawP = @TypeOf(coordinateOrientationParserRaw);
 fn toCoordinateOrientationUnion(_: std.mem.Allocator, res: coordinateOrientationParserRawP.T) mecha.ConvertError!StyleValueUnion {
     return StyleValueUnion{ .coordinateOrientation = res };
@@ -280,11 +281,14 @@ test "coordinateOrientationParser" {
     const r2 = try coordinateOrientationParserRaw.parse(a, " fixed");
     try testing.expectEqual(.fixed, r2.value.ok);
 
-    const r3 = try coordinateOrientationParserRaw.parse(a, " adjusting");
-    try testing.expectEqual(.adjusting, r3.value.ok);
+    const r3 = try coordinateOrientationParserRaw.parse(a, " origin");
+    try testing.expectEqual(.origin, r3.value.ok);
 
-    const r4 = try coordinateOrientationParserRaw.parse(a, "var");
-    try testing.expectEqual(0, r4.index);
+    const r4 = try coordinateOrientationParserRaw.parse(a, " coord");
+    try testing.expectEqual(.coord, r4.value.ok);
+
+    const r5 = try coordinateOrientationParserRaw.parse(a, "var");
+    try testing.expectEqual(0, r5.index);
 }
 
 test "coordinateOrientationUnionParser" {
@@ -298,8 +302,8 @@ test "coordinateOrientationUnionParser" {
     const r2 = try coordinateOrientationUnionParser.parse(a, " fixed");
     try testing.expectEqual(StyleValueUnion{ .coordinateOrientation = .fixed }, r2.value.ok);
 
-    const r3 = try coordinateOrientationUnionParser.parse(a, " adjusting");
-    try testing.expectEqual(StyleValueUnion{ .coordinateOrientation = .adjusting }, r3.value.ok);
+    const r3 = try coordinateOrientationUnionParser.parse(a, " origin");
+    try testing.expectEqual(StyleValueUnion{ .coordinateOrientation = .origin }, r3.value.ok);
 }
 
 //LineWidth parser
