@@ -156,7 +156,8 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
 
     const outputsValidated = try Outputs.validateConnection(alloc, numberOfOutputsForValidation, outputsConnection);
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const outputsExplicit = try Outputs.toExplicitPoint(gpa.allocator(), inputs, outputsValidated);
+    const coord_orientation: Styles.CoordinateOrientation = if (styles.len > 0 and styles[0].styleValue.coordinateOrientation != null) styles[0].styleValue.coordinateOrientation.? else .fixed;
+    const outputsExplicit = try Outputs.toExplicitPoint(gpa.allocator(), inputs, outputsValidated, coord_orientation);
 
     const panes_parse_result = try Panes.panesParser.parse(alloc, panes_str);
     const panes = switch (panes_parse_result.value) {

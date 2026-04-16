@@ -5,6 +5,9 @@ const mecha = @import("mecha");
 
 const common = @import("common.zig");
 const inputs = @import("inputs.zig");
+const Styles = @import("styles.zig");
+
+const CoordinateOrientation = Styles.CoordinateOrientation;
 
 ////Types
 
@@ -1396,27 +1399,27 @@ pub const ToExplicitPointError = error{
 //     If we have vector segments, then the length is counted as a length of the segment that lies on the line connecting start and end point of the last segment.
 //     The resultant point lies also on the same line.
 // So if the general point is referring to other point then, first, this point needs to be expressed as explicit point, and only then it can convert itself
-pub fn toExplicitPoint(alloc: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated) ToExplicitPointError!OutputsValidated {
-    var needs_conversion = false;
+pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation) ToExplicitPointError!OutputsValidated {
+    var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
         for (pair.operation.ops) |op| {
             if (op == .pin) {
                 switch (op.pin.point) {
                     .point => {},
-                    else => needs_conversion = true,
+                    else => has_non_point_refs = true,
                 }
             }
         }
     }
 
-    if (!needs_conversion) {
+    if (!has_non_point_refs) {
         return outputs;
     }
 
-    var result_pairs = try alloc.alloc(OutputTransformationPair, outputs.transformationPairs.len);
+    var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
 
     for (outputs.transformationPairs, 0..) |pair, idx| {
-        var new_ops = try alloc.alloc(OneArgFunctionPartial, pair.operation.ops.len);
+        var new_ops = try allocator.alloc(OneArgFunctionPartial, pair.operation.ops.len);
 
         for (pair.operation.ops, 0..) |op, op_idx| {
             switch (op) {
@@ -1425,19 +1428,19 @@ pub fn toExplicitPoint(alloc: std.mem.Allocator, inp: inputs.Inputs, outputs: Ou
                     switch (anchor.point) {
                         .point => {},
                         .beginning => |eref| {
-                            const explicit = try getExplicitPoint(inp, outputs, eref, idx, .{ .beginning = .self });
+                            const explicit = try getExplicitPoint(inp, outputs, eref, idx, .{ .beginning = .self }, orientation);
                             new_point = .{ .point = explicit };
                         },
                         .end => |eref| {
-                            const explicit = try getExplicitPoint(inp, outputs, eref, idx, .{ .end = .self });
+                            const explicit = try getExplicitPoint(inp, outputs, eref, idx, .{ .end = .self }, orientation);
                             new_point = .{ .point = explicit };
                         },
                         .middle => |eref| {
-                            const explicit = try getExplicitPoint(inp, outputs, eref, idx, .{ .middle = .self });
+                            const explicit = try getExplicitPoint(inp, outputs, eref, idx, .{ .middle = .self }, orientation);
                             new_point = .{ .point = explicit };
                         },
                         .fraction => |frac| {
-                            const explicit = try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac });
+                            const explicit = try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation);
                             new_point = .{ .point = explicit };
                         },
                     }
@@ -1458,7 +1461,8 @@ pub fn toExplicitPoint(alloc: std.mem.Allocator, inp: inputs.Inputs, outputs: Ou
     return OutputsValidated{ .transformationPairs = result_pairs };
 }
 
-fn getExplicitPoint(inp: inputs.Inputs, outputs: OutputsValidated, ref: ElementReference, current_idx: usize, pt_type: GeneralPoint) ToExplicitPointError!inputs.Point {
+fn getExplicitPoint(inp: inputs.Inputs, outputs: OutputsValidated, ref: ElementReference, current_idx: usize, pt_type: GeneralPoint, orientation: CoordinateOrientation) ToExplicitPointError!inputs.Point {
+    _ = orientation;
     const target_idx: usize = switch (ref) {
         .self => current_idx,
         .other => |name| blk: {
@@ -1544,7 +1548,7 @@ test "toExplicitPoint" {
     const row1 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v1} };
     const input1 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row1} };
 
-    const res1 = try toExplicitPoint(a, input1, outputValidated1);
+    const res1 = try toExplicitPoint(a, input1, outputValidated1, .fixed);
     try testing.expectEqualDeep(res1, outputValidated1);
 
     const p2 = ElementFraction{ .fromStart = 30, .element = .self };
@@ -1564,7 +1568,7 @@ test "toExplicitPoint" {
     const row2 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v2} };
     const input2 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row2} };
 
-    const res2 = toExplicitPoint(a, input2, outputValidated2);
+    const res2 = toExplicitPoint(a, input2, outputValidated2, .fixed);
     try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, res2);
 
     const f3a = ElementFraction{ .fromStart = 50, .element = ElementReference{ .other = "out2" } };
@@ -1609,7 +1613,7 @@ test "toExplicitPoint" {
     const outputValidated3post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp3c, tp3b },
     };
-    const res3 = try toExplicitPoint(a, input3, outputValidated3);
+    const res3 = try toExplicitPoint(a, input3, outputValidated3, .fixed);
     try testing.expectEqualDeep(res3, outputValidated3post);
 
     const f4a = ElementFraction{ .fromStart = 50, .element = ElementReference{ .other = "out2" } };
@@ -1639,7 +1643,7 @@ test "toExplicitPoint" {
     const row4b = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v4b} };
     const input4 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row4a, row4b } };
 
-    const res4 = toExplicitPoint(a, input4, outputValidated4);
+    const res4 = toExplicitPoint(a, input4, outputValidated4, .fixed);
     try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, res4);
 
     const f5a = ElementFraction{ .fromStart = -50, .element = ElementReference{ .other = "out2" } };
@@ -1684,7 +1688,7 @@ test "toExplicitPoint" {
     const outputValidated5post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp5c, tp5b },
     };
-    const res5 = try toExplicitPoint(a, input5, outputValidated5);
+    const res5 = try toExplicitPoint(a, input5, outputValidated5, .fixed);
     try testing.expectEqualDeep(res5, outputValidated5post);
 
     const f6a = ElementFraction{ .fromStart = 30, .element = ElementReference{ .other = "out1" } };
@@ -1730,6 +1734,6 @@ test "toExplicitPoint" {
     const outputValidated6post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp6b, tp6c },
     };
-    const res6 = try toExplicitPoint(a, input6, outputValidated6);
+    const res6 = try toExplicitPoint(a, input6, outputValidated6, .fixed);
     try testing.expectEqualDeep(res6, outputValidated6post);
 }

@@ -18,15 +18,16 @@ fn getAnchorPoint(transformationPairs: anytype, output_index: usize) ?Vector {
     if (ops.len == 0) {
         return null;
     }
+    var last_pin: ?Vector = null;
     for (ops) |op| {
         if (@as(u1, @intFromBool(op == .pin)) == 1) {
             if (@as(u1, @intFromBool(op.pin.point == .point)) == 1) {
                 const p = op.pin.point.point;
-                return Vector{ .x = p.x, .y = p.y };
+                last_pin = Vector{ .x = p.x, .y = p.y };
             }
         }
     }
-    return null;
+    return last_pin;
 }
 
 pub const RenderedImage = struct {
