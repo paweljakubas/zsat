@@ -1412,6 +1412,68 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
         }
     }
 
+    if (orientation == .origin and !has_non_point_refs) {
+        var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
+
+        for (outputs.transformationPairs, 0..) |pair, idx| {
+            var pin_count: usize = 0;
+            for (pair.operation.ops) |op| {
+                if (op == .pin and op.pin.point == .point) {
+                    pin_count += 1;
+                }
+            }
+
+            if (pin_count < 2) {
+                result_pairs[idx] = pair;
+                continue;
+            }
+
+            var new_ops = try allocator.alloc(OneArgFunctionPartial, pair.operation.ops.len);
+
+            var input_x: f32 = 0.0;
+            var input_y: f32 = 0.0;
+            if (idx < inp.input.len) {
+                const row = inp.input[idx];
+                for (row.row) |elem| {
+                    switch (elem) {
+                        .vector => |v| {
+                            input_x += v.x;
+                            input_y += v.y;
+                        },
+                        .point => {},
+                    }
+                }
+            }
+
+            var origin_x: f32 = 0.0;
+            var origin_y: f32 = 0.0;
+            var op_idx: usize = pair.operation.ops.len;
+            while (op_idx > 0) {
+                op_idx -= 1;
+                const op = pair.operation.ops[op_idx];
+                if (op == .pin and op.pin.point == .point) {
+                    const p = op.pin.point.point;
+                    const new_x = p.x + origin_x;
+                    const new_y = p.y + origin_y;
+                    new_ops[op_idx] = OneArgFunctionPartial{
+                        .pin = AnchorPartial{
+                            .point = GeneralPoint{ .point = inputs.Point{ .x = new_x, .y = new_y } },
+                        },
+                    };
+                }
+                origin_x += input_x;
+                origin_y += input_y;
+            }
+
+            result_pairs[idx] = OutputTransformationPair{
+                .outputName = pair.outputName,
+                .operation = .{ .ops = new_ops },
+            };
+        }
+
+        return OutputsValidated{ .transformationPairs = result_pairs };
+    }
+
     if (!has_non_point_refs) {
         return outputs;
     }
