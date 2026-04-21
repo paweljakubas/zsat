@@ -9,6 +9,15 @@ const Styles = @import("styles.zig");
 
 const CoordinateOrientation = Styles.CoordinateOrientation;
 
+fn rotateAround(angle_degrees: f32, around_x: f32, around_y: f32, point_x: f32, point_y: f32) inputs.Point {
+    const phi = angle_degrees * std.math.pi / 180.0;
+    const dx = point_x - around_x;
+    const dy = point_y - around_y;
+    const x_rotated = dx * @cos(phi) - dy * @sin(phi) + around_x;
+    const y_rotated = dx * @sin(phi) + dy * @cos(phi) + around_y;
+    return inputs.Point{ .x = x_rotated, .y = y_rotated };
+}
+
 ////Types
 
 //Handling the name of output
@@ -1399,7 +1408,7 @@ pub const ToExplicitPointError = error{
 //     If we have vector segments, then the length is counted as a length of the segment that lies on the line connecting start and end point of the last segment.
 //     The resultant point lies also on the same line.
 // So if the general point is referring to other point then, first, this point needs to be expressed as explicit point, and only then it can convert itself
-pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation) ToExplicitPointError!OutputsValidated {
+pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, output_idx: usize) ToExplicitPointError!OutputsValidated {
     var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
         for (pair.operation.ops) |op| {
@@ -1468,6 +1477,107 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
             result_pairs[idx] = OutputTransformationPair{
                 .outputName = pair.outputName,
                 .operation = .{ .ops = new_ops },
+            };
+        }
+
+        return OutputsValidated{ .transformationPairs = result_pairs };
+    }
+
+    // COORD MODE: for (a {(2,2)} & a {(1,1)}) with input [[1,1]]
+    // (a) First anchor {(1,1)} establishes local origin at (1,1), x-axis along (0,0)->(1,1) = 45°
+    // (b) Second anchor {(2,2)} is in local, added to first anchor = (1+2, 1+2) = (3,3) in LOCAL
+    // (c) Input added to second anchor in local = (3+1, 3+1) = (4,4) in LOCAL
+    // Then rotate to global: rotate (4,4) by 45° from origin, add origin = final point in global
+    if (orientation == .coord and !has_non_point_refs) {
+        var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
+
+        for (outputs.transformationPairs, 0..) |pair, idx| {
+            if (idx != output_idx) {
+                result_pairs[idx] = pair;
+                continue;
+            }
+            var pin_count: usize = 0;
+            for (pair.operation.ops) |op| {
+                if (op == .pin and op.pin.point == .point) {
+                    pin_count += 1;
+                }
+            }
+
+            if (pin_count < 2) {
+                result_pairs[idx] = pair;
+                continue;
+            }
+
+            // Collect pins in order (forward)
+            var pins = try allocator.alloc(inputs.Point, pin_count);
+            var pin_idx: usize = 0;
+            for (pair.operation.ops) |op| {
+                if (op == .pin and op.pin.point == .point) {
+                    pins[pin_idx] = op.pin.point.point;
+                    pin_idx += 1;
+                }
+            }
+
+            // COORD MODE: correct logic
+            var input_x: f32 = 0.0;
+            var input_y: f32 = 0.0;
+            if (output_idx < inp.input.len) {
+                const row = inp.input[output_idx];
+                for (row.row) |elem| {
+                    switch (elem) {
+                        .vector => |v| {
+                            input_x += v.x;
+                            input_y += v.y;
+                        },
+                        .point => {},
+                    }
+                }
+            }
+
+            // Step 1: first anchor (1,1) - green endpoint in global frame
+            const first_anchor_x = pins[0].x;
+            const first_anchor_y = pins[0].y;
+
+            // Step 2: calculate rotation angle from first anchor direction (atan2(y, x))
+            const angle_degrees = std.math.atan2(first_anchor_y, first_anchor_x) * 180.0 / std.math.pi;
+
+            // Step 3: second anchor (2,2) - rotate around origin (0,0) by angle_degrees, then add first anchor offset
+            const second_anchor_rot = rotateAround(angle_degrees, 0, 0, pins[1].x, pins[1].y);
+            const second_anchor_global_x = first_anchor_x + second_anchor_rot.x;
+            const second_anchor_global_y = first_anchor_y + second_anchor_rot.y;
+
+            // Step 4: add input to second anchor in local = (2,2)+(1,1) = (3,3), rotate around origin, add first anchor
+            const input_for_rotation = inputs.Point{ .x = pins[1].x + input_x, .y = pins[1].y + input_y };
+            const final_rot = rotateAround(angle_degrees, 0, 0, input_for_rotation.x, input_for_rotation.y);
+            const final_global_x = first_anchor_x + final_rot.x;
+            const final_global_y = first_anchor_y + final_rot.y;
+
+            // Final coords:
+            // green draws from (0,0) to first_anchor (1,1)
+            // red draws from second_anchor_global to final_global
+            const final_x = final_global_x;
+            const final_y = final_global_y;
+
+            // Store anchors - green endpoint at first_anchor, red starts at second_anchor_global
+            var new_ops = try allocator.alloc(OneArgFunctionPartial, 3);
+            new_ops[0] = OneArgFunctionPartial{
+                .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = first_anchor_x, .y = first_anchor_y } } },
+            };
+            new_ops[1] = OneArgFunctionPartial{
+                .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = second_anchor_global_x, .y = second_anchor_global_y } } },
+            };
+
+            // Store final endpoint (red end)
+            var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 3);
+            new_ops_with_end[0] = new_ops[0];
+            new_ops_with_end[1] = new_ops[1];
+            new_ops_with_end[2] = OneArgFunctionPartial{
+                .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = final_x, .y = final_y } } },
+            };
+
+            result_pairs[idx] = OutputTransformationPair{
+                .outputName = pair.outputName,
+                .operation = .{ .ops = new_ops_with_end },
             };
         }
 
@@ -1610,7 +1720,7 @@ test "toExplicitPoint" {
     const row1 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v1} };
     const input1 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row1} };
 
-    const res1 = try toExplicitPoint(a, input1, outputValidated1, .fixed);
+    const res1 = try toExplicitPoint(a, input1, outputValidated1, .fixed, 0);
     try testing.expectEqualDeep(res1, outputValidated1);
 
     const p2 = ElementFraction{ .fromStart = 30, .element = .self };
@@ -1630,7 +1740,7 @@ test "toExplicitPoint" {
     const row2 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v2} };
     const input2 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row2} };
 
-    const res2 = toExplicitPoint(a, input2, outputValidated2, .fixed);
+    const res2 = toExplicitPoint(a, input2, outputValidated2, .fixed, 0);
     try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, res2);
 
     const f3a = ElementFraction{ .fromStart = 50, .element = ElementReference{ .other = "out2" } };
@@ -1675,7 +1785,7 @@ test "toExplicitPoint" {
     const outputValidated3post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp3c, tp3b },
     };
-    const res3 = try toExplicitPoint(a, input3, outputValidated3, .fixed);
+    const res3 = try toExplicitPoint(a, input3, outputValidated3, .fixed, 0);
     try testing.expectEqualDeep(res3, outputValidated3post);
 
     const f4a = ElementFraction{ .fromStart = 50, .element = ElementReference{ .other = "out2" } };
@@ -1705,7 +1815,7 @@ test "toExplicitPoint" {
     const row4b = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v4b} };
     const input4 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row4a, row4b } };
 
-    const res4 = toExplicitPoint(a, input4, outputValidated4, .fixed);
+    const res4 = toExplicitPoint(a, input4, outputValidated4, .fixed, 0);
     try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, res4);
 
     const f5a = ElementFraction{ .fromStart = -50, .element = ElementReference{ .other = "out2" } };
@@ -1750,7 +1860,7 @@ test "toExplicitPoint" {
     const outputValidated5post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp5c, tp5b },
     };
-    const res5 = try toExplicitPoint(a, input5, outputValidated5, .fixed);
+    const res5 = try toExplicitPoint(a, input5, outputValidated5, .fixed, 0);
     try testing.expectEqualDeep(res5, outputValidated5post);
 
     const f6a = ElementFraction{ .fromStart = 30, .element = ElementReference{ .other = "out1" } };
@@ -1796,6 +1906,78 @@ test "toExplicitPoint" {
     const outputValidated6post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp6b, tp6c },
     };
-    const res6 = try toExplicitPoint(a, input6, outputValidated6, .fixed);
+    const res6 = try toExplicitPoint(a, input6, outputValidated6, .fixed, 0);
     try testing.expectEqualDeep(res6, outputValidated6post);
+}
+
+test "toExplicitPoint coord mode - green line (first anchor)" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const tp1a = OutputTransformationPair{
+        .outputName = "out",
+        .operation = .{
+            .ops = &[1]OneArgFunctionPartial{
+                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp1a},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, 0);
+
+    try testing.expectEqualDeep(res, outputValidated);
+}
+
+test "toExplicitPoint coord mode - compose with two anchors" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (a {(2,2)} & a {(1,1)}) with input [[1,1]]
+    // Step 1: first anchor (1,1) - green endpoint
+    // Step 2: second anchor rotated in local frame = (1, 2.828)
+    // Step 3: final = (1, 5.242)
+    // For (a {(2,2)} & a {(1,1)}) - ops are in reverse order
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = .{
+            .ops = &[2]OneArgFunctionPartial{
+                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+                .{ .pin = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
+
+    // First point is first anchor (1,1)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0);
+
+    // Second point is second anchor rotated around origin, then add first anchor
+    // (2,2) rotated by 45deg = (0, 2.828) around origin, then add (1,1) = (1, 3.828)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.828, 0.01);
+
+    // Final point: (3,3) rotated by 45deg = (0, 4.242) around origin, then add (1,1) = (1, 5.242)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 5.242, 0.01);
 }
