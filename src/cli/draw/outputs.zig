@@ -2226,6 +2226,49 @@ test "toExplicitPoint fixed mode - compose with two anchors" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0);
 }
 
+test "toExplicitPoint fixed mode - compose with three anchors" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[1,1]]
+    // Fixed mode: coordinates stay absolute (no transformation)
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = .{
+            .ops = &[3]OneArgFunctionPartial{
+                .{ .pin = .{ .point = .{ .point = .{ .x = 0.0, .y = 1.0 } } } },
+                .{ .pin = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
+                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
+
+    // First anchor (0,1) - no transformation in fixed mode
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 0.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0);
+
+    // Second anchor (2,2) - no transformation in fixed mode
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0);
+
+    // Third anchor (1,1) - no transformation in fixed mode
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 1.0);
+}
+
 test "toExplicitPoint origin mode - compose with two anchors" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -2265,4 +2308,89 @@ test "toExplicitPoint origin mode - compose with two anchors" {
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0);
+}
+
+test "toExplicitPoint origin mode - compose with three anchors" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[1,1]]
+    // Origin mode: origin shifts after each anchor step using input vector
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = .{
+            .ops = &[3]OneArgFunctionPartial{
+                .{ .pin = .{ .point = .{ .point = .{ .x = 0.0, .y = 1.0 } } } },
+                .{ .pin = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
+                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
+
+    // Processing in reverse:
+    // op[2]: anchor (1,1), origin (0,0): new = (1,1), origin becomes (1,1)
+    // op[1]: anchor (2,2), origin (1,1): new = (3,3), origin becomes (2,2)
+    // op[0]: anchor (0,1), origin (2,2): new = (2,3)
+    // After transformation: ops[0]=(2,3), ops[1]=(3,3), ops[2]=(1,1)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 3.0, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 3.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.0, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 1.0, 0.01);
+}
+
+test "toExplicitPoint origin mode - compose with three anchors input [-1,0]" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[-1,0]]
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = .{
+            .ops = &[3]OneArgFunctionPartial{
+                .{ .pin = .{ .point = .{ .point = .{ .x = 0.0, .y = 1.0 } } } },
+                .{ .pin = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
+                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = -1.0, .y = 0.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
+
+    // After transformation: ops[0]=(-2,1), ops[1]=(1,2), ops[2]=(1,1)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, -2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 1.0, 0.01);
 }
