@@ -157,12 +157,21 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     const outputsValidated = try Outputs.validateConnection(alloc, numberOfOutputsForValidation, outputsConnection);
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-    var outputsExplicit = outputsValidated;
-    for (0..outputsExplicit.transformationPairs.len) |idx| {
+    var result_pairs = try alloc.alloc(Outputs.OutputTransformationPair, outputsValidated.transformationPairs.len);
+
+    for (0..outputsValidated.transformationPairs.len) |idx| {
+        const pair = outputsValidated.transformationPairs[idx];
         const coord_orientation: Styles.CoordinateOrientation = if (styles.len > idx and styles[idx].styleValue.coordinateOrientation != null) styles[idx].styleValue.coordinateOrientation.? else .fixed;
-        const outExplicit = try Outputs.toExplicitPoint(gpa.allocator(), inputs, outputsExplicit, coord_orientation, idx);
-        outputsExplicit = outExplicit;
+
+        var single_output: Outputs.OutputsValidated = undefined;
+        single_output.transformationPairs = &.{pair};
+
+        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientation, 0);
+        result_pairs[idx] = transformed.transformationPairs[0];
     }
+
+    var outputsExplicit: Outputs.OutputsValidated = undefined;
+    outputsExplicit.transformationPairs = result_pairs;
 
     const panes_parse_result = try Panes.panesParser.parse(alloc, panes_str);
     const panes = switch (panes_parse_result.value) {
@@ -208,19 +217,17 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     for (0..numberOfDatum) |i| {
         anchor_points[i] = null;
     }
+
     for (outputsExplicit.transformationPairs, 0..) |pair, i| {
         if (i >= numberOfDatum) break;
         const ops = pair.operation.ops;
-        if (ops.len > 0) {
-            const first_op = ops[0];
-            const is_pin = @as(u1, @intFromBool(first_op == .pin));
-            if (is_pin == 1) {
-                const anchor = first_op.pin;
-                const is_point = @as(u1, @intFromBool(anchor.point == .point));
-                if (is_point == 1) {
-                    const p = anchor.point.point;
-                    anchor_points[i] = Inputs.Vector{ .x = p.x, .y = p.y };
-                }
+        // Use SECOND-TO-LAST which is the last anchor position (start of vector), not final point
+        const anchor_idx: usize = if (ops.len > 1) ops.len - 2 else 0;
+        if (ops.len > 0 and anchor_idx < ops.len) {
+            const op = ops[anchor_idx];
+            if (op == .pin and op.pin.point == .point) {
+                const p = op.pin.point.point;
+                anchor_points[i] = Inputs.Vector{ .x = p.x, .y = p.y };
             }
         }
     }

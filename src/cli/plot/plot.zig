@@ -98,6 +98,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
 
             var start_x: f64 = 0.0;
             var start_y: f64 = 0.0;
+            // Use anchor_points from transformation (set by draw.zig from outputs)
             if (parsed_data.anchor_points.len > row_idx) {
                 if (parsed_data.anchor_points[row_idx]) |anchor| {
                     start_x = @as(f64, anchor.x);
