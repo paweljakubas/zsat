@@ -18,6 +18,38 @@ fn rotateAround(angle_degrees: f32, around_x: f32, around_y: f32, point_x: f32, 
     return inputs.Point{ .x = x_rotated, .y = y_rotated };
 }
 
+const Line = struct {
+    a: f32,
+    b: f32,
+    c: f32,
+
+    fn fromTwoPoints(x1: f32, y1: f32, x2: f32, y2: f32) Line {
+        const a = y1 - y2;
+        const b = x2 - x1;
+        var c = -a * x1 - b * y1;
+        if (@abs(c) < 1e-10) c = 0;
+        return Line{ .a = a, .b = b, .c = c };
+    }
+
+    fn parallelDistance(d: f32, other: *const Line) Line {
+        const denom = @sqrt(other.a * other.a + other.b * other.b);
+        const offset = d * denom;
+        return Line{ .a = other.a, .b = other.b, .c = other.c - offset };
+    }
+
+    fn intersection(l1: *const Line, l2: *const Line) inputs.Point {
+        const det = l1.a * l2.b - l2.a * l1.b;
+        if (@abs(det) < 1e-10) {
+            return inputs.Point{ .x = 0, .y = 0 };
+        }
+        var x = (l1.b * l2.c - l2.b * l1.c) / det;
+        var y = (l2.a * l1.c - l1.a * l2.c) / det;
+        if (@abs(x) < 1e-10) x = 0;
+        if (@abs(y) < 1e-10) y = 0;
+        return inputs.Point{ .x = x, .y = y };
+    }
+};
+
 ////Types
 
 //Handling the name of output
@@ -1483,11 +1515,12 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
         return OutputsValidated{ .transformationPairs = result_pairs };
     }
 
-    // COORD MODE: for (a {(2,2)} & a {(1,1)}) with input [[1,1]]
-    // (a) First anchor {(1,1)} establishes local origin at (1,1), x-axis along (0,0)->(1,1) = 45°
-    // (b) Second anchor {(2,2)} is in local, added to first anchor = (1+2, 1+2) = (3,3) in LOCAL
-    // (c) Input added to second anchor in local = (3+1, 3+1) = (4,4) in LOCAL
-    // Then rotate to global: rotate (4,4) by 45° from origin, add origin = final point in global
+    // COORD MODE: line-based geometry for any number of anchors
+    // (a) First anchor: direction from (0,0) to anchor defines local x-axis
+    //     y-axis is perpendicular to x-axis, passes through anchor
+    // (b) Subsequent anchors: define new local frame with origin at anchor point in current local frame,
+    //     x-axis direction from current origin to anchor in current local frame
+    // (c) Final point: use input vector as (px, py) in last local frame, convert to global via line intersection
     if (orientation == .coord and !has_non_point_refs) {
         var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
 
@@ -1508,7 +1541,6 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 continue;
             }
 
-            // Collect pins in order (forward)
             var pins = try allocator.alloc(inputs.Point, pin_count);
             var pin_idx: usize = 0;
             for (pair.operation.ops) |op| {
@@ -1518,7 +1550,6 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 }
             }
 
-            // COORD MODE: correct logic
             var input_x: f32 = 0.0;
             var input_y: f32 = 0.0;
             if (output_idx < inp.input.len) {
@@ -1534,45 +1565,68 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 }
             }
 
-            // Step 1: first anchor (1,1) - green endpoint in global frame
             const first_anchor_x = pins[0].x;
             const first_anchor_y = pins[0].y;
 
-            // Step 2: calculate rotation angle from first anchor direction (atan2(y, x))
-            const angle_degrees = std.math.atan2(first_anchor_y, first_anchor_x) * 180.0 / std.math.pi;
+            const first_dir_len = @sqrt(first_anchor_x * first_anchor_x + first_anchor_y * first_anchor_y);
+            var x_axis_dir_x: f32 = 1.0;
+            var x_axis_dir_y: f32 = 0.0;
+            if (first_dir_len > 1e-10) {
+                x_axis_dir_x = first_anchor_x / first_dir_len;
+                x_axis_dir_y = first_anchor_y / first_dir_len;
+            }
 
-            // Step 3: second anchor (2,2) - rotate around origin (0,0) by angle_degrees, then add first anchor offset
-            const second_anchor_rot = rotateAround(angle_degrees, 0, 0, pins[1].x, pins[1].y);
-            const second_anchor_global_x = first_anchor_x + second_anchor_rot.x;
-            const second_anchor_global_y = first_anchor_y + second_anchor_rot.y;
+            const perp_x = -x_axis_dir_y;
+            const perp_y = x_axis_dir_x;
 
-            // Step 4: add input to second anchor in local = (2,2)+(1,1) = (3,3), rotate around origin, add first anchor
-            const input_for_rotation = inputs.Point{ .x = pins[1].x + input_x, .y = pins[1].y + input_y };
-            const final_rot = rotateAround(angle_degrees, 0, 0, input_for_rotation.x, input_for_rotation.y);
-            const final_global_x = first_anchor_x + final_rot.x;
-            const final_global_y = first_anchor_y + final_rot.y;
+            var anchor_points_global = try allocator.alloc(inputs.Point, pin_count);
+            anchor_points_global[0] = inputs.Point{ .x = first_anchor_x, .y = first_anchor_y };
 
-            // Final coords:
-            // green draws from (0,0) to first_anchor (1,1)
-            // red draws from second_anchor_global to final_global
-            const final_x = final_global_x;
-            const final_y = final_global_y;
+            for (1..pin_count) |i| {
+                const local_px = pins[i].x;
+                const local_py = pins[i].y;
 
-            // Store anchors - green endpoint at first_anchor, red starts at second_anchor_global
-            var new_ops = try allocator.alloc(OneArgFunctionPartial, 3);
-            new_ops[0] = OneArgFunctionPartial{
-                .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = first_anchor_x, .y = first_anchor_y } } },
-            };
-            new_ops[1] = OneArgFunctionPartial{
-                .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = second_anchor_global_x, .y = second_anchor_global_y } } },
-            };
+                const line_parallel_to_x_axis_x = first_anchor_x + local_py * perp_x;
+                const line_parallel_to_x_axis_y = first_anchor_y + local_py * perp_y;
+                const line_parallel_to_x_axis_p2_x = line_parallel_to_x_axis_x + x_axis_dir_x;
+                const line_parallel_to_x_axis_p2_y = line_parallel_to_x_axis_y + x_axis_dir_y;
+                const line_px = Line.fromTwoPoints(line_parallel_to_x_axis_x, line_parallel_to_x_axis_y, line_parallel_to_x_axis_p2_x, line_parallel_to_x_axis_p2_y);
 
-            // Store final endpoint (red end)
-            var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 3);
-            new_ops_with_end[0] = new_ops[0];
-            new_ops_with_end[1] = new_ops[1];
-            new_ops_with_end[2] = OneArgFunctionPartial{
-                .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = final_x, .y = final_y } } },
+                const line_parallel_to_y_axis_x = first_anchor_x + local_px * x_axis_dir_x;
+                const line_parallel_to_y_axis_y = first_anchor_y + local_px * x_axis_dir_y;
+                const line_parallel_to_y_axis_p2_x = line_parallel_to_y_axis_x + perp_x;
+                const line_parallel_to_y_axis_p2_y = line_parallel_to_y_axis_y + perp_y;
+                const line_py = Line.fromTwoPoints(line_parallel_to_y_axis_x, line_parallel_to_y_axis_y, line_parallel_to_y_axis_p2_x, line_parallel_to_y_axis_p2_y);
+
+                anchor_points_global[i] = line_py.intersection(&line_px);
+            }
+
+            const last_anchor = pins[pin_count - 1];
+            const final_local_x = last_anchor.x + input_x;
+            const final_local_y = last_anchor.y + input_y;
+
+            const final_line_parallel_to_x_axis_x = first_anchor_x + final_local_y * perp_x;
+            const final_line_parallel_to_x_axis_y = first_anchor_y + final_local_y * perp_y;
+            const final_line_parallel_to_x_axis_p2_x = final_line_parallel_to_x_axis_x + x_axis_dir_x;
+            const final_line_parallel_to_x_axis_p2_y = final_line_parallel_to_x_axis_y + x_axis_dir_y;
+            const final_line_px = Line.fromTwoPoints(final_line_parallel_to_x_axis_x, final_line_parallel_to_x_axis_y, final_line_parallel_to_x_axis_p2_x, final_line_parallel_to_x_axis_p2_y);
+
+            const final_line_parallel_to_y_axis_x = first_anchor_x + final_local_x * x_axis_dir_x;
+            const final_line_parallel_to_y_axis_y = first_anchor_y + final_local_x * x_axis_dir_y;
+            const final_line_parallel_to_y_axis_p2_x = final_line_parallel_to_y_axis_x + perp_x;
+            const final_line_parallel_to_y_axis_p2_y = final_line_parallel_to_y_axis_y + perp_y;
+            const final_line_py = Line.fromTwoPoints(final_line_parallel_to_y_axis_x, final_line_parallel_to_y_axis_y, final_line_parallel_to_y_axis_p2_x, final_line_parallel_to_y_axis_p2_y);
+
+            const final_point = final_line_py.intersection(&final_line_px);
+
+            var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, pin_count + 1);
+            for (0..pin_count) |i| {
+                new_ops_with_end[i] = OneArgFunctionPartial{
+                    .pin = AnchorPartial{ .point = GeneralPoint{ .point = anchor_points_global[i] } },
+                };
+            }
+            new_ops_with_end[pin_count] = OneArgFunctionPartial{
+                .pin = AnchorPartial{ .point = GeneralPoint{ .point = final_point } },
             };
 
             result_pairs[idx] = OutputTransformationPair{
