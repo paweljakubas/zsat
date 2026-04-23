@@ -21,6 +21,7 @@ pub const ParsedData = struct {
     panes: []const Panes.Pane,
     frames: Frames.OutputPaneValidated,
     anchor_points: []const ?Inputs.Vector,
+    anchor_end_points: []const ?Inputs.Vector,
 };
 
 const style_flag = zli.Flag{
@@ -214,20 +215,81 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     }
 
     var anchor_points = try alloc.alloc(?Inputs.Vector, numberOfDatum);
+    var anchor_end_points = try alloc.alloc(?Inputs.Vector, numberOfDatum);
+    var coord_orientations = try alloc.alloc(Styles.CoordinateOrientation, outputsValidated.transformationPairs.len);
     for (0..numberOfDatum) |i| {
         anchor_points[i] = null;
+        anchor_end_points[i] = null;
+    }
+    for (0..outputsValidated.transformationPairs.len) |idx| {
+        coord_orientations[idx] = if (styles.len > idx and styles[idx].styleValue.coordinateOrientation != null) styles[idx].styleValue.coordinateOrientation.? else .fixed;
     }
 
     for (outputsExplicit.transformationPairs, 0..) |pair, i| {
         if (i >= numberOfDatum) break;
         const ops = pair.operation.ops;
-        // Use SECOND-TO-LAST which is the last anchor position (start of vector), not final point
-        const anchor_idx: usize = if (ops.len > 1) ops.len - 2 else 0;
-        if (ops.len > 0 and anchor_idx < ops.len) {
-            const op = ops[anchor_idx];
-            if (op == .pin and op.pin.point == .point) {
-                const p = op.pin.point.point;
-                anchor_points[i] = Inputs.Vector{ .x = p.x, .y = p.y };
+        const orientation = coord_orientations[i];
+        // For plotting: for N anchors, ops has N+1 elements (0 to N)
+        // coord mode: line goes from ops[N-2] to ops[N-1]
+        // fixed/origin mode: line goes from ops[N-1] to ops[N-2]
+        // For 1 anchor: start at anchor, end at input row
+        if (ops.len >= 3) {
+            if (orientation == .coord) {
+                // coord mode: ops[N-2] to ops[N-1]
+                const start_op = ops[ops.len - 2];
+                const end_op = ops[ops.len - 1];
+                if (start_op == .pin and start_op.pin.point == .point and
+                    end_op == .pin and end_op.pin.point == .point)
+                {
+                    const start = start_op.pin.point.point;
+                    const end = end_op.pin.point.point;
+                    anchor_points[i] = Inputs.Vector{ .x = start.x, .y = start.y };
+                    anchor_end_points[i] = Inputs.Vector{ .x = end.x, .y = end.y };
+                }
+            } else {
+                // fixed mode: start = ops[N-1], end = ops[N-2]
+                // origin mode: start = ops[N-2], end = ops[N-1]
+                const start_op = if (orientation == .origin) ops[ops.len - 2] else ops[ops.len - 1];
+                const end_op = if (orientation == .origin) ops[ops.len - 1] else ops[ops.len - 2];
+                if (start_op == .pin and start_op.pin.point == .point and
+                    end_op == .pin and end_op.pin.point == .point)
+                {
+                    const start = start_op.pin.point.point;
+                    const end = end_op.pin.point.point;
+                    anchor_points[i] = Inputs.Vector{ .x = start.x, .y = start.y };
+                    anchor_end_points[i] = Inputs.Vector{ .x = end.x, .y = end.y };
+                }
+            }
+        } else if (ops.len == 2) {
+            // For 2 anchors (ops has N+1=3 elements for N=2): use ops[0] and ops[1]
+            const start_op = ops[0];
+            const end_op = ops[1];
+            if (start_op == .pin and start_op.pin.point == .point and
+                end_op == .pin and end_op.pin.point == .point)
+            {
+                const start = start_op.pin.point.point;
+                const end = end_op.pin.point.point;
+                anchor_points[i] = Inputs.Vector{ .x = start.x, .y = start.y };
+                anchor_end_points[i] = Inputs.Vector{ .x = end.x, .y = end.y };
+            }
+        } else if (ops.len == 1) {
+            // For 1 anchor: start at anchor, end at input row
+            const start_op = ops[0];
+            if (start_op == .pin and start_op.pin.point == .point) {
+                const start = start_op.pin.point.point;
+                anchor_points[i] = Inputs.Vector{ .x = start.x, .y = start.y };
+                // Use input row as end point
+                if (i < inputs.input.len) {
+                    const input_row = inputs.input[i];
+                    if (input_row.row.len > 0) {
+                        const input_elem = input_row.row[0];
+                        if (input_elem == .vector) {
+                            anchor_end_points[i] = Inputs.Vector{ .x = input_elem.vector.x, .y = input_elem.vector.y };
+                        } else if (input_elem == .point) {
+                            anchor_end_points[i] = Inputs.Vector{ .x = input_elem.point.x, .y = input_elem.point.y };
+                        }
+                    }
+                }
             }
         }
     }
@@ -240,6 +302,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         .panes = panes,
         .frames = framesValidated,
         .anchor_points = anchor_points,
+        .anchor_end_points = anchor_end_points,
     };
 }
 

@@ -8,6 +8,7 @@ const InputElementRow = inputs.InputElementRow;
 const Inputs = inputs.Inputs;
 const ValsRange = inputs.ValsRange;
 const determine_pane_bounds = inputs.determine_pane_bounds;
+const determine_pane_bounds_with_end = inputs.determine_pane_bounds_with_end;
 
 fn getAnchorPoint(transformationPairs: anytype, output_index: usize) ?Vector {
     if (transformationPairs.len == 0 or output_index >= transformationPairs.len) {
@@ -65,7 +66,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     context.setLineWidth(10.0); // Re-enable for data lines
     context.resetPath(); // Clear path state after fill
 
-    const bounds = determine_pane_bounds(@ptrCast(&parsed_data.inputs), parsed_data.anchor_points);
+    const bounds = determine_pane_bounds_with_end(@ptrCast(&parsed_data.inputs), parsed_data.anchor_points, parsed_data.anchor_end_points);
     const x_range = bounds.x[1] - bounds.x[0];
     const y_range = bounds.y[1] - bounds.y[0];
 
@@ -87,7 +88,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
 
         const mappings = parsed_data.datum.mappings;
 
-        for (parsed_data.inputs.input, 0..) |row, row_idx| {
+        for (parsed_data.inputs.input, 0..) |_, row_idx| {
             var style_idx: usize = 0;
             for (mappings) |mapping| {
                 if (mapping.from == row_idx) {
@@ -98,11 +99,19 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
 
             var start_x: f64 = 0.0;
             var start_y: f64 = 0.0;
-            // Use anchor_points from transformation (set by draw.zig from outputs)
-            if (parsed_data.anchor_points.len > row_idx) {
-                if (parsed_data.anchor_points[row_idx]) |anchor| {
-                    start_x = @as(f64, anchor.x);
-                    start_y = @as(f64, anchor.y);
+            var end_x: f64 = 0.0;
+            var end_y: f64 = 0.0;
+
+            // Use anchor_points and anchor_end_points directly for plotting
+            // These come from ops[N-2] and ops[N-1] after toExplicitPoint
+            if (parsed_data.anchor_points.len > row_idx and parsed_data.anchor_end_points.len > row_idx) {
+                if (parsed_data.anchor_points[row_idx]) |start| {
+                    if (parsed_data.anchor_end_points[row_idx]) |end| {
+                        start_x = @as(f64, start.x);
+                        start_y = @as(f64, start.y);
+                        end_x = @as(f64, end.x);
+                        end_y = @as(f64, end.y);
+                    }
                 }
             }
 
@@ -189,18 +198,12 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
             var cur_y = origin_y - start_y * y_scale;
             try context.moveTo(cur_x, cur_y);
 
-            for (row.row) |elem| {
-                switch (elem) {
-                    .vector => |v| {
-                        cur_x += @as(f64, v.x) * x_scale;
-                        cur_y -= @as(f64, v.y) * y_scale;
-                        if (cur_y < min_y) cur_y = min_y;
-                        if (cur_y > max_y) cur_y = max_y;
-                        try context.lineTo(cur_x, cur_y);
-                    },
-                    .point => {},
-                }
-            }
+            // Plot directly to end point (from ops[N-1])
+            cur_x = origin_x + end_x * x_scale;
+            cur_y = origin_y - end_y * y_scale;
+            if (cur_y < min_y) cur_y = min_y;
+            if (cur_y > max_y) cur_y = max_y;
+            try context.lineTo(cur_x, cur_y);
 
             try context.stroke();
         }

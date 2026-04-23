@@ -173,6 +173,52 @@ pub fn determine_paneBoundsWithAnchors(rows: *const Inputs, anchor_points: anyty
     return .{ .x = .{ minX, maxX }, .y = .{ minY, maxY } };
 }
 
+pub fn determine_paneBoundsWithStartAndEnd(rows: *const Inputs, anchor_points: anytype, anchor_end_points: anytype) ValsRange {
+    var minX: f32 = 0.0;
+    var maxX: f32 = 0.0;
+    var minY: f32 = 0.0;
+    var maxY: f32 = 0.0;
+
+    for (rows.input, 0..) |row, row_idx| {
+        if (row.row.len == 0) continue;
+
+        var curX: f32 = 0.0;
+        var curY: f32 = 0.0;
+
+        // Use start point (anchor_points)
+        if (anchor_points.len > row_idx) {
+            if (anchor_points[row_idx]) |anchor| {
+                curX = anchor.x;
+                curY = anchor.y;
+            }
+        }
+
+        if (curX < minX) minX = curX;
+        if (curX > maxX) maxX = curX;
+        if (curY < minY) minY = curY;
+        if (curY > maxY) maxY = curY;
+
+        // Use end point (anchor_end_points)
+        if (anchor_end_points.len > row_idx) {
+            if (anchor_end_points[row_idx]) |end| {
+                curX = end.x;
+                curY = end.y;
+            }
+        }
+
+        if (curX < minX) minX = curX;
+        if (curX > maxX) maxX = curX;
+        if (curY < minY) minY = curY;
+        if (curY > maxY) maxY = curY;
+    }
+
+    return .{ .x = .{ minX, maxX }, .y = .{ minY, maxY } };
+}
+
 pub fn determine_pane_bounds(rows: *const Inputs, anchor_points: anytype) ValsRange {
     return determine_paneBoundsWithAnchors(rows, anchor_points);
+}
+
+pub fn determine_pane_bounds_with_end(rows: *const Inputs, anchor_points: anytype, anchor_end_points: anytype) ValsRange {
+    return determine_paneBoundsWithStartAndEnd(rows, anchor_points, anchor_end_points);
 }

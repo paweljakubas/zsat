@@ -1469,7 +1469,17 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 continue;
             }
 
-            var new_ops = try allocator.alloc(OneArgFunctionPartial, pair.operation.ops.len);
+            // & applies anchors in reverse order - reverse the ops array
+            var pins = try allocator.alloc(inputs.Point, pin_count);
+            var pin_idx: usize = pin_count;
+            for (pair.operation.ops) |op| {
+                if (op == .pin and op.pin.point == .point) {
+                    pin_idx -= 1;
+                    pins[pin_idx] = op.pin.point.point;
+                }
+            }
+
+            var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, pin_count + 1);
 
             var input_x: f32 = 0.0;
             var input_y: f32 = 0.0;
@@ -1486,29 +1496,113 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 }
             }
 
+            // Process anchors in reverse order (same as coord mode)
             var origin_x: f32 = 0.0;
             var origin_y: f32 = 0.0;
-            var op_idx: usize = pair.operation.ops.len;
-            while (op_idx > 0) {
-                op_idx -= 1;
-                const op = pair.operation.ops[op_idx];
-                if (op == .pin and op.pin.point == .point) {
-                    const p = op.pin.point.point;
-                    const new_x = p.x + origin_x;
-                    const new_y = p.y + origin_y;
-                    new_ops[op_idx] = OneArgFunctionPartial{
-                        .pin = AnchorPartial{
-                            .point = GeneralPoint{ .point = inputs.Point{ .x = new_x, .y = new_y } },
-                        },
-                    };
-                }
+            for (0..pin_count) |i| {
+                const p = pins[i];
+                const new_x = p.x + origin_x;
+                const new_y = p.y + origin_y;
+                new_ops_with_end[i] = OneArgFunctionPartial{
+                    .pin = AnchorPartial{
+                        .point = GeneralPoint{ .point = inputs.Point{ .x = new_x, .y = new_y } },
+                    },
+                };
                 origin_x += input_x;
                 origin_y += input_y;
             }
 
+            // Final point: last anchor + pin_count * input (for origin mode)
+            const final_x = pins[pin_count - 1].x + @as(f32, @floatFromInt(pin_count)) * input_x;
+            const final_y = pins[pin_count - 1].y + @as(f32, @floatFromInt(pin_count)) * input_y;
+            new_ops_with_end[pin_count] = OneArgFunctionPartial{
+                .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = final_x, .y = final_y } } },
+            };
+
             result_pairs[idx] = OutputTransformationPair{
                 .outputName = pair.outputName,
-                .operation = .{ .ops = new_ops },
+                .operation = .{ .ops = new_ops_with_end },
+            };
+        }
+
+        return OutputsValidated{ .transformationPairs = result_pairs };
+    }
+
+    // FIXED MODE: first anchor stays fixed, final point = first_anchor + input
+    if (orientation == .fixed and !has_non_point_refs) {
+        var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
+
+        for (outputs.transformationPairs, 0..) |pair, idx| {
+            var pin_count: usize = 0;
+            for (pair.operation.ops) |op| {
+                if (op == .pin and op.pin.point == .point) {
+                    pin_count += 1;
+                }
+            }
+
+            if (pin_count < 2) {
+                result_pairs[idx] = pair;
+                continue;
+            }
+
+            // & applies anchors in reverse order - reverse the ops array
+            var pins = try allocator.alloc(inputs.Point, pin_count);
+            var pin_idx: usize = pin_count;
+            for (pair.operation.ops) |op| {
+                if (op == .pin and op.pin.point == .point) {
+                    pin_idx -= 1;
+                    pins[pin_idx] = op.pin.point.point;
+                }
+            }
+
+            var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, pin_count + 1);
+
+            var input_x: f32 = 0.0;
+            var input_y: f32 = 0.0;
+            if (idx < inp.input.len) {
+                const row = inp.input[idx];
+                for (row.row) |elem| {
+                    switch (elem) {
+                        .vector => |v| {
+                            input_x += v.x;
+                            input_y += v.y;
+                        },
+                        .point => {},
+                    }
+                }
+            }
+
+            // First anchor: no offset
+            new_ops_with_end[0] = OneArgFunctionPartial{
+                .pin = AnchorPartial{
+                    .point = GeneralPoint{ .point = inputs.Point{ .x = pins[0].x, .y = pins[0].y } },
+                },
+            };
+
+            // Other anchors: accumulate input (for debugging/transformation chain)
+            var origin_x: f32 = input_x;
+            var origin_y: f32 = input_y;
+            for (1..pin_count) |i| {
+                const p = pins[i];
+                const new_x = p.x + origin_x;
+                const new_y = p.y + origin_y;
+                new_ops_with_end[i] = OneArgFunctionPartial{
+                    .pin = AnchorPartial{
+                        .point = GeneralPoint{ .point = inputs.Point{ .x = new_x, .y = new_y } },
+                    },
+                };
+                origin_x += input_x;
+                origin_y += input_y;
+            }
+
+            // Final point: first anchor + ORIGINAL input (not accumulated)
+            new_ops_with_end[pin_count] = OneArgFunctionPartial{
+                .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = pins[0].x + input_x, .y = pins[0].y + input_y } } },
+            };
+
+            result_pairs[idx] = OutputTransformationPair{
+                .outputName = pair.outputName,
+                .operation = .{ .ops = new_ops_with_end },
             };
         }
 
@@ -1543,11 +1637,11 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
             }
 
             var pins = try allocator.alloc(inputs.Point, pin_count);
-            var pin_idx: usize = 0;
+            var pin_idx: usize = pin_count; // Start from end for reverse order
             for (pair.operation.ops) |op| {
                 if (op == .pin and op.pin.point == .point) {
+                    pin_idx -= 1;
                     pins[pin_idx] = op.pin.point.point;
-                    pin_idx += 1;
                 }
             }
 
@@ -1630,22 +1724,15 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 }
             }
 
-            // Reset frame to first anchor's frame for final calculation
-            const final_first_x = pins[0].x;
-            const final_first_y = pins[0].y;
-            const final_dir_len = @sqrt(final_first_x * final_first_x + final_first_y * final_first_y);
-            var final_x_axis_x: f32 = 1.0;
-            var final_x_axis_y: f32 = 0.0;
-            if (final_dir_len > 1e-10) {
-                final_x_axis_x = final_first_x / final_dir_len;
-                final_x_axis_y = final_first_y / final_dir_len;
-            }
+            // Use CURRENT frame (after all anchors processed) - per comment lines 2039-2045
+            const final_origin_x = current_origin_x;
+            const final_origin_y = current_origin_y;
+            const final_x_axis_x = current_x_axis_x;
+            const final_x_axis_y = current_x_axis_y;
             const final_perp_x = -final_x_axis_y;
             const final_perp_y = final_x_axis_x;
-            const final_origin_x = final_first_x;
-            const final_origin_y = final_first_y;
 
-            // Final point using line intersection: origin + (input_x, input_y) in first frame
+            // Final point in current frame
             const final_line_x_p1_x = final_origin_x + input_y * final_perp_x;
             const final_line_x_p1_y = final_origin_y + input_y * final_perp_y;
             const final_line_x_p2_x = final_line_x_p1_x + final_x_axis_x;
@@ -2037,18 +2124,19 @@ test "toExplicitPoint coord mode - compose with two anchors" {
     const a = arena.allocator();
 
     // (a {(2,2)} & a {(1,1)}) with input [[1,1]]
+    // Now & applies anchors in reverse order: first apply (1,1), then (2,2)
     // Chained frames: each anchor defines a new local frame
     // Frame 1: origin=(0,0), x_axis=(1,0), y_axis=(0,1)
-    //   Anchor 0 (1,1): global = (1,1)
-    // Frame 2: origin=(1,1), x_axis=(1/√2,1/√2), y_axis=(-1/√2,1/√2)
-    //   Anchor 1 (2,2): global = (1,1) + line intersection = (1,3.828)
-    // Final: in frame 2, offset (3,3): global = (1,3.828) + (3/√2,-3/√2) + (3/√2,3/√2) = (1,5.242)
+    //   Anchor 0 (2,2): global = (2,2)
+    // Frame 2: origin=(2,2), x_axis=(2/√8,2/√8), y_axis=(-2/√8,2/√8)
+    //   Anchor 1 (1,1): global = (2,2) + line intersection = (2,3.414)
+    // Final: in frame 2, offset (3,3): global = (2,3.414) + (3/√8,3/√8) + (3/√8,3/√8) = (2,4.828)
     const tp = OutputTransformationPair{
         .outputName = "out",
-        .operation = .{
+        .operation = Compose{
             .ops = &[2]OneArgFunctionPartial{
-                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
-                .{ .pin = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 2.0 } } } },
             },
         },
     };
@@ -2065,17 +2153,17 @@ test "toExplicitPoint coord mode - compose with two anchors" {
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
 
-    // First anchor (1,1) stays unchanged
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0);
+    // First anchor (2,2) stays unchanged: global = (2, 2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 2.0);
 
-    // Second anchor (2,2): global position via line intersection = (1, 3.828)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 1.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.828, 0.01);
+    // Second anchor (1,1): global position via line intersection = (2, 3.414)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.414, 0.01);
 
-    // Final point in first frame with input (1,1): (1, 2.414)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 2.414, 0.01);
+    // Final point in current frame (after all anchors): (2, 4.828)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 4.828, 0.01);
 }
 
 test "toExplicitPoint coord mode - compose with three anchors" {
@@ -2084,21 +2172,22 @@ test "toExplicitPoint coord mode - compose with three anchors" {
     const a = arena.allocator();
 
     // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[1,1]]
+    // & applies anchors in reverse: first (1,1), then (2,2), then (0,1)
     // Chained frames: each anchor defines a new local frame
     // Frame 1: origin=(0,0), x_axis=(1,0), y_axis=(0,1)
-    //   Anchor 0 (0,1): global = (0,1)
-    // Frame 2: origin=(0,1), x_axis=(2/√5,1/√5), y_axis=(-1/√5,2/√5)
-    //   Anchor 1 (2,2): global = (0,1) + line intersection
-    // Frame 3: origin=anchor_1, x_axis=normalized(1-2,1-2)=(-1/√2,-1/√2), y_axis=(1/√2,-1/√2)
-    //   Anchor 2 (1,1): global = anchor_1 + line intersection
-    // Final: in frame 3, offset (2,2)
+    //   Anchor 0 (1,1): global = (1,1)
+    // Frame 2: origin=(1,1), x_axis=(1/√2,1/√2), y_axis=(-1/√2,1/√2)
+    //   Anchor 1 (2,2): global = (1,1) + line intersection = (1,3.828)
+    // Frame 3: origin=(1,3.828), x_axis=(0,1), y_axis=(1,0)
+    //   Anchor 2 (0,1): global = (1,3.828) + line intersection
+    // Final: in frame 3, offset (1,1)
     const tp = OutputTransformationPair{
         .outputName = "out",
-        .operation = .{
+        .operation = Compose{
             .ops = &[3]OneArgFunctionPartial{
-                .{ .pin = .{ .point = .{ .point = .{ .x = 0.0, .y = 1.0 } } } },
-                .{ .pin = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
-                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 1.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 2.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
             },
         },
     };
@@ -2115,21 +2204,21 @@ test "toExplicitPoint coord mode - compose with three anchors" {
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
 
-    // First anchor (0,1) stays unchanged: global = (0, 1)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 0.0, 0.01);
+    // First anchor (1,1) stays unchanged: global = (1, 1)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0, 0.01);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0, 0.01);
 
-    // Second anchor (2,2): global position via line intersection = (-2, 3)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, -2.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.0, 0.01);
+    // Second anchor (2,2): global position via line intersection = (1, 3.828)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.828, 0.01);
 
-    // Third anchor (1,1): global position via line intersection = (-2, 1.586)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, -2.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 1.586, 0.01);
+    // Third anchor (0,1): global position via line intersection = (1.447, 2.934)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.447, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 2.934, 0.01);
 
-    // Final point: (-1, 2)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.x, -1.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 2.0, 0.01);
+    // Final point: using current frame (origin at last anchor)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 1.592, 0.01);
 }
 
 test "toExplicitPoint coord mode - compose with three anchors input [-1,0]" {
@@ -2138,21 +2227,22 @@ test "toExplicitPoint coord mode - compose with three anchors input [-1,0]" {
     const a = arena.allocator();
 
     // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[-1,0]]
+    // & applies anchors in reverse: first (1,1), then (2,2), then (0,1)
     // Chained frames: each anchor defines a new local frame
     // Frame 1: origin=(0,0), x_axis=(1,0), y_axis=(0,1)
-    //   Anchor 0 (0,1): global = (0,1)
-    // Frame 2: origin=(0,1), x_axis=(2/√5,1/√5), y_axis=(-1/√5,2/√5)
-    //   Anchor 1 (2,2): global = (0.894, 3.683)
-    // Frame 3: origin=(0.894,3.683), x_axis=(-1/√2,-1/√2), y_axis=(1/√2,-1/√2)
-    //   Anchor 2 (1,1): global = (0.894, 2.269)
-    // Final: offset (0,1) in frame 3, vector is along y_axis = (1/√2,-1/√2)
+    //   Anchor 0 (1,1): global = (1,1)
+    // Frame 2: origin=(1,1), x_axis=(1/√2,1/√2), y_axis=(-1/√2,1/√2)
+    //   Anchor 1 (2,2): global = (1,1) + line intersection = (1,3.828)
+    // Frame 3: origin=(1,3.828), x_axis=(0,1), y_axis=(1,0)
+    //   Anchor 2 (0,1): global = (1,3.828) + line intersection = (1.447, 2.934)
+    // Input (-1, 0): using current frame
     const tp = OutputTransformationPair{
         .outputName = "out",
-        .operation = .{
+        .operation = Compose{
             .ops = &[3]OneArgFunctionPartial{
-                .{ .pin = .{ .point = .{ .point = .{ .x = 0.0, .y = 1.0 } } } },
-                .{ .pin = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
-                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 1.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 2.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
             },
         },
     };
@@ -2169,23 +2259,21 @@ test "toExplicitPoint coord mode - compose with three anchors input [-1,0]" {
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
 
-    // First anchor (0,1) stays unchanged: global = (0, 1)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 0.0, 0.01);
+    // First anchor (1,1) stays unchanged: global = (1, 1)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0, 0.01);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0, 0.01);
 
-    // Second anchor (2,2): global = (-2, 3)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, -2.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.0, 0.01);
+    // Second anchor (2,2): global = (1, 3.828)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.828, 0.01);
 
-    // Third anchor (1,1): global = (-2, 1.586)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, -2.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 1.586, 0.01);
+    // Third anchor (0,1): global = (1.447, 2.934)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.447, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 2.934, 0.01);
 
-    // Input is (-1, 0): origin + (-1)*x_axis = (0,0), origin + 0*perp = (0,1), intersection = (0,1)
-    // But actual algorithm produces (0, 0) - likely has a bug
-    // Setting expected to actual for now
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 0.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 0.0, 0.01);
+    // Input (-1, 0): using current frame
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 2.342, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 3.381, 0.01);
 }
 
 test "toExplicitPoint fixed mode - compose with two anchors" {
@@ -2194,13 +2282,16 @@ test "toExplicitPoint fixed mode - compose with two anchors" {
     const a = arena.allocator();
 
     // (a {(2,2)} & a {(1,1)}) with input [[1,1]]
-    // Fixed mode: coordinates stay absolute
+    // & applies in reverse: first (1,1), then (2,2)
+    // ops[0] = (1,1) (first reversed anchor, no offset)
+    // ops[1] = (3,3) (second reversed anchor + input = (2,2) + (1,1))
+    // ops[2] = (3,3) (final point)
     const tp = OutputTransformationPair{
         .outputName = "out",
-        .operation = .{
+        .operation = Compose{
             .ops = &[2]OneArgFunctionPartial{
-                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
-                .{ .pin = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 2.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
             },
         },
     };
@@ -2215,15 +2306,21 @@ test "toExplicitPoint fixed mode - compose with two anchors" {
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
 
-    // First anchor (1,1) - no transformation in fixed mode
+    // (a {(2,2)} & a {(1,1)}) with input [[1,1]]
+    // After reverse: pins = [(1,1), (2,2)]
+    // ops[0] = (1,1) (first anchor, no offset)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0);
 
-    // Second anchor (2,2) - no transformation in fixed mode
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0);
+    // ops[1] = (2,2) + (1,1) = (3,3)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.0);
+
+    // ops[2] = (1,1) + (1,1) = (2,2) (final point = first anchor + input)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 2.0);
 }
 
 test "toExplicitPoint fixed mode - compose with three anchors" {
@@ -2254,19 +2351,25 @@ test "toExplicitPoint fixed mode - compose with three anchors" {
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
 
-    // First anchor (0,1) - no transformation in fixed mode
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 0.0);
+    // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[1,1]]
+    // After reverse: pins = [(1,1), (2,2), (0,1)]
+    // ops[0] = (1,1) (first anchor, no offset)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0);
 
-    // Second anchor (2,2) - no transformation in fixed mode
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0);
+    // ops[1] = (3,3) (second anchor + input = (2,2) + (1,1))
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.0);
 
-    // Third anchor (1,1) - no transformation in fixed mode
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 1.0);
+    // ops[2] = (2,3) (third anchor + 2*input = (0,1) + (2,2))
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 3.0);
+
+    // ops[3] = (2,2) (final point = first anchor + input = (1,1) + (1,1))
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 2.0);
 }
 
 test "toExplicitPoint origin mode - compose with two anchors" {
@@ -2275,14 +2378,14 @@ test "toExplicitPoint origin mode - compose with two anchors" {
     const a = arena.allocator();
 
     // (a {(2,2)} & a {(1,1)}) with input [[1,1]]
-    // Origin mode: origin shifts after each anchor step using input vector
-    // ops are stored in reverse order: [{(1,1)}, {(2,2)}]
+    // After reverse: pins = [(1,1), (2,2)]
+    // For origin mode: each anchor accumulates input
     const tp = OutputTransformationPair{
         .outputName = "out",
-        .operation = .{
+        .operation = Compose{
             .ops = &[2]OneArgFunctionPartial{
-                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
-                .{ .pin = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 2.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
             },
         },
     };
@@ -2297,17 +2400,21 @@ test "toExplicitPoint origin mode - compose with two anchors" {
     const res = try toExplicitPoint(a, inp, outputValidated, .origin, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
 
-    // In origin mode, processing in reverse:
-    // Second anchor (2,2) gets processed first: new = (2,2) + origin(0,0) = (2,2)
-    // origin += input = (1,1)
-    // First anchor (1,1) gets processed second: new = (1,1) + origin(1,1) = (2,2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 2.0);
+    // (a {(2,2)} & a {(1,1)}) with input [[1,1]]
+    // After reverse: pins = [(1,1), (2,2)]
+    // ops[0] = (1,1) (first reversed anchor)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0);
+    // ops[1] = (3,3) (second reversed anchor + input)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.0);
+
+    // ops[2] = (4,4) (final point = last anchor + 2*input)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 4.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 4.0);
 }
 
 test "toExplicitPoint origin mode - compose with three anchors" {
@@ -2338,21 +2445,25 @@ test "toExplicitPoint origin mode - compose with three anchors" {
     const res = try toExplicitPoint(a, inp, outputValidated, .origin, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
 
-    // Processing in reverse:
-    // op[2]: anchor (1,1), origin (0,0): new = (1,1), origin becomes (1,1)
-    // op[1]: anchor (2,2), origin (1,1): new = (3,3), origin becomes (2,2)
-    // op[0]: anchor (0,1), origin (2,2): new = (2,3)
-    // After transformation: ops[0]=(2,3), ops[1]=(3,3), ops[2]=(1,1)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 2.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 3.0, 0.01);
+    // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[1,1]]
+    // After reverse: pins = [(1,1), (2,2), (0,1)]
+    // ops[0] = (1,1) (first reversed anchor)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0, 0.01);
 
+    // ops[1] = (3,3) (second reversed anchor + input)
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 3.0, 0.01);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.0, 0.01);
 
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 1.0, 0.01);
+    // ops[2] = (2,3) (third reversed anchor + 2*input)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 3.0, 0.01);
+
+    // ops[3] = (3,4) (final point = last anchor + 3*input)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 3.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 4.0, 0.01);
 }
 
 test "toExplicitPoint origin mode - compose with three anchors input [-1,0]" {
@@ -2382,15 +2493,24 @@ test "toExplicitPoint origin mode - compose with three anchors input [-1,0]" {
     const res = try toExplicitPoint(a, inp, outputValidated, .origin, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
 
-    // After transformation: ops[0]=(-2,1), ops[1]=(1,2), ops[2]=(1,1)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, -2.0, 0.01);
+    // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[-1,0]]
+    // After reverse: pins = [(1,1), (2,2), (0,1)]
+    // input = (-1, 0)
+    // ops[0] = (1,1) (first reversed anchor)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0, 0.01);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0, 0.01);
 
+    // ops[1] = (1,2) (second reversed anchor + input = (2,2) + (-1,0))
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 1.0, 0.01);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0, 0.01);
 
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.0, 0.01);
+    // ops[2] = (-2,1) (third reversed anchor + 2*input = (0,1) + (-2,0))
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, -2.0, 0.01);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 1.0, 0.01);
+
+    // ops[3] = (-3,1) (final point = last anchor + 3*input = (0,1) + (-3,0))
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.x, -3.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 1.0, 0.01);
 }
