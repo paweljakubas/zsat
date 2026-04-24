@@ -167,7 +167,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         var single_output: Outputs.OutputsValidated = undefined;
         single_output.transformationPairs = &.{pair};
 
-        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientation, 0);
+        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientation, idx);
         result_pairs[idx] = transformed.transformationPairs[0];
     }
 
@@ -247,10 +247,11 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
                     anchor_end_points[i] = Inputs.Vector{ .x = end.x, .y = end.y };
                 }
             } else {
-                // fixed mode: start = ops[N-1], end = ops[N-2]
-                // origin mode: start = ops[N-2], end = ops[N-1]
-                const start_op = if (orientation == .origin) ops[ops.len - 2] else ops[ops.len - 1];
-                const end_op = if (orientation == .origin) ops[ops.len - 1] else ops[ops.len - 2];
+                // fixed mode: start = ops[N-1] (last anchor after transformation), end = ops[N-1] + input
+                // For N=2 anchors: ops[1] to ops[2]
+                // For N=3 anchors: ops[2] to ops[3] = (0,1) to (1,2) etc.
+                const start_op = ops[ops.len - 2];
+                const end_op = ops[ops.len - 1];
                 if (start_op == .pin and start_op.pin.point == .point and
                     end_op == .pin and end_op.pin.point == .point)
                 {

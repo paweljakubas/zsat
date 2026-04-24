@@ -1579,25 +1579,18 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 },
             };
 
-            // Other anchors: accumulate input (for debugging/transformation chain)
-            var origin_x: f32 = input_x;
-            var origin_y: f32 = input_y;
+            // Other anchors: use original positions (no input accumulation for fixed mode)
             for (1..pin_count) |i| {
-                const p = pins[i];
-                const new_x = p.x + origin_x;
-                const new_y = p.y + origin_y;
                 new_ops_with_end[i] = OneArgFunctionPartial{
                     .pin = AnchorPartial{
-                        .point = GeneralPoint{ .point = inputs.Point{ .x = new_x, .y = new_y } },
+                        .point = GeneralPoint{ .point = inputs.Point{ .x = pins[i].x, .y = pins[i].y } },
                     },
                 };
-                origin_x += input_x;
-                origin_y += input_y;
             }
 
-            // Final point: first anchor + ORIGINAL input (not accumulated)
+            // Final point: last anchor + input (the segment we want to draw)
             new_ops_with_end[pin_count] = OneArgFunctionPartial{
-                .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = pins[0].x + input_x, .y = pins[0].y + input_y } } },
+                .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = pins[pin_count - 1].x + input_x, .y = pins[pin_count - 1].y + input_y } } },
             };
 
             result_pairs[idx] = OutputTransformationPair{
@@ -2092,7 +2085,7 @@ test "toExplicitPoint" {
     try testing.expectEqualDeep(res6, outputValidated6post);
 }
 
-test "toExplicitPoint coord mode - green line (first anchor)" {
+test "toExplicitPoint coord mode - one anchor" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -2283,9 +2276,8 @@ test "toExplicitPoint fixed mode - compose with two anchors" {
 
     // (a {(2,2)} & a {(1,1)}) with input [[1,1]]
     // & applies in reverse: first (1,1), then (2,2)
-    // ops[0] = (1,1) (first reversed anchor, no offset)
-    // ops[1] = (3,3) (second reversed anchor + input = (2,2) + (1,1))
-    // ops[2] = (3,3) (final point)
+    // (a) first we have vector [1,1] pinned at (1,1), which means we have vector starting at (1,1) and ending at (2,2)
+    // (b) then second anchor acts, and moves beginning to (2,2) meaning we have vector starting at (2,2) and ending at (3,3)
     const tp = OutputTransformationPair{
         .outputName = "out",
         .operation = Compose{
@@ -2314,13 +2306,13 @@ test "toExplicitPoint fixed mode - compose with two anchors" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0);
 
-    // ops[1] = (2,2) + (1,1) = (3,3)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 3.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.0);
+    // ops[1] = (2,2) (second anchor, no offset)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0);
 
-    // ops[2] = (1,1) + (1,1) = (2,2) (final point = first anchor + input)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 2.0);
+    // ops[2] = (3,3) (final point = last anchor + input = (2,2) + (1,1))
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 3.0);
 }
 
 test "toExplicitPoint fixed mode - compose with three anchors" {
@@ -2329,7 +2321,9 @@ test "toExplicitPoint fixed mode - compose with three anchors" {
     const a = arena.allocator();
 
     // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[1,1]]
-    // Fixed mode: coordinates stay absolute (no transformation)
+    // (a) first we have vector [1,1] pinned at (1,1), which means we have vector starting at (1,1) and ending at (2,2)
+    // (b) then second anchor acts, and moves the beginning to (2,2) meaning we have vector starting at (2,2) and ending at (3,3)
+    // (c) then the third anchor acts, and moves the beginning to (0,1)) meaning we have vector starting at (0,1) and ending at (1,2)
     const tp = OutputTransformationPair{
         .outputName = "out",
         .operation = .{
@@ -2359,16 +2353,16 @@ test "toExplicitPoint fixed mode - compose with three anchors" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0);
 
-    // ops[1] = (3,3) (second anchor + input = (2,2) + (1,1))
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 3.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.0);
+    // ops[1] = (2,2) (second anchor, no offset)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0);
 
-    // ops[2] = (2,3) (third anchor + 2*input = (0,1) + (2,2))
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 3.0);
+    // ops[2] = (0,1) (third anchor, no offset)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 0.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 1.0);
 
-    // ops[3] = (2,2) (final point = first anchor + input = (1,1) + (1,1))
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 2.0);
+    // ops[3] = (1,2) (final point = last anchor + input = (0,1) + (1,1))
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 2.0);
 }
 
