@@ -246,6 +246,18 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
                     anchor_points[i] = Inputs.Vector{ .x = start.x, .y = start.y };
                     anchor_end_points[i] = Inputs.Vector{ .x = end.x, .y = end.y };
                 }
+            } else if (orientation == .origin) {
+                // origin mode: ops has 2*pin_count elements, use last pair (ops[N-2] to ops[N-1])
+                const start_op = ops[ops.len - 2];
+                const end_op = ops[ops.len - 1];
+                if (start_op == .pin and start_op.pin.point == .point and
+                    end_op == .pin and end_op.pin.point == .point)
+                {
+                    const start = start_op.pin.point.point;
+                    const end = end_op.pin.point.point;
+                    anchor_points[i] = Inputs.Vector{ .x = start.x, .y = start.y };
+                    anchor_end_points[i] = Inputs.Vector{ .x = end.x, .y = end.y };
+                }
             } else {
                 // fixed mode: start = ops[N-1] (last anchor after transformation), end = ops[N-1] + input
                 // For N=2 anchors: ops[1] to ops[2]
