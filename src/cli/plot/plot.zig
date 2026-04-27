@@ -66,7 +66,45 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     context.setLineWidth(10.0); // Re-enable for data lines
     context.resetPath(); // Clear path state after fill
 
-    const bounds = determine_pane_bounds_with_end(@ptrCast(&parsed_data.inputs), parsed_data.anchor_points, parsed_data.anchor_end_points);
+    const outputs = parsed_data.outputs;
+    const input_data = parsed_data.inputs;
+    const coord_orientations = parsed_data.coord_orientations;
+
+    var minX: f32 = 0.0;
+    var maxX: f32 = 0.0;
+    var minY: f32 = 0.0;
+    var maxY: f32 = 0.0;
+
+    // Iterate over all outputs to find bounds
+    for (outputs.transformationPairs) |pair| {
+        const ops = pair.operation.ops;
+
+        for (0..ops.len / 2) |seg_idx| {
+            const start_op = ops[seg_idx * 2];
+            const end_op = ops[seg_idx * 2 + 1];
+
+            if (start_op == .pin and start_op.pin.point == .point and
+                end_op == .pin and end_op.pin.point == .point)
+            {
+                const sx = start_op.pin.point.point.x;
+                const sy = start_op.pin.point.point.y;
+                const ex = end_op.pin.point.point.x;
+                const ey = end_op.pin.point.point.y;
+
+                if (sx < minX) minX = sx;
+                if (sx > maxX) maxX = sx;
+                if (sy < minY) minY = sy;
+                if (sy > maxY) maxY = sy;
+                if (ex < minX) minX = ex;
+                if (ex > maxX) maxX = ex;
+                if (ey < minY) minY = ey;
+                if (ey > maxY) maxY = ey;
+            }
+        }
+    }
+
+    const bounds = ValsRange{ .x = .{ minX, maxX }, .y = .{ minY, maxY } };
+    std.debug.print("DEBUG bounds: x=[{}, {}], y=[{}, {}]\n", .{ bounds.x[0], bounds.x[1], bounds.y[0], bounds.y[1] });
     const x_range = bounds.x[1] - bounds.x[0];
     const y_range = bounds.y[1] - bounds.y[0];
 
@@ -102,15 +140,59 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
             var end_x: f64 = 0.0;
             var end_y: f64 = 0.0;
 
-            // Use anchor_points and anchor_end_points directly for plotting
-            // These come from ops[N-2] and ops[N-1] after toExplicitPoint
-            if (parsed_data.anchor_points.len > row_idx and parsed_data.anchor_end_points.len > row_idx) {
-                if (parsed_data.anchor_points[row_idx]) |start| {
-                    if (parsed_data.anchor_end_points[row_idx]) |end| {
-                        start_x = @as(f64, start.x);
-                        start_y = @as(f64, start.y);
-                        end_x = @as(f64, end.x);
-                        end_y = @as(f64, end.y);
+            // Extract start/end from outputs based on coord_orientation
+            const orientation = if (row_idx < coord_orientations.len) coord_orientations[row_idx] else .fixed;
+
+            if (row_idx < outputs.transformationPairs.len) {
+                const pair = outputs.transformationPairs[row_idx];
+                const ops = pair.operation.ops;
+
+                if (ops.len >= 2) {
+                    if (orientation == .origin) {
+                        // Origin mode: use last two ops (ops[ops.len-2], ops[ops.len-1])
+                        const start_op = ops[ops.len - 2];
+                        const end_op = ops[ops.len - 1];
+                        if (start_op == .pin and start_op.pin.point == .point and
+                            end_op == .pin and end_op.pin.point == .point)
+                        {
+                            start_x = @as(f64, start_op.pin.point.point.x);
+                            start_y = @as(f64, start_op.pin.point.point.y);
+                            end_x = @as(f64, end_op.pin.point.point.x);
+                            end_y = @as(f64, end_op.pin.point.point.y);
+                        }
+                    } else {
+                        // Fixed mode: just use the ops directly
+                        const start_op = ops[0];
+                        const end_op = ops[1];
+                        if (start_op == .pin and start_op.pin.point == .point and
+                            end_op == .pin and end_op.pin.point == .point)
+                        {
+                            start_x = @as(f64, start_op.pin.point.point.x);
+                            start_y = @as(f64, start_op.pin.point.point.y);
+                            end_x = @as(f64, end_op.pin.point.point.x);
+                            end_y = @as(f64, end_op.pin.point.point.y);
+                        }
+                    }
+                } else if (ops.len == 1) {
+                    // Single anchor: start = anchor, end = input
+                    const start_op = ops[0];
+                    if (start_op == .pin and start_op.pin.point == .point) {
+                        start_x = @as(f64, start_op.pin.point.point.x);
+                        start_y = @as(f64, start_op.pin.point.point.y);
+                        // Use input row as end point
+                        if (row_idx < input_data.input.len) {
+                            const input_row = input_data.input[row_idx];
+                            if (input_row.row.len > 0) {
+                                const input_elem = input_row.row[0];
+                                if (input_elem == .vector) {
+                                    end_x = @as(f64, input_elem.vector.x);
+                                    end_y = @as(f64, input_elem.vector.y);
+                                } else if (input_elem == .point) {
+                                    end_x = @as(f64, input_elem.point.x);
+                                    end_y = @as(f64, input_elem.point.y);
+                                }
+                            }
+                        }
                     }
                 }
             }
