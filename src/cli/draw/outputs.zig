@@ -1443,13 +1443,13 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 continue;
             }
 
-            // Collect anchors in forward order (no reverse)
+            // Collect anchors in reverse order (matching & semantics: last op applied first)
             var pins = try allocator.alloc(inputs.Point, pin_count);
-            var pin_idx: usize = 0;
+            var pin_idx: usize = pin_count;
             for (pair.operation.ops) |op| {
                 if (op == .pin and op.pin.point == .point) {
+                    pin_idx -= 1;
                     pins[pin_idx] = op.pin.point.point;
-                    pin_idx += 1;
                 }
             }
 
@@ -2197,20 +2197,19 @@ test "toExplicitPoint fixed mode - compose with two anchors" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
 
     // (a {(2,2)} & a {(1,1)}) with input [[1,1]]
-    // ops order: [(2,2), (1,1)]
-    // i=0: begin (2,2), end (3,3)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 2.0);
+    // i=0: begin (1,1), end (2,2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 3.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0);
 
-    // i=1: begin (1,1), end (2,2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 1.0);
+    // i=1: begin (2,2), end (3,3)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 2.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 3.0);
 }
 
 test "toExplicitPoint fixed mode - compose with three anchors" {
@@ -2246,14 +2245,11 @@ test "toExplicitPoint fixed mode - compose with three anchors" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
 
     // Forward order: pins = [(0,1), (2,2), (1,1)], input = (1,1)
-    // Each anchor stays at its position, end = anchor + input
-    // i=0: begin (0,1), end (1,2)
-    // i=1: begin (2,2), end (3,3)
-    // i=2: begin (1,1), end (2,2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 0.0);
+    // i=0: begin (1,1), end (2,2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0);
 
     // i=1: begin (2,2), end (3,3)
@@ -2263,11 +2259,11 @@ test "toExplicitPoint fixed mode - compose with three anchors" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 3.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 3.0);
 
-    // i=2: begin (1,1), end (2,2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[4].pin.point.point.x, 1.0);
+    // i=2: begin (0,1), end (1,2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[4].pin.point.point.x, 0.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[4].pin.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[5].pin.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[5].pin.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[5].pin.point.point.y, 2.0);
 }
 
@@ -2354,22 +2350,21 @@ test "toExplicitPoint origin mode - compose with three anchors" {
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
 
-    // Reverse order: pins = [(1,1), (2,2), (0,1)], input = (1,1), origin starts at (0,0)
-    // i=0: begin = (1,1)+(0,0) = (1,1), end = (1,1)+(1,1) = (2,2)
+    // i=0: begin = (1,1), end = (2,2)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0);
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0);
 
-    // i=1: begin = (2,2)+(1,1) = (3,3), end = (3,3)+(1,1) = (4,4)
+    // i=1: begin = (3,3), end = (4,4)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 3.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 3.0);
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 4.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 4.0);
 
-    // i=2: begin = (0,1)+(3,3) = (3,4), end = (3,4)+(1,1) = (4,5)
+    // i=2: begin = (3,4), end = (4,5)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[4].pin.point.point.x, 3.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[4].pin.point.point.y, 4.0);
 
@@ -2412,8 +2407,6 @@ test "toExplicitPoint origin mode - compose with three anchors input [-1,0]" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
 
     // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[-1,0]]
-    // After reverse: pins = [(1,1), (2,2), (0,1)]
-    // input = (-1, 0)
     // First anchor (1,1): begin (1,1), end (0,1)
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0, 0.01);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0, 0.01);
