@@ -35,6 +35,16 @@ pub const CoordinateOrientation = enum {
     }
 };
 
+// plot the last results or intermediate steps also (think about functional scan)
+pub const PlotSteps = enum {
+    last, //the last step oly is plotted, ie., after the last operation
+    all, //each step is plotted, ie., after every step
+
+    pub fn defaultPlotSteps() PlotSteps {
+        return .last;
+    }
+};
+
 pub const Style = struct {
     styleNumber: u8,
     styleValue: StyleValue,
@@ -44,6 +54,7 @@ pub const StyleValue = struct {
     styleType: StyleType = .defaultStyleType(),
     coordinateSystem: ?CoordinateType = .defaultCoordinateType(),
     coordinateOrientation: ?CoordinateOrientation = .defaultCoordinateOrientation(),
+    plotSteps: ?PlotSteps = .defaultPlotSteps(),
     attributes: ?Vec2dAttributes = Vec2dAttributes{},
 };
 
@@ -51,6 +62,7 @@ const StyleValueUnion = union(enum) {
     styleType: StyleType,
     coordinateSystem: CoordinateType,
     coordinateOrientation: CoordinateOrientation,
+    plotSteps: PlotSteps,
     attributes: Vec2dAttributes,
 };
 
@@ -304,6 +316,44 @@ test "coordinateOrientationUnionParser" {
 
     const r3 = try coordinateOrientationUnionParser.parse(a, " origin");
     try testing.expectEqual(StyleValueUnion{ .coordinateOrientation = .origin }, r3.value.ok);
+}
+
+const plotStepsParserRaw =
+    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("last"), mecha.string("all") }).asStr(), mecha.toEnum(PlotSteps)) });
+const plotStepsParserRawP = @TypeOf(plotStepsParserRaw);
+fn toPlotStepsUnion(_: std.mem.Allocator, res: plotStepsParserRawP.T) mecha.ConvertError!StyleValueUnion {
+    return StyleValueUnion{ .plotSteps = res };
+}
+const plotStepsUnionParser = plotStepsParserRaw.convert(toPlotStepsUnion);
+
+test "plotStepsParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try plotStepsParserRaw.parse(a, "last");
+    try testing.expectEqual(.last, r1.value.ok);
+
+    const r2 = try plotStepsParserRaw.parse(a, " last");
+    try testing.expectEqual(.last, r2.value.ok);
+
+    const r3 = try plotStepsParserRaw.parse(a, " all");
+    try testing.expectEqual(.all, r3.value.ok);
+
+    const r4 = try plotStepsParserRaw.parse(a, "var");
+    try testing.expectEqual(0, r4.index);
+}
+
+test "plotStepsUnionParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try plotStepsUnionParser.parse(a, "last");
+    try testing.expectEqual(StyleValueUnion{ .plotSteps = .last }, r1.value.ok);
+
+    const r2 = try plotStepsUnionParser.parse(a, " all");
+    try testing.expectEqual(StyleValueUnion{ .plotSteps = .all }, r2.value.ok);
 }
 
 //LineWidth parser
@@ -902,6 +952,7 @@ const styleValueUnionParser = mecha.oneOf(.{
     styleTypeUnionParser,
     coordinateTypeUnionParser,
     coordinateOrientationUnionParser,
+    plotStepsUnionParser,
     vec2dAttributesParserBracketedUnion,
 });
 const many_styleValueUnionParser = mecha.many(styleValueUnionParser, .{ .separator = common.skipWhitespace });
@@ -915,6 +966,7 @@ fn manyToStyleValue(arena: std.mem.Allocator, fields: []StyleValueUnion) mecha.C
         },
         .coordinateSystem => |f| res.coordinateSystem = f,
         .coordinateOrientation => |f| res.coordinateOrientation = f,
+        .plotSteps => |f| res.plotSteps = f,
         .attributes => |f| res.attributes = f,
     };
     if (!hasStyleType) {
@@ -944,6 +996,7 @@ test "styleValueParser" {
         .styleType = .vec2d,
         .coordinateSystem = .polar,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles0,
     };
     try testing.expectEqual(exp_value0, r0.value.ok);
@@ -961,6 +1014,7 @@ test "styleValueParser" {
         .styleType = .vec2d,
         .coordinateSystem = .xy,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles1,
     };
     try testing.expectEqual(exp_value1, r1.value.ok);
@@ -978,6 +1032,7 @@ test "styleValueParser" {
         .styleType = .vec2d,
         .coordinateSystem = .xy,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles2,
     };
     try testing.expectEqual(exp_value2, r2.value.ok);
@@ -995,6 +1050,7 @@ test "styleValueParser" {
         .styleType = .vec2d,
         .coordinateSystem = .polar,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles3,
     };
     try testing.expectEqualDeep(exp_value3, r3.value.ok);
@@ -1021,6 +1077,7 @@ test "styleParser" {
         .styleType = .vec2d,
         .coordinateSystem = .polar,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles0,
     };
     const exp_element0 = Style{
@@ -1042,6 +1099,7 @@ test "styleParser" {
         .styleType = .vec2d,
         .coordinateSystem = .xy,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles1,
     };
     const exp_element1 = Style{
@@ -1063,6 +1121,7 @@ test "styleParser" {
         .styleType = .vec2d,
         .coordinateSystem = .xy,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles2,
     };
     const exp_element2 = Style{
@@ -1084,6 +1143,7 @@ test "styleParser" {
         .styleType = .vec2d,
         .coordinateSystem = .polar,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles3,
     };
     const exp_element3 = Style{
@@ -1105,6 +1165,7 @@ test "styleParser" {
         .styleType = .vec2d,
         .coordinateSystem = .xy,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles4,
     };
     const exp_element4 = Style{
@@ -1112,6 +1173,28 @@ test "styleParser" {
         .styleValue = exp_value4,
     };
     try testing.expectEqualDeep(exp_element4, r4.value.ok);
+
+    const r5 = try styleParser.parse(a, "e0:{vec2d polar all}");
+    const styles5 = Vec2dAttributes{
+        .lineWidth = .defaultLineWidthType(),
+        .lineColor = .defaultLineColorType(),
+        .lineOpacity = .defaultLineOpacityType(),
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = null,
+    };
+    const exp_value5 = StyleValue{
+        .styleType = .vec2d,
+        .coordinateSystem = .polar,
+        .coordinateOrientation = .fixed,
+        .plotSteps = .all,
+        .attributes = styles5,
+    };
+    const exp_element5 = Style{
+        .styleNumber = 0,
+        .styleValue = exp_value5,
+    };
+    try testing.expectEqual(exp_element5, r5.value.ok);
 }
 
 const styleSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
@@ -1143,6 +1226,7 @@ test "stylesParser" {
         .styleType = .vec2d,
         .coordinateSystem = .polar,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles0,
     };
     const exp_element0 = Style{
@@ -1162,6 +1246,7 @@ test "stylesParser" {
         .styleType = .vec2d,
         .coordinateSystem = .xy,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles1,
     };
     const exp_element1 = Style{
@@ -1184,6 +1269,7 @@ test "stylesParser" {
         .styleType = .vec2d,
         .coordinateSystem = .xy,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles2,
     };
     const exp_element2 = Style{
@@ -1203,6 +1289,7 @@ test "stylesParser" {
         .styleType = .vec2d,
         .coordinateSystem = .polar,
         .coordinateOrientation = .fixed,
+        .plotSteps = .last,
         .attributes = styles3,
     };
     const exp_element3 = Style{
