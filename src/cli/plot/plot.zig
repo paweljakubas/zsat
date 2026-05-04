@@ -83,32 +83,23 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
 
         if (ops.len >= 2) {
             if (orientation == .coord) {
-                // Coord mode: bounds from last segment only
-                const start_op = ops[ops.len - 2];
-                const end_op = ops[ops.len - 1];
-                if (start_op == .pin and start_op.pin.point == .point and
-                    end_op == .pin and end_op.pin.point == .point)
-                {
-                    const sx = start_op.pin.point.point.x;
-                    const sy = start_op.pin.point.point.y;
-                    const ex = end_op.pin.point.point.x;
-                    const ey = end_op.pin.point.point.y;
-
-                    if (!boundsInitialized) {
-                        minX = sx;
-                        maxX = sx;
-                        minY = sy;
-                        maxY = sy;
-                        boundsInitialized = true;
+                // Coord mode: bounds from all points in polyline
+                for (ops) |op| {
+                    if (op == .pin and op.pin.point == .point) {
+                        const px = op.pin.point.point.x;
+                        const py = op.pin.point.point.y;
+                        if (!boundsInitialized) {
+                            minX = px;
+                            maxX = px;
+                            minY = py;
+                            maxY = py;
+                            boundsInitialized = true;
+                        }
+                        if (px < minX) minX = px;
+                        if (px > maxX) maxX = px;
+                        if (py < minY) minY = py;
+                        if (py > maxY) maxY = py;
                     }
-                    if (sx < minX) minX = sx;
-                    if (sx > maxX) maxX = sx;
-                    if (sy < minY) minY = sy;
-                    if (sy > maxY) maxY = sy;
-                    if (ex < minX) minX = ex;
-                    if (ex > maxX) maxX = ex;
-                    if (ey < minY) minY = ey;
-                    if (ey > maxY) maxY = ey;
                 }
             } else if (orientation == .origin) {
                 // Origin mode: bounds from input polyline at last anchor
@@ -323,28 +314,26 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
 
                 if (ops.len >= 2) {
                     if (orientation == .coord) {
-                        // Coord mode: only the last segment is visualized
-                        const start_op = ops[ops.len - 2];
-                        const end_op = ops[ops.len - 1];
-                        if (start_op == .pin and start_op.pin.point == .point and
-                            end_op == .pin and end_op.pin.point == .point)
-                        {
-                            const sx = @as(f64, start_op.pin.point.point.x);
-                            const sy = @as(f64, start_op.pin.point.point.y);
-                            const ex = @as(f64, end_op.pin.point.point.x);
-                            const ey = @as(f64, end_op.pin.point.point.y);
-
-                            context.resetPath();
-                            const cur_x = origin_x + sx * x_scale;
-                            const cur_y = origin_y - sy * y_scale;
-                            try context.moveTo(cur_x, cur_y);
-                            const line_x = origin_x + ex * x_scale;
-                            var line_y = origin_y - ey * y_scale;
-                            if (line_y < min_y) line_y = min_y;
-                            if (line_y > max_y) line_y = max_y;
-                            try context.lineTo(line_x, line_y);
-                            try context.stroke();
+                        // Coord mode: draw polyline from all ops
+                        context.resetPath();
+                        var first = true;
+                        for (ops) |op| {
+                            if (op == .pin and op.pin.point == .point) {
+                                const px = @as(f64, op.pin.point.point.x);
+                                const py = @as(f64, op.pin.point.point.y);
+                                const plot_x = origin_x + px * x_scale;
+                                var plot_y = origin_y - py * y_scale;
+                                if (plot_y < min_y) plot_y = min_y;
+                                if (plot_y > max_y) plot_y = max_y;
+                                if (first) {
+                                    try context.moveTo(plot_x, plot_y);
+                                    first = false;
+                                } else {
+                                    try context.lineTo(plot_x, plot_y);
+                                }
+                            }
                         }
+                        try context.stroke();
                     } else if (orientation == .origin) {
                         // Origin mode: translate entire input polyline to last anchor position
                         const start_op = ops[ops.len - 2];
