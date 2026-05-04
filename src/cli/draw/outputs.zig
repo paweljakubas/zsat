@@ -2473,3 +2473,147 @@ test "toExplicitPoint origin mode - compose with three anchors input [-1,0]" {
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].pin.point.point.x, 2.0, 0.01);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].pin.point.point.y, 4.0, 0.01);
 }
+
+test "toExplicitPoint fixed mode - compose with two anchors multi-segment input" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (a {(2,2)} & a {(1,1)}) with input [[1,1],[1,-1]]
+    // Fixed mode sums all vectors: (1+1, 1+(-1)) = (2, 0)
+    // Pins reversed: [(1,1), (2,2)]
+    // i=0: begin=(1,1), end=(1+2,1+0)=(3,1)
+    // i=1: begin=(2,2), end=(2+2,2+0)=(4,2)
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 2.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v1 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const v2 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = -1.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // i=0: begin=(1,1), end=(3,1)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 3.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 1.0, 0.01);
+
+    // i=1: begin=(2,2), end=(4,2)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 2.0, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 4.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 2.0, 0.01);
+}
+
+test "toExplicitPoint origin mode - compose with two anchors multi-segment input" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (a {(2,2)} & a {(1,1)}) with input [[1,1],[1,-1]]
+    // Origin mode sums all vectors: (1+1, 1+(-1)) = (2, 0)
+    // Pins reversed: [(1,1), (2,2)]
+    // i=0: p=(1,1), origin=(0,0), begin=(1,1), end=(3,1), origin becomes (1,1)
+    // i=1: p=(2,2), origin=(1,1), begin=(3,3), end=(5,3)
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 2.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v1 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const v2 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = -1.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // i=0: begin=(1,1), end=(3,1)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 3.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 1.0, 0.01);
+
+    // i=1: begin=(3,3), end=(5,3)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 3.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 3.0, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 5.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 3.0, 0.01);
+}
+
+test "toExplicitPoint coord mode - compose with three anchors multi-segment input" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[1,1],[1,-1]]
+    // Frame after anchors (1,1) and (2,2): origin=(1.0,3.8284), x_axis=(-0.8944,-0.4472), perp=(0.4472,-0.8944)
+    // Last anchor (0,1) local -> global (1.4472, 2.9340)
+    // Apply [1,1] in frame: end1 = (1.0000, 1.5924)
+    // Apply [1,-1] from end1: end2 = (-0.3416, 2.0396)
+    // Polyline: (1.4472, 2.9340) -> (1.0000, 1.5924) -> (-0.3416, 2.0396)
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = .{
+            .ops = &[3]OneArgFunctionPartial{
+                .{ .pin = .{ .point = .{ .point = .{ .x = 0.0, .y = 1.0 } } } },
+                .{ .pin = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
+                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v1 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const v2 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = -1.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
+
+    // Point 0: begin at last anchor global
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.4472, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 2.9340, 0.01);
+
+    // Point 1: after applying [1,1] in frame
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 1.0000, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 1.5924, 0.01);
+
+    // Point 2: after applying [1,-1] in frame
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, -0.3416, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 2.0396, 0.01);
+}
