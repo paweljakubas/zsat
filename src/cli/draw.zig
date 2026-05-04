@@ -19,6 +19,7 @@ pub const ParsedData = struct {
     datum: Datum.DataElementValidated,
     outputs: Outputs.OutputsValidated,
     coord_orientations: []const Styles.CoordinateOrientation,
+    plot_steps: []const Styles.PlotSteps,
     panes: []const Panes.Pane,
     frames: Frames.OutputPaneValidated,
 };
@@ -162,11 +163,12 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     for (0..outputsValidated.transformationPairs.len) |idx| {
         const pair = outputsValidated.transformationPairs[idx];
         const coord_orientation: Styles.CoordinateOrientation = if (styles.len > idx and styles[idx].styleValue.coordinateOrientation != null) styles[idx].styleValue.coordinateOrientation.? else .fixed;
+        const plot_steps: Styles.PlotSteps = if (styles.len > idx and styles[idx].styleValue.plotSteps != null) styles[idx].styleValue.plotSteps.? else .last;
 
         var single_output: Outputs.OutputsValidated = undefined;
         single_output.transformationPairs = &.{pair};
 
-        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientation, idx);
+        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientation, plot_steps, idx);
         result_pairs[idx] = transformed.transformationPairs[0];
     }
 
@@ -214,8 +216,10 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     }
 
     var coord_orientations = try alloc.alloc(Styles.CoordinateOrientation, outputsValidated.transformationPairs.len);
+    var plot_steps = try alloc.alloc(Styles.PlotSteps, outputsValidated.transformationPairs.len);
     for (0..outputsValidated.transformationPairs.len) |idx| {
         coord_orientations[idx] = if (styles.len > idx and styles[idx].styleValue.coordinateOrientation != null) styles[idx].styleValue.coordinateOrientation.? else .fixed;
+        plot_steps[idx] = if (styles.len > idx and styles[idx].styleValue.plotSteps != null) styles[idx].styleValue.plotSteps.? else .last;
     }
 
     return ParsedData{
@@ -224,6 +228,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         .datum = datumValidated,
         .outputs = outputsExplicit,
         .coord_orientations = coord_orientations,
+        .plot_steps = plot_steps,
         .panes = panes,
         .frames = framesValidated,
     };

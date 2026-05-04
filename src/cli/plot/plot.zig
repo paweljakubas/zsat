@@ -38,6 +38,14 @@ pub const RenderedImage = struct {
     allocator: std.mem.Allocator,
 };
 
+fn countVectors(row: anytype) usize {
+    var count: usize = 0;
+    for (row.row) |elem| {
+        if (elem == .vector) count += 1;
+    }
+    return count;
+}
+
 pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedImage {
     if (parsed_data.panes.len == 0) {
         return error.NoPanes;
@@ -83,7 +91,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
 
         if (ops.len >= 2) {
             if (orientation == .coord) {
-                // Coord mode: bounds from all points in polyline
+                // Coord mode: bounds from all points in all polylines
                 for (ops) |op| {
                     if (op == .pin and op.pin.point == .point) {
                         const px = op.pin.point.point.x;
@@ -141,6 +149,42 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                     if (start_op.pin.point.point.x > maxX) maxX = start_op.pin.point.point.x;
                     if (start_op.pin.point.point.y < minY) minY = start_op.pin.point.point.y;
                     if (start_op.pin.point.point.y > maxY) maxY = start_op.pin.point.point.y;
+                }
+            } else {
+                // Fixed mode: ops come in (begin, end) pairs for each anchor
+                for (0..ops.len / 2) |i| {
+                    const begin_op = ops[i * 2];
+                    const end_op = ops[i * 2 + 1];
+                    if (begin_op == .pin and begin_op.pin.point == .point) {
+                        const bx = begin_op.pin.point.point.x;
+                        const by = begin_op.pin.point.point.y;
+                        if (!boundsInitialized) {
+                            minX = bx;
+                            maxX = bx;
+                            minY = by;
+                            maxY = by;
+                            boundsInitialized = true;
+                        }
+                        if (bx < minX) minX = bx;
+                        if (bx > maxX) maxX = bx;
+                        if (by < minY) minY = by;
+                        if (by > maxY) maxY = by;
+                    }
+                    if (end_op == .pin and end_op.pin.point == .point) {
+                        const ex = end_op.pin.point.point.x;
+                        const ey = end_op.pin.point.point.y;
+                        if (!boundsInitialized) {
+                            minX = ex;
+                            maxX = ex;
+                            minY = ey;
+                            maxY = ey;
+                            boundsInitialized = true;
+                        }
+                        if (ex < minX) minX = ex;
+                        if (ex > maxX) maxX = ex;
+                        if (ey < minY) minY = ey;
+                        if (ey > maxY) maxY = ey;
+                    }
                 }
             }
         } else if (ops.len == 1) {
@@ -314,26 +358,35 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
 
                 if (ops.len >= 2) {
                     if (orientation == .coord) {
-                        // Coord mode: draw polyline from all ops
-                        context.resetPath();
-                        var first = true;
-                        for (ops) |op| {
-                            if (op == .pin and op.pin.point == .point) {
-                                const px = @as(f64, op.pin.point.point.x);
-                                const py = @as(f64, op.pin.point.point.y);
-                                const plot_x = origin_x + px * x_scale;
-                                var plot_y = origin_y - py * y_scale;
-                                if (plot_y < min_y) plot_y = min_y;
-                                if (plot_y > max_y) plot_y = max_y;
-                                if (first) {
-                                    try context.moveTo(plot_x, plot_y);
-                                    first = false;
-                                } else {
-                                    try context.lineTo(plot_x, plot_y);
+                        // Coord mode: draw polyline(s) from all ops
+                        const vector_count = if (row_idx < input_data.input.len) countVectors(input_data.input[row_idx]) else 0;
+                        const points_per_step = if (vector_count > 0) vector_count + 1 else 1;
+                        const step_count = ops.len / points_per_step;
+
+                        for (0..step_count) |s| {
+                            context.resetPath();
+                            var first = true;
+                            const start = s * points_per_step;
+                            const end = start + points_per_step;
+                            for (start..end) |j| {
+                                const op = ops[j];
+                                if (op == .pin and op.pin.point == .point) {
+                                    const px = @as(f64, op.pin.point.point.x);
+                                    const py = @as(f64, op.pin.point.point.y);
+                                    const plot_x = origin_x + px * x_scale;
+                                    var plot_y = origin_y - py * y_scale;
+                                    if (plot_y < min_y) plot_y = min_y;
+                                    if (plot_y > max_y) plot_y = max_y;
+                                    if (first) {
+                                        try context.moveTo(plot_x, plot_y);
+                                        first = false;
+                                    } else {
+                                        try context.lineTo(plot_x, plot_y);
+                                    }
                                 }
                             }
+                            try context.stroke();
                         }
-                        try context.stroke();
                     } else if (orientation == .origin) {
                         // Origin mode: translate entire input polyline to last anchor position
                         const start_op = ops[ops.len - 2];
@@ -364,6 +417,34 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                                 }
                             }
                             try context.stroke();
+                        }
+                    } else {
+                        // Fixed mode: ops come in (begin, end) pairs for each anchor
+                        const pair_count = ops.len / 2;
+                        for (0..pair_count) |i| {
+                            const begin_op = ops[i * 2];
+                            const end_op = ops[i * 2 + 1];
+                            if (begin_op == .pin and begin_op.pin.point == .point and
+                                end_op == .pin and end_op.pin.point == .point)
+                            {
+                                const bx = @as(f64, begin_op.pin.point.point.x);
+                                const by = @as(f64, begin_op.pin.point.point.y);
+                                const ex = @as(f64, end_op.pin.point.point.x);
+                                const ey = @as(f64, end_op.pin.point.point.y);
+                                const plot_bx = origin_x + bx * x_scale;
+                                var plot_by = origin_y - by * y_scale;
+                                const plot_ex = origin_x + ex * x_scale;
+                                var plot_ey = origin_y - ey * y_scale;
+                                if (plot_by < min_y) plot_by = min_y;
+                                if (plot_by > max_y) plot_by = max_y;
+                                if (plot_ey < min_y) plot_ey = min_y;
+                                if (plot_ey > max_y) plot_ey = max_y;
+
+                                context.resetPath();
+                                try context.moveTo(plot_bx, plot_by);
+                                try context.lineTo(plot_ex, plot_ey);
+                                try context.stroke();
+                            }
                         }
                     }
                 } else if (ops.len == 1) {

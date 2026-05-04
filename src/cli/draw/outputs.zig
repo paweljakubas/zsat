@@ -8,6 +8,7 @@ const inputs = @import("inputs.zig");
 const Styles = @import("styles.zig");
 
 const CoordinateOrientation = Styles.CoordinateOrientation;
+const PlotSteps = Styles.PlotSteps;
 
 fn rotateAround(angle_degrees: f32, around_x: f32, around_y: f32, point_x: f32, point_y: f32) inputs.Point {
     const phi = angle_degrees * std.math.pi / 180.0;
@@ -1338,7 +1339,89 @@ pub fn validateConnection(_: std.mem.Allocator, numberOfOutputs: u8, connection:
     return OutputsValidated{ .transformationPairs = connection.transformationPairs };
 }
 
-pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, output_idx: usize) ToExplicitPointError!OutputsValidated {
+fn computeAnchorGlobal(
+    anchor_x: f32,
+    anchor_y: f32,
+    current_origin_x: f32,
+    current_origin_y: f32,
+    current_x_axis_x: f32,
+    current_x_axis_y: f32,
+    current_perp_x: f32,
+    current_perp_y: f32,
+) inputs.Point {
+    const local_px = anchor_x;
+    const local_py = anchor_y;
+    const line_x_p1_x = current_origin_x + local_py * current_perp_x;
+    const line_x_p1_y = current_origin_y + local_py * current_perp_y;
+    const line_x_p2_x = line_x_p1_x + current_x_axis_x;
+    const line_x_p2_y = line_x_p1_y + current_x_axis_y;
+    const line_x = Line.fromTwoPoints(line_x_p1_x, line_x_p1_y, line_x_p2_x, line_x_p2_y);
+    const line_y_p1_x = current_origin_x + local_px * current_x_axis_x;
+    const line_y_p1_y = current_origin_y + local_px * current_x_axis_y;
+    const line_y_p2_x = line_y_p1_x + current_perp_x;
+    const line_y_p2_y = line_y_p1_y + current_perp_y;
+    const line_y = Line.fromTwoPoints(line_y_p1_x, line_y_p1_y, line_y_p2_x, line_y_p2_y);
+    const global_point = line_y.intersection(&line_x);
+    return global_point;
+}
+
+fn updateCoordFrame(
+    current_origin_x: *f32,
+    current_origin_y: *f32,
+    current_x_axis_x: *f32,
+    current_x_axis_y: *f32,
+    current_perp_x: *f32,
+    current_perp_y: *f32,
+    anchor_x: f32,
+    anchor_y: f32,
+    global_x: f32,
+    global_y: f32,
+    next_anchor_x: f32,
+    next_anchor_y: f32,
+) void {
+    current_origin_x.* = global_x;
+    current_origin_y.* = global_y;
+    const dx = next_anchor_x - anchor_x;
+    const dy = next_anchor_y - anchor_y;
+    const len = @sqrt(dx * dx + dy * dy);
+    if (len > 1e-10) {
+        current_x_axis_x.* = dx / len;
+        current_x_axis_y.* = dy / len;
+        current_perp_x.* = -current_x_axis_y.*;
+        current_perp_y.* = current_x_axis_x.*;
+    }
+}
+
+fn generateCoordPolyline(
+    allocator: std.mem.Allocator,
+    vectors: []const inputs.Vector,
+    start_x: f32,
+    start_y: f32,
+    x_axis_x: f32,
+    x_axis_y: f32,
+    perp_x: f32,
+    perp_y: f32,
+) ![]OneArgFunctionPartial {
+    const num_points = vectors.len + 1;
+    var ops = try allocator.alloc(OneArgFunctionPartial, num_points);
+    ops[0] = OneArgFunctionPartial{
+        .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = start_x, .y = start_y } } },
+    };
+    var cur_x: f32 = start_x;
+    var cur_y: f32 = start_y;
+    for (vectors, 0..) |v, j| {
+        const gx = v.x * x_axis_x + v.y * perp_x;
+        const gy = v.x * x_axis_y + v.y * perp_y;
+        cur_x += gx;
+        cur_y += gy;
+        ops[j + 1] = OneArgFunctionPartial{
+            .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = cur_x, .y = cur_y } } },
+        };
+    }
+    return ops;
+}
+
+pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize) ToExplicitPointError!OutputsValidated {
     var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
         for (pair.operation.ops) |op| {
@@ -1618,103 +1701,110 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 continue;
             }
 
-            // Compute frame after all anchors, then transform full input polyline
-            var current_origin_x: f32 = pins[0].x;
-            var current_origin_y: f32 = pins[0].y;
-            var current_x_axis_x: f32 = 1.0;
-            var current_x_axis_y: f32 = 0.0;
-            var current_perp_x: f32 = 0.0;
-            var current_perp_y: f32 = 1.0;
+            if (plot_steps == .all and pin_count > 1) {
+                // Generate polylines for all intermediate steps
+                const num_points = pin_count * (vector_count + 1);
+                var all_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
 
-            // Process first pin_count-1 anchors to build frame
-            for (0..pin_count - 1) |i| {
-                const anchor_x = pins[i].x;
-                const anchor_y = pins[i].y;
-                var global_x: f32 = anchor_x;
-                var global_y: f32 = anchor_y;
+                var cur_origin_x: f32 = pins[0].x;
+                var cur_origin_y: f32 = pins[0].y;
+                var cur_x_axis_x: f32 = 1.0;
+                var cur_x_axis_y: f32 = 0.0;
+                var cur_perp_x: f32 = 0.0;
+                var cur_perp_y: f32 = 1.0;
 
-                if (i > 0) {
-                    const local_px = anchor_x;
-                    const local_py = anchor_y;
-                    const line_x_p1_x = current_origin_x + local_py * current_perp_x;
-                    const line_x_p1_y = current_origin_y + local_py * current_perp_y;
-                    const line_x_p2_x = line_x_p1_x + current_x_axis_x;
-                    const line_x_p2_y = line_x_p1_y + current_x_axis_y;
-                    const line_x = Line.fromTwoPoints(line_x_p1_x, line_x_p1_y, line_x_p2_x, line_x_p2_y);
-                    const line_y_p1_x = current_origin_x + local_px * current_x_axis_x;
-                    const line_y_p1_y = current_origin_y + local_px * current_x_axis_y;
-                    const line_y_p2_x = line_y_p1_x + current_perp_x;
-                    const line_y_p2_y = line_y_p1_y + current_perp_y;
-                    const line_y = Line.fromTwoPoints(line_y_p1_x, line_y_p1_y, line_y_p2_x, line_y_p2_y);
-                    const global_point = line_y.intersection(&line_x);
-                    global_x = global_point.x;
-                    global_y = global_point.y;
+                var op_idx: usize = 0;
+                for (0..pin_count) |i| {
+                    const anchor_x = pins[i].x;
+                    const anchor_y = pins[i].y;
+
+                    var global_x: f32 = anchor_x;
+                    var global_y: f32 = anchor_y;
+                    if (i > 0) {
+                        const gp = computeAnchorGlobal(anchor_x, anchor_y, cur_origin_x, cur_origin_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
+                        global_x = gp.x;
+                        global_y = gp.y;
+                    }
+
+                    // Generate polyline for this step
+                    const step_ops = try generateCoordPolyline(allocator, vectors, global_x, global_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
+                    defer allocator.free(step_ops);
+                    for (step_ops, 0..) |op, j| {
+                        all_ops[op_idx + j] = op;
+                    }
+                    op_idx += step_ops.len;
+
+                    // Update frame for next step
+                    if (i < pin_count - 1) {
+                        updateCoordFrame(&cur_origin_x, &cur_origin_y, &cur_x_axis_x, &cur_x_axis_y, &cur_perp_x, &cur_perp_y, anchor_x, anchor_y, global_x, global_y, pins[i + 1].x, pins[i + 1].y);
+                    }
                 }
 
-                // Update frame for next iteration
-                current_origin_x = global_x;
-                current_origin_y = global_y;
-                const next_anchor_x = pins[i + 1].x;
-                const next_anchor_y = pins[i + 1].y;
-                const dx = next_anchor_x - anchor_x;
-                const dy = next_anchor_y - anchor_y;
-                const len = @sqrt(dx * dx + dy * dy);
-                if (len > 1e-10) {
-                    current_x_axis_x = dx / len;
-                    current_x_axis_y = dy / len;
-                    current_perp_x = -current_x_axis_y;
-                    current_perp_y = current_x_axis_x;
+                result_pairs[idx] = OutputTransformationPair{
+                    .outputName = pair.outputName,
+                    .operation = .{ .ops = all_ops },
+                };
+            } else {
+                // .last mode: compute frame after all anchors, generate only final polyline
+                var cur_origin_x: f32 = pins[0].x;
+                var cur_origin_y: f32 = pins[0].y;
+                var cur_x_axis_x: f32 = 1.0;
+                var cur_x_axis_y: f32 = 0.0;
+                var cur_perp_x: f32 = 0.0;
+                var cur_perp_y: f32 = 1.0;
+
+                // Process first pin_count-1 anchors to build frame
+                for (0..pin_count - 1) |i| {
+                    const anchor_x = pins[i].x;
+                    const anchor_y = pins[i].y;
+                    var global_x: f32 = anchor_x;
+                    var global_y: f32 = anchor_y;
+
+                    if (i > 0) {
+                        const gp = computeAnchorGlobal(anchor_x, anchor_y, cur_origin_x, cur_origin_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
+                        global_x = gp.x;
+                        global_y = gp.y;
+                    }
+
+                    updateCoordFrame(&cur_origin_x, &cur_origin_y, &cur_x_axis_x, &cur_x_axis_y, &cur_perp_x, &cur_perp_y, anchor_x, anchor_y, global_x, global_y, pins[i + 1].x, pins[i + 1].y);
                 }
-            }
 
-            // Last anchor: compute its global position
-            const last_anchor_x = pins[pin_count - 1].x;
-            const last_anchor_y = pins[pin_count - 1].y;
-            var last_global_x: f32 = last_anchor_x;
-            var last_global_y: f32 = last_anchor_y;
+                // Last anchor: compute its global position
+                const last_anchor_x = pins[pin_count - 1].x;
+                const last_anchor_y = pins[pin_count - 1].y;
+                var last_global_x: f32 = last_anchor_x;
+                var last_global_y: f32 = last_anchor_y;
 
-            if (pin_count > 1) {
-                const local_px = last_anchor_x;
-                const local_py = last_anchor_y;
-                const line_x_p1_x = current_origin_x + local_py * current_perp_x;
-                const line_x_p1_y = current_origin_y + local_py * current_perp_y;
-                const line_x_p2_x = line_x_p1_x + current_x_axis_x;
-                const line_x_p2_y = line_x_p1_y + current_x_axis_y;
-                const line_x = Line.fromTwoPoints(line_x_p1_x, line_x_p1_y, line_x_p2_x, line_x_p2_y);
-                const line_y_p1_x = current_origin_x + local_px * current_x_axis_x;
-                const line_y_p1_y = current_origin_y + local_px * current_x_axis_y;
-                const line_y_p2_x = line_y_p1_x + current_perp_x;
-                const line_y_p2_y = line_y_p1_y + current_perp_y;
-                const line_y = Line.fromTwoPoints(line_y_p1_x, line_y_p1_y, line_y_p2_x, line_y_p2_y);
-                const global_point = line_y.intersection(&line_x);
-                last_global_x = global_point.x;
-                last_global_y = global_point.y;
-            }
+                if (pin_count > 1) {
+                    const gp = computeAnchorGlobal(last_anchor_x, last_anchor_y, cur_origin_x, cur_origin_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
+                    last_global_x = gp.x;
+                    last_global_y = gp.y;
+                }
 
-            // Generate ops for full input polyline starting at last anchor
-            const num_points = vector_count + 1;
-            var new_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
-            new_ops[0] = OneArgFunctionPartial{
-                .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = last_global_x, .y = last_global_y } } },
-            };
+                // Generate ops for full input polyline starting at last anchor
+                const num_points = vector_count + 1;
+                var new_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
+                new_ops[0] = OneArgFunctionPartial{
+                    .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = last_global_x, .y = last_global_y } } },
+                };
 
-            var cur_x: f32 = last_global_x;
-            var cur_y: f32 = last_global_y;
-            for (vectors, 0..) |v, j| {
-                // Transform vector to global frame
-                const gx = v.x * current_x_axis_x + v.y * current_perp_x;
-                const gy = v.x * current_x_axis_y + v.y * current_perp_y;
-                cur_x += gx;
-                cur_y += gy;
-                new_ops[j + 1] = OneArgFunctionPartial{
-                    .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = cur_x, .y = cur_y } } },
+                var cur_x: f32 = last_global_x;
+                var cur_y: f32 = last_global_y;
+                for (vectors, 0..) |v, j| {
+                    const gx = v.x * cur_x_axis_x + v.y * cur_perp_x;
+                    const gy = v.x * cur_x_axis_y + v.y * cur_perp_y;
+                    cur_x += gx;
+                    cur_y += gy;
+                    new_ops[j + 1] = OneArgFunctionPartial{
+                        .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = cur_x, .y = cur_y } } },
+                    };
+                }
+
+                result_pairs[idx] = OutputTransformationPair{
+                    .outputName = pair.outputName,
+                    .operation = .{ .ops = new_ops },
                 };
             }
-
-            result_pairs[idx] = OutputTransformationPair{
-                .outputName = pair.outputName,
-                .operation = .{ .ops = new_ops },
-            };
         }
 
         return OutputsValidated{ .transformationPairs = result_pairs };
@@ -1856,7 +1946,7 @@ test "toExplicitPoint" {
     const row1 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v1} };
     const input1 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row1} };
 
-    const res1 = try toExplicitPoint(a, input1, outputValidated1, .fixed, 0);
+    const res1 = try toExplicitPoint(a, input1, outputValidated1, .fixed, .last, 0);
     try testing.expectEqualDeep(res1, outputValidated1);
 
     const p2 = ElementFraction{ .fromStart = 30, .element = .self };
@@ -1876,7 +1966,7 @@ test "toExplicitPoint" {
     const row2 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v2} };
     const input2 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row2} };
 
-    const res2 = toExplicitPoint(a, input2, outputValidated2, .fixed, 0);
+    const res2 = toExplicitPoint(a, input2, outputValidated2, .fixed, .last, 0);
     try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, res2);
 
     const f3a = ElementFraction{ .fromStart = 50, .element = ElementReference{ .other = "out2" } };
@@ -1921,7 +2011,7 @@ test "toExplicitPoint" {
     const outputValidated3post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp3c, tp3b },
     };
-    const res3 = try toExplicitPoint(a, input3, outputValidated3, .fixed, 0);
+    const res3 = try toExplicitPoint(a, input3, outputValidated3, .fixed, .last, 0);
     try testing.expectEqualDeep(res3, outputValidated3post);
 
     const f4a = ElementFraction{ .fromStart = 50, .element = ElementReference{ .other = "out2" } };
@@ -1951,7 +2041,7 @@ test "toExplicitPoint" {
     const row4b = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v4b} };
     const input4 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row4a, row4b } };
 
-    const res4 = toExplicitPoint(a, input4, outputValidated4, .fixed, 0);
+    const res4 = toExplicitPoint(a, input4, outputValidated4, .fixed, .last, 0);
     try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, res4);
 
     const f5a = ElementFraction{ .fromStart = -50, .element = ElementReference{ .other = "out2" } };
@@ -1996,7 +2086,7 @@ test "toExplicitPoint" {
     const outputValidated5post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp5c, tp5b },
     };
-    const res5 = try toExplicitPoint(a, input5, outputValidated5, .fixed, 0);
+    const res5 = try toExplicitPoint(a, input5, outputValidated5, .fixed, .last, 0);
     try testing.expectEqualDeep(res5, outputValidated5post);
 
     const f6a = ElementFraction{ .fromStart = 30, .element = ElementReference{ .other = "out1" } };
@@ -2042,7 +2132,7 @@ test "toExplicitPoint" {
     const outputValidated6post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp6b, tp6c },
     };
-    const res6 = try toExplicitPoint(a, input6, outputValidated6, .fixed, 0);
+    const res6 = try toExplicitPoint(a, input6, outputValidated6, .fixed, .last, 0);
     try testing.expectEqualDeep(res6, outputValidated6post);
 }
 
@@ -2069,7 +2159,7 @@ test "toExplicitPoint coord mode - one anchor" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
@@ -2113,7 +2203,7 @@ test "toExplicitPoint coord mode - compose with two anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
@@ -2155,7 +2245,7 @@ test "toExplicitPoint coord mode - compose with three anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
@@ -2197,7 +2287,7 @@ test "toExplicitPoint coord mode - compose with three anchors input [-1,0]" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
@@ -2236,7 +2326,7 @@ test "toExplicitPoint fixed mode - compose with two anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -2284,7 +2374,7 @@ test "toExplicitPoint fixed mode - compose with three anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
@@ -2339,7 +2429,7 @@ test "toExplicitPoint origin mode - compose with two anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -2390,7 +2480,7 @@ test "toExplicitPoint origin mode - compose with three anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
@@ -2446,7 +2536,7 @@ test "toExplicitPoint origin mode - compose with three anchors input [-1,0]" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
@@ -2502,7 +2592,7 @@ test "toExplicitPoint fixed mode - compose with two anchors multi-segment input"
     const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -2550,7 +2640,7 @@ test "toExplicitPoint origin mode - compose with two anchors multi-segment input
     const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -2600,7 +2690,7 @@ test "toExplicitPoint coord mode - compose with three anchors multi-segment inpu
     const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
@@ -2616,4 +2706,120 @@ test "toExplicitPoint coord mode - compose with three anchors multi-segment inpu
     // Point 2: after applying [1,-1] in frame
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, -0.3416, 0.01);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 2.0396, 0.01);
+}
+
+test "toExplicitPoint coord mode all - compose with two anchors multi-segment" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (a {(2,2)} & a {(1,1)}) with input [[1,1],[1,-1]]
+    // Pins reversed: [(1,1), (2,2)]
+    // Step 0 (global frame, anchor (1,1)): (1,1) -> (2,2) -> (3,1)
+    // Step 1 (rotated frame, anchor (2,2)): (2,2) -> (3,3) -> (3.5,2.5)
+    // Total ops: 2 * 3 = 6
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 2.0 } } } },
+                OneArgFunctionPartial{ .pin = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v1 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const v2 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = -1.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .all, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
+
+    // Step 0: (1,1) -> (2,2) -> (3,1)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 3.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 1.0, 0.01);
+
+    // Step 1: (1, 3.828) -> (1, 5.243) -> (2.414, 5.243)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 3.8284, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].pin.point.point.y, 5.2426, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].pin.point.point.x, 2.4142, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].pin.point.point.y, 5.2426, 0.01);
+}
+
+test "toExplicitPoint coord mode all - compose with three anchors multi-segment" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (a {(0,1)} & a {(2,2)} & a {(1,1)}) with input [[1,1]]
+    // Pins reversed: [(1,1), (2,2), (0,1)]
+    // Step 0 (global frame, anchor (1,1)): (1,1) -> (2,2)
+    // Step 1 (frame after (1,1)->(2,2), anchor (2,2)): frame origin=(1,1), x_axis=(0.707,0.707)
+    //   anchor (2,2) local -> global: line intersection at (2,2)
+    //   input [1,1] in frame -> (2.707, 3.707)
+    //   Polyline: (2,2) -> (2.707, 3.707)
+    // Step 2 (frame after (2,2)->(0,1), anchor (0,1)): frame origin=(2,2), x_axis=(-0.894,-0.447)
+    //   anchor (0,1) local -> global: (1.447, 2.934)
+    //   input [1,1] in frame -> (1.0, 1.592)
+    //   Polyline: (1.447, 2.934) -> (1.0, 1.592)
+    // Total ops: 3 * 2 = 6
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = .{
+            .ops = &[3]OneArgFunctionPartial{
+                .{ .pin = .{ .point = .{ .point = .{ .x = 0.0, .y = 1.0 } } } },
+                .{ .pin = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
+                .{ .pin = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .all, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
+
+    // Step 0: (1,1) -> (2,2)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].pin.point.point.y, 1.0, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.x, 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].pin.point.point.y, 2.0, 0.01);
+
+    // Step 1: (1, 3.828) -> (1, 5.243)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].pin.point.point.y, 3.8284, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].pin.point.point.y, 5.2426, 0.01);
+
+    // Step 2: (1.447, 2.934) -> (1.0, 1.592)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].pin.point.point.x, 1.4472, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].pin.point.point.y, 2.9340, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].pin.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].pin.point.point.y, 1.5924, 0.01);
 }
