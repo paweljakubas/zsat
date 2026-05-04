@@ -74,33 +74,93 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     var maxX: f32 = 0.0;
     var minY: f32 = 0.0;
     var maxY: f32 = 0.0;
+    var boundsInitialized = false;
 
     // Iterate over all outputs to find bounds
-    for (outputs.transformationPairs) |pair| {
+    for (outputs.transformationPairs, 0..) |pair, row_idx| {
         const ops = pair.operation.ops;
 
-        for (0..ops.len / 2) |seg_idx| {
-            const start_op = ops[seg_idx * 2];
-            const end_op = ops[seg_idx * 2 + 1];
+        if (ops.len >= 2) {
+            for (0..ops.len / 2) |seg_idx| {
+                const start_op = ops[seg_idx * 2];
+                const end_op = ops[seg_idx * 2 + 1];
 
-            if (start_op == .pin and start_op.pin.point == .point and
-                end_op == .pin and end_op.pin.point == .point)
-            {
-                const sx = start_op.pin.point.point.x;
-                const sy = start_op.pin.point.point.y;
-                const ex = end_op.pin.point.point.x;
-                const ey = end_op.pin.point.point.y;
+                if (start_op == .pin and start_op.pin.point == .point and
+                    end_op == .pin and end_op.pin.point == .point)
+                {
+                    const sx = start_op.pin.point.point.x;
+                    const sy = start_op.pin.point.point.y;
+                    const ex = end_op.pin.point.point.x;
+                    const ey = end_op.pin.point.point.y;
 
-                if (sx < minX) minX = sx;
-                if (sx > maxX) maxX = sx;
-                if (sy < minY) minY = sy;
-                if (sy > maxY) maxY = sy;
-                if (ex < minX) minX = ex;
-                if (ex > maxX) maxX = ex;
-                if (ey < minY) minY = ey;
-                if (ey > maxY) maxY = ey;
+                    if (!boundsInitialized) {
+                        minX = sx;
+                        maxX = sx;
+                        minY = sy;
+                        maxY = sy;
+                        boundsInitialized = true;
+                    }
+                    if (sx < minX) minX = sx;
+                    if (sx > maxX) maxX = sx;
+                    if (sy < minY) minY = sy;
+                    if (sy > maxY) maxY = sy;
+                    if (ex < minX) minX = ex;
+                    if (ex > maxX) maxX = ex;
+                    if (ey < minY) minY = ey;
+                    if (ey > maxY) maxY = ey;
+                }
+            }
+        } else if (ops.len == 1) {
+            const start_op = ops[0];
+            if (start_op == .pin and start_op.pin.point == .point) {
+                const anchor_x: f32 = start_op.pin.point.point.x;
+                const anchor_y: f32 = start_op.pin.point.point.y;
+                var cur_x: f32 = anchor_x;
+                var cur_y: f32 = anchor_y;
+                if (row_idx < input_data.input.len) {
+                    const input_row = input_data.input[row_idx];
+                    for (input_row.row) |input_elem| {
+                        if (input_elem == .vector) {
+                            cur_x += input_elem.vector.x;
+                            cur_y += input_elem.vector.y;
+                        } else if (input_elem == .point) {
+                            cur_x = input_elem.point.x;
+                            cur_y = input_elem.point.y;
+                        }
+                        if (!boundsInitialized) {
+                            minX = cur_x;
+                            maxX = cur_x;
+                            minY = cur_y;
+                            maxY = cur_y;
+                            boundsInitialized = true;
+                        }
+                        if (cur_x < minX) minX = cur_x;
+                        if (cur_x > maxX) maxX = cur_x;
+                        if (cur_y < minY) minY = cur_y;
+                        if (cur_y > maxY) maxY = cur_y;
+                    }
+                }
+                // Also include anchor
+                if (!boundsInitialized) {
+                    minX = anchor_x;
+                    maxX = anchor_x;
+                    minY = anchor_y;
+                    maxY = anchor_y;
+                    boundsInitialized = true;
+                }
+                if (anchor_x < minX) minX = anchor_x;
+                if (anchor_x > maxX) maxX = anchor_x;
+                if (anchor_y < minY) minY = anchor_y;
+                if (anchor_y > maxY) maxY = anchor_y;
             }
         }
+    }
+
+    if (!boundsInitialized) {
+        minX = 0;
+        maxX = 1;
+        minY = 0;
+        maxY = 1;
     }
 
     const bounds = ValsRange{ .x = .{ minX, maxX }, .y = .{ minY, maxY } };
@@ -135,68 +195,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                 }
             }
 
-            var start_x: f64 = 0.0;
-            var start_y: f64 = 0.0;
-            var end_x: f64 = 0.0;
-            var end_y: f64 = 0.0;
-
-            // Extract start/end from outputs based on coord_orientation
-            const orientation = if (row_idx < coord_orientations.len) coord_orientations[row_idx] else .fixed;
-
-            if (row_idx < outputs.transformationPairs.len) {
-                const pair = outputs.transformationPairs[row_idx];
-                const ops = pair.operation.ops;
-
-                if (ops.len >= 2) {
-                    if (orientation == .origin) {
-                        // Origin mode: use last two ops (ops[ops.len-2], ops[ops.len-1])
-                        const start_op = ops[ops.len - 2];
-                        const end_op = ops[ops.len - 1];
-                        if (start_op == .pin and start_op.pin.point == .point and
-                            end_op == .pin and end_op.pin.point == .point)
-                        {
-                            start_x = @as(f64, start_op.pin.point.point.x);
-                            start_y = @as(f64, start_op.pin.point.point.y);
-                            end_x = @as(f64, end_op.pin.point.point.x);
-                            end_y = @as(f64, end_op.pin.point.point.y);
-                        }
-                    } else {
-                        // Fixed mode: just use the ops directly
-                        const start_op = ops[0];
-                        const end_op = ops[1];
-                        if (start_op == .pin and start_op.pin.point == .point and
-                            end_op == .pin and end_op.pin.point == .point)
-                        {
-                            start_x = @as(f64, start_op.pin.point.point.x);
-                            start_y = @as(f64, start_op.pin.point.point.y);
-                            end_x = @as(f64, end_op.pin.point.point.x);
-                            end_y = @as(f64, end_op.pin.point.point.y);
-                        }
-                    }
-                } else if (ops.len == 1) {
-                    // Single anchor: start = anchor, end = input
-                    const start_op = ops[0];
-                    if (start_op == .pin and start_op.pin.point == .point) {
-                        start_x = @as(f64, start_op.pin.point.point.x);
-                        start_y = @as(f64, start_op.pin.point.point.y);
-                        // Use input row as end point
-                        if (row_idx < input_data.input.len) {
-                            const input_row = input_data.input[row_idx];
-                            if (input_row.row.len > 0) {
-                                const input_elem = input_row.row[0];
-                                if (input_elem == .vector) {
-                                    end_x = @as(f64, input_elem.vector.x);
-                                    end_y = @as(f64, input_elem.vector.y);
-                                } else if (input_elem == .point) {
-                                    end_x = @as(f64, input_elem.point.x);
-                                    end_y = @as(f64, input_elem.point.y);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
+            // Extract style
             var line_width: f64 = 10.0;
             var line_r: u8 = 0;
             var line_g: u8 = 0;
@@ -275,19 +274,86 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
             context.setLineCapMode(line_cap_mode);
             context.setLineJoinMode(line_join_mode);
 
-            context.resetPath(); // Ensure fresh path for each row
-            var cur_x = origin_x + start_x * x_scale;
-            var cur_y = origin_y - start_y * y_scale;
-            try context.moveTo(cur_x, cur_y);
+            const orientation = if (row_idx < coord_orientations.len) coord_orientations[row_idx] else .fixed;
 
-            // Plot directly to end point (from ops[N-1])
-            cur_x = origin_x + end_x * x_scale;
-            cur_y = origin_y - end_y * y_scale;
-            if (cur_y < min_y) cur_y = min_y;
-            if (cur_y > max_y) cur_y = max_y;
-            try context.lineTo(cur_x, cur_y);
+            if (row_idx < outputs.transformationPairs.len) {
+                const pair = outputs.transformationPairs[row_idx];
+                const ops = pair.operation.ops;
 
-            try context.stroke();
+                if (ops.len >= 2) {
+                    // Multi-pin: draw single segment
+                    var sx: f64 = 0.0;
+                    var sy: f64 = 0.0;
+                    var ex: f64 = 0.0;
+                    var ey: f64 = 0.0;
+
+                    if (orientation == .origin) {
+                        const start_op = ops[ops.len - 2];
+                        const end_op = ops[ops.len - 1];
+                        if (start_op == .pin and start_op.pin.point == .point and
+                            end_op == .pin and end_op.pin.point == .point)
+                        {
+                            sx = @as(f64, start_op.pin.point.point.x);
+                            sy = @as(f64, start_op.pin.point.point.y);
+                            ex = @as(f64, end_op.pin.point.point.x);
+                            ey = @as(f64, end_op.pin.point.point.y);
+                        }
+                    } else {
+                        const start_op = ops[0];
+                        const end_op = ops[1];
+                        if (start_op == .pin and start_op.pin.point == .point and
+                            end_op == .pin and end_op.pin.point == .point)
+                        {
+                            sx = @as(f64, start_op.pin.point.point.x);
+                            sy = @as(f64, start_op.pin.point.point.y);
+                            ex = @as(f64, end_op.pin.point.point.x);
+                            ey = @as(f64, end_op.pin.point.point.y);
+                        }
+                    }
+
+                    context.resetPath();
+                    var cur_x = origin_x + sx * x_scale;
+                    var cur_y = origin_y - sy * y_scale;
+                    try context.moveTo(cur_x, cur_y);
+                    cur_x = origin_x + ex * x_scale;
+                    cur_y = origin_y - ey * y_scale;
+                    if (cur_y < min_y) cur_y = min_y;
+                    if (cur_y > max_y) cur_y = max_y;
+                    try context.lineTo(cur_x, cur_y);
+                    try context.stroke();
+                } else if (ops.len == 1) {
+                    // Single anchor: draw polyline through all input vectors
+                    const start_op = ops[0];
+                    if (start_op == .pin and start_op.pin.point == .point) {
+                        var anchor_x = @as(f64, start_op.pin.point.point.x);
+                        var anchor_y = @as(f64, start_op.pin.point.point.y);
+                        const cur_x = origin_x + anchor_x * x_scale;
+                        const cur_y = origin_y - anchor_y * y_scale;
+
+                        context.resetPath();
+                        try context.moveTo(cur_x, cur_y);
+
+                        if (row_idx < input_data.input.len) {
+                            const input_row = input_data.input[row_idx];
+                            for (input_row.row) |input_elem| {
+                                if (input_elem == .vector) {
+                                    anchor_x += @as(f64, input_elem.vector.x);
+                                    anchor_y += @as(f64, input_elem.vector.y);
+                                } else if (input_elem == .point) {
+                                    anchor_x = @as(f64, input_elem.point.x);
+                                    anchor_y = @as(f64, input_elem.point.y);
+                                }
+                                const plot_x = origin_x + anchor_x * x_scale;
+                                var plot_y = origin_y - anchor_y * y_scale;
+                                if (plot_y < min_y) plot_y = min_y;
+                                if (plot_y > max_y) plot_y = max_y;
+                                try context.lineTo(plot_x, plot_y);
+                            }
+                        }
+                        try context.stroke();
+                    }
+                }
+            }
         }
     }
 
