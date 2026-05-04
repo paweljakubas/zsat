@@ -281,46 +281,53 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                 const ops = pair.operation.ops;
 
                 if (ops.len >= 2) {
-                    // Multi-pin: draw single segment
-                    var sx: f64 = 0.0;
-                    var sy: f64 = 0.0;
-                    var ex: f64 = 0.0;
-                    var ey: f64 = 0.0;
-
                     if (orientation == .origin) {
+                        // Origin mode: use last two ops
                         const start_op = ops[ops.len - 2];
                         const end_op = ops[ops.len - 1];
                         if (start_op == .pin and start_op.pin.point == .point and
                             end_op == .pin and end_op.pin.point == .point)
                         {
-                            sx = @as(f64, start_op.pin.point.point.x);
-                            sy = @as(f64, start_op.pin.point.point.y);
-                            ex = @as(f64, end_op.pin.point.point.x);
-                            ey = @as(f64, end_op.pin.point.point.y);
+                            const sx = @as(f64, start_op.pin.point.point.x);
+                            const sy = @as(f64, start_op.pin.point.point.y);
+                            const ex = @as(f64, end_op.pin.point.point.x);
+                            const ey = @as(f64, end_op.pin.point.point.y);
+
+                            context.resetPath();
+                            var cur_x = origin_x + sx * x_scale;
+                            var cur_y = origin_y - sy * y_scale;
+                            try context.moveTo(cur_x, cur_y);
+                            cur_x = origin_x + ex * x_scale;
+                            cur_y = origin_y - ey * y_scale;
+                            if (cur_y < min_y) cur_y = min_y;
+                            if (cur_y > max_y) cur_y = max_y;
+                            try context.lineTo(cur_x, cur_y);
+                            try context.stroke();
                         }
                     } else {
-                        const start_op = ops[0];
-                        const end_op = ops[1];
+                        // Fixed mode: only the last segment is visualized
+                        const start_op = ops[ops.len - 2];
+                        const end_op = ops[ops.len - 1];
                         if (start_op == .pin and start_op.pin.point == .point and
                             end_op == .pin and end_op.pin.point == .point)
                         {
-                            sx = @as(f64, start_op.pin.point.point.x);
-                            sy = @as(f64, start_op.pin.point.point.y);
-                            ex = @as(f64, end_op.pin.point.point.x);
-                            ey = @as(f64, end_op.pin.point.point.y);
+                            const sx = @as(f64, start_op.pin.point.point.x);
+                            const sy = @as(f64, start_op.pin.point.point.y);
+                            const ex = @as(f64, end_op.pin.point.point.x);
+                            const ey = @as(f64, end_op.pin.point.point.y);
+
+                            context.resetPath();
+                            const cur_x = origin_x + sx * x_scale;
+                            const cur_y = origin_y - sy * y_scale;
+                            try context.moveTo(cur_x, cur_y);
+                            const line_x = origin_x + ex * x_scale;
+                            var line_y = origin_y - ey * y_scale;
+                            if (line_y < min_y) line_y = min_y;
+                            if (line_y > max_y) line_y = max_y;
+                            try context.lineTo(line_x, line_y);
+                            try context.stroke();
                         }
                     }
-
-                    context.resetPath();
-                    var cur_x = origin_x + sx * x_scale;
-                    var cur_y = origin_y - sy * y_scale;
-                    try context.moveTo(cur_x, cur_y);
-                    cur_x = origin_x + ex * x_scale;
-                    cur_y = origin_y - ey * y_scale;
-                    if (cur_y < min_y) cur_y = min_y;
-                    if (cur_y > max_y) cur_y = max_y;
-                    try context.lineTo(cur_x, cur_y);
-                    try context.stroke();
                 } else if (ops.len == 1) {
                     // Single anchor: draw polyline through all input vectors
                     const start_op = ops[0];
