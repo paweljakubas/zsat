@@ -45,7 +45,7 @@ const outputs_flag = zli.Flag{
     .shortcut = "o",
     .description = "Input(s) transformation definition of the outputs.",
     .type = .String,
-    .default_value = .{ .String = "(out) -> (pin {(0,0)}) out" },
+    .default_value = .{ .String = "(out) -> (anchor {(0,0)}) out" },
 };
 
 const panes_flag = zli.Flag{

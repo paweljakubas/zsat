@@ -21,9 +21,9 @@ fn getAnchorPoint(transformationPairs: anytype, output_index: usize) ?Vector {
     }
     var last_pin: ?Vector = null;
     for (ops) |op| {
-        if (@as(u1, @intFromBool(op == .pin)) == 1) {
-            if (@as(u1, @intFromBool(op.pin.point == .point)) == 1) {
-                const p = op.pin.point.point;
+        if (@as(u1, @intFromBool(op == .anchor)) == 1) {
+            if (@as(u1, @intFromBool(op.anchor.point == .point)) == 1) {
+                const p = op.anchor.point.point;
                 last_pin = Vector{ .x = p.x, .y = p.y };
             }
         }
@@ -93,9 +93,9 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
             if (orientation == .coord) {
                 // Coord mode: bounds from all points in all polylines
                 for (ops) |op| {
-                    if (op == .pin and op.pin.point == .point) {
-                        const px = op.pin.point.point.x;
-                        const py = op.pin.point.point.y;
+                    if (op == .anchor and op.anchor.point == .point) {
+                        const px = op.anchor.point.point.x;
+                        const py = op.anchor.point.point.y;
                         if (!boundsInitialized) {
                             minX = px;
                             maxX = px;
@@ -112,9 +112,9 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
             } else if (orientation == .origin) {
                 // Origin mode: bounds from input polyline at last anchor
                 const start_op = ops[ops.len - 2];
-                if (start_op == .pin and start_op.pin.point == .point) {
-                    var cur_x: f32 = start_op.pin.point.point.x;
-                    var cur_y: f32 = start_op.pin.point.point.y;
+                if (start_op == .anchor and start_op.anchor.point == .point) {
+                    var cur_x: f32 = start_op.anchor.point.point.x;
+                    var cur_y: f32 = start_op.anchor.point.point.y;
                     if (row_idx < input_data.input.len) {
                         const input_row = input_data.input[row_idx];
                         for (input_row.row) |input_elem| {
@@ -145,19 +145,19 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                         maxY = cur_y;
                         boundsInitialized = true;
                     }
-                    if (start_op.pin.point.point.x < minX) minX = start_op.pin.point.point.x;
-                    if (start_op.pin.point.point.x > maxX) maxX = start_op.pin.point.point.x;
-                    if (start_op.pin.point.point.y < minY) minY = start_op.pin.point.point.y;
-                    if (start_op.pin.point.point.y > maxY) maxY = start_op.pin.point.point.y;
+                    if (start_op.anchor.point.point.x < minX) minX = start_op.anchor.point.point.x;
+                    if (start_op.anchor.point.point.x > maxX) maxX = start_op.anchor.point.point.x;
+                    if (start_op.anchor.point.point.y < minY) minY = start_op.anchor.point.point.y;
+                    if (start_op.anchor.point.point.y > maxY) maxY = start_op.anchor.point.point.y;
                 }
             } else {
                 // Fixed mode: ops come in (begin, end) pairs for each anchor
                 for (0..ops.len / 2) |i| {
                     const begin_op = ops[i * 2];
                     const end_op = ops[i * 2 + 1];
-                    if (begin_op == .pin and begin_op.pin.point == .point) {
-                        const bx = begin_op.pin.point.point.x;
-                        const by = begin_op.pin.point.point.y;
+                    if (begin_op == .anchor and begin_op.anchor.point == .point) {
+                        const bx = begin_op.anchor.point.point.x;
+                        const by = begin_op.anchor.point.point.y;
                         if (!boundsInitialized) {
                             minX = bx;
                             maxX = bx;
@@ -170,9 +170,9 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                         if (by < minY) minY = by;
                         if (by > maxY) maxY = by;
                     }
-                    if (end_op == .pin and end_op.pin.point == .point) {
-                        const ex = end_op.pin.point.point.x;
-                        const ey = end_op.pin.point.point.y;
+                    if (end_op == .anchor and end_op.anchor.point == .point) {
+                        const ex = end_op.anchor.point.point.x;
+                        const ey = end_op.anchor.point.point.y;
                         if (!boundsInitialized) {
                             minX = ex;
                             maxX = ex;
@@ -189,9 +189,9 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
             }
         } else if (ops.len == 1) {
             const start_op = ops[0];
-            if (start_op == .pin and start_op.pin.point == .point) {
-                const anchor_x: f32 = start_op.pin.point.point.x;
-                const anchor_y: f32 = start_op.pin.point.point.y;
+            if (start_op == .anchor and start_op.anchor.point == .point) {
+                const anchor_x: f32 = start_op.anchor.point.point.x;
+                const anchor_y: f32 = start_op.anchor.point.point.y;
                 var cur_x: f32 = anchor_x;
                 var cur_y: f32 = anchor_y;
                 if (row_idx < input_data.input.len) {
@@ -370,9 +370,9 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                             const end = start + points_per_step;
                             for (start..end) |j| {
                                 const op = ops[j];
-                                if (op == .pin and op.pin.point == .point) {
-                                    const px = @as(f64, op.pin.point.point.x);
-                                    const py = @as(f64, op.pin.point.point.y);
+                                if (op == .anchor and op.anchor.point == .point) {
+                                    const px = @as(f64, op.anchor.point.point.x);
+                                    const py = @as(f64, op.anchor.point.point.y);
                                     const plot_x = origin_x + px * x_scale;
                                     var plot_y = origin_y - py * y_scale;
                                     if (plot_y < min_y) plot_y = min_y;
@@ -390,9 +390,9 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                     } else if (orientation == .origin) {
                         // Origin mode: translate entire input polyline to last anchor position
                         const start_op = ops[ops.len - 2];
-                        if (start_op == .pin and start_op.pin.point == .point) {
-                            var cur_anchor_x = @as(f64, start_op.pin.point.point.x);
-                            var cur_anchor_y = @as(f64, start_op.pin.point.point.y);
+                        if (start_op == .anchor and start_op.anchor.point == .point) {
+                            var cur_anchor_x = @as(f64, start_op.anchor.point.point.x);
+                            var cur_anchor_y = @as(f64, start_op.anchor.point.point.y);
 
                             context.resetPath();
                             var plot_x = origin_x + cur_anchor_x * x_scale;
@@ -424,13 +424,13 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                         for (0..pair_count) |i| {
                             const begin_op = ops[i * 2];
                             const end_op = ops[i * 2 + 1];
-                            if (begin_op == .pin and begin_op.pin.point == .point and
-                                end_op == .pin and end_op.pin.point == .point)
+                            if (begin_op == .anchor and begin_op.anchor.point == .point and
+                                end_op == .anchor and end_op.anchor.point == .point)
                             {
-                                const bx = @as(f64, begin_op.pin.point.point.x);
-                                const by = @as(f64, begin_op.pin.point.point.y);
-                                const ex = @as(f64, end_op.pin.point.point.x);
-                                const ey = @as(f64, end_op.pin.point.point.y);
+                                const bx = @as(f64, begin_op.anchor.point.point.x);
+                                const by = @as(f64, begin_op.anchor.point.point.y);
+                                const ex = @as(f64, end_op.anchor.point.point.x);
+                                const ey = @as(f64, end_op.anchor.point.point.y);
                                 const plot_bx = origin_x + bx * x_scale;
                                 var plot_by = origin_y - by * y_scale;
                                 const plot_ex = origin_x + ex * x_scale;
@@ -450,9 +450,9 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                 } else if (ops.len == 1) {
                     // Single anchor: draw polyline through all input vectors
                     const start_op = ops[0];
-                    if (start_op == .pin and start_op.pin.point == .point) {
-                        var anchor_x = @as(f64, start_op.pin.point.point.x);
-                        var anchor_y = @as(f64, start_op.pin.point.point.y);
+                    if (start_op == .anchor and start_op.anchor.point == .point) {
+                        var anchor_x = @as(f64, start_op.anchor.point.point.x);
+                        var anchor_y = @as(f64, start_op.anchor.point.point.y);
                         const cur_x = origin_x + anchor_x * x_scale;
                         const cur_y = origin_y - anchor_y * y_scale;
 
