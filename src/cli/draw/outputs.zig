@@ -1464,14 +1464,22 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     continue;
                 }
 
-                var input_sum_x: f32 = 0.0;
-                var input_sum_y: f32 = 0.0;
+                var vector_count: usize = 0;
+                if (idx < inp.input.len) {
+                    for (inp.input[idx].row) |elem| {
+                        if (elem == .vector) vector_count += 1;
+                    }
+                }
+
+                var vectors = try allocator.alloc(inputs.Vector, vector_count);
+                defer allocator.free(vectors);
+                var vidx: usize = 0;
                 if (idx < inp.input.len) {
                     const row = inp.input[idx];
                     for (row.row) |elem| {
                         if (elem == .vector) {
-                            input_sum_x += elem.vector.x;
-                            input_sum_y += elem.vector.y;
+                            vectors[vidx] = elem.vector;
+                            vidx += 1;
                         }
                     }
                 }
@@ -1479,9 +1487,8 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 var ctx_begin: ?inputs.Point = null;
                 var ctx_end: ?inputs.Point = null;
 
-                var segments = try allocator.alloc([2]inputs.Point, num_ops);
-                defer allocator.free(segments);
-                var seg_count: usize = 0;
+                var polylines = try allocator.alloc([]inputs.Point, num_ops);
+                var poly_count: usize = 0;
 
                 var i: usize = num_ops;
                 while (i > 0) {
@@ -1496,30 +1503,47 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                             .middle => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .middle = .self }, orientation),
                             .fraction => |frac| try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation),
                         };
-                        const begin = pt;
-                        const end = inputs.Point{ .x = pt.x + input_sum_x, .y = pt.y + input_sum_y };
-                        segments[seg_count] = .{ begin, end };
-                        ctx_begin = begin;
-                        ctx_end = end;
-                        seg_count += 1;
+                        var poly = try allocator.alloc(inputs.Point, vector_count + 1);
+                        poly[0] = pt;
+                        var cur = pt;
+                        for (vectors, 0..) |v, j| {
+                            cur = inputs.Point{ .x = cur.x + v.x, .y = cur.y + v.y };
+                            poly[j + 1] = cur;
+                        }
+                        polylines[poly_count] = poly;
+                        ctx_begin = poly[0];
+                        ctx_end = poly[poly.len - 1];
+                        poly_count += 1;
                     } else if (op == .rotate) {
                         const arg = op.rotate.elements[0];
+                        const prev_poly = polylines[poly_count - 1];
                         const rot_pt = try resolveGeneralPoint(arg.point, ctx_begin, ctx_end, inp, outputs, idx, orientation);
-                        const end_x = rot_pt.x + input_sum_x;
-                        const end_y = rot_pt.y + input_sum_y;
-                        const rotated = rotateAround(arg.phi, rot_pt.x, rot_pt.y, end_x, end_y);
-                        segments[seg_count] = .{ rot_pt, rotated };
-                        ctx_begin = rot_pt;
-                        ctx_end = rotated;
-                        seg_count += 1;
+                        var poly = try allocator.alloc(inputs.Point, prev_poly.len);
+                        for (prev_poly, 0..) |p, j| {
+                            poly[j] = rotateAround(arg.phi, rot_pt.x, rot_pt.y, p.x, p.y);
+                        }
+                        polylines[poly_count] = poly;
+                        ctx_begin = poly[0];
+                        ctx_end = poly[poly.len - 1];
+                        poly_count += 1;
                     }
                 }
 
-                var new_ops = try allocator.alloc(OneArgFunctionPartial, seg_count * 2);
-                for (0..seg_count) |j| {
-                    new_ops[j * 2] = OneArgFunctionPartial{ .anchor = .{ .point = .{ .point = segments[j][0] } } };
-                    new_ops[j * 2 + 1] = OneArgFunctionPartial{ .anchor = .{ .point = .{ .point = segments[j][1] } } };
+                var total_points: usize = 0;
+                for (0..poly_count) |j| total_points += polylines[j].len;
+
+                var new_ops = try allocator.alloc(OneArgFunctionPartial, total_points);
+                var op_idx: usize = 0;
+                for (0..poly_count) |j| {
+                    const poly = polylines[j];
+                    for (poly) |p| {
+                        new_ops[op_idx] = OneArgFunctionPartial{ .anchor = .{ .point = .{ .point = p } } };
+                        op_idx += 1;
+                    }
                 }
+
+                for (0..poly_count) |j| allocator.free(polylines[j]);
+                allocator.free(polylines);
 
                 result_pairs[idx] = OutputTransformationPair{
                     .outputName = pair.outputName,
@@ -3009,4 +3033,59 @@ test "toExplicitPoint - compose with anchor and rotation" {
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.0);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.414, 0.01);
+}
+
+test "toExplicitPoint - compose with anchor and rotation multi-segment" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (rotate 45 (beg self)) & (anchor {(1,1)}) with input [[1,1],[1,-1]]
+    // & applies in reverse: first anchor (1,1), then rotate
+    // Input sum: (2,0)
+    // (a) anchor at (1,1): segment from (1,1) to (3,1)
+    // (b) rotate around beginning of self (= (1,1)) by 45°: segment from (1,1) to (2.414, 2.414)
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = try a.dupe(RotateArg, &[1]RotateArg{.{ .phi = 45.0, .point = GeneralPoint{ .beginning = .self } }}) } },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v1 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const v2 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = -1.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
+
+    // Anchor polyline: (1,1) -> (2,2) -> (3,1)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
+
+    // Rotate polyline: each anchor point rotated around (1,1) by 45°
+    // (1,1) -> (1, 2.414) -> (2.414, 2.414)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].anchor.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].anchor.point.point.y, 2.414, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.x, 2.414, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.y, 2.414, 0.01);
 }
