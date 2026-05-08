@@ -1518,13 +1518,26 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                         const arg = op.rotate.elements[0];
                         const prev_poly = polylines[poly_count - 1];
                         const rot_pt = try resolveGeneralPoint(arg.point, ctx_begin, ctx_end, inp, outputs, idx, orientation);
-                        var poly = try allocator.alloc(inputs.Point, prev_poly.len);
-                        poly[0] = rot_pt;
-                        var out_idx: usize = 1;
+                        var rot_pt_in_poly = false;
                         for (prev_poly) |p| {
-                            if (p.x == rot_pt.x and p.y == rot_pt.y) continue;
-                            poly[out_idx] = rotateAround(arg.phi, rot_pt.x, rot_pt.y, p.x, p.y);
-                            out_idx += 1;
+                            if (p.x == rot_pt.x and p.y == rot_pt.y) {
+                                rot_pt_in_poly = true;
+                                break;
+                            }
+                        }
+                        var poly = try allocator.alloc(inputs.Point, prev_poly.len);
+                        if (rot_pt_in_poly) {
+                            poly[0] = rot_pt;
+                            var out_idx: usize = 1;
+                            for (prev_poly) |p| {
+                                if (p.x == rot_pt.x and p.y == rot_pt.y) continue;
+                                poly[out_idx] = rotateAround(arg.phi, rot_pt.x, rot_pt.y, p.x, p.y);
+                                out_idx += 1;
+                            }
+                        } else {
+                            for (prev_poly, 0..) |p, j| {
+                                poly[j] = rotateAround(arg.phi, rot_pt.x, rot_pt.y, p.x, p.y);
+                            }
                         }
                         polylines[poly_count] = poly;
                         ctx_begin = poly[0];
@@ -3248,4 +3261,52 @@ test "toExplicitPoint - compose with anchor and rotation around end self multi-s
 
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.x, 3.0 - std.math.sqrt2, 0.01);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.y, 1.0, 0.01);
+}
+
+test "toExplicitPoint - compose with anchor and rotation around mid self" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((rotate [-45 around (mid self)]) & (anchor {(1,1)})) with input [[1,1]]
+    // & applies in reverse: first anchor (1,1), then rotate around midpoint of self
+    // (a) anchor at (1,1) with vector [1,1]: polyline (1,1)->(2,2)
+    // (b) mid self = (1.5, 1.5), not a polyline vertex, so just rotate all points
+    //     rotate (1,1) around (1.5,1.5) by -45°: (1.5-√2/2, 1.5)
+    //     rotate (2,2) around (1.5,1.5) by -45°: (1.5+√2/2, 1.5)
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = try a.dupe(RotateArg, &[1]RotateArg{.{ .phi = -45.0, .point = GeneralPoint{ .middle = .self } }}) } },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // Anchor polyline: (1,1) -> (2,2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
+
+    // Rotate polyline: both points rotated (mid self not a vertex)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.5 - std.math.sqrt2 / 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.5, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.5 + std.math.sqrt2 / 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.5, 0.01);
 }
