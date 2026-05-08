@@ -3193,3 +3193,59 @@ test "toExplicitPoint - compose with anchor and rotation around end self" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 2.0);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.0 - std.math.sqrt2, 0.01);
 }
+
+test "toExplicitPoint - compose with anchor and rotation around end self multi-segment" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((rotate [45 around (end self)]) & (anchor {(1,1)})) with input [[1,1],[1,-1]]
+    // & applies in reverse: first anchor (1,1), then rotate around end of self
+    // (a) anchor at (1,1) with vectors [1,1],[1,-1]: polyline (1,1)->(2,2)->(3,1)
+    // (b) rotate around end of itself, i.e. (3,1), by 45°:
+    //     polyline starts at rotation point (3,1),
+    //     then remaining non-rotation points rotated around (3,1)
+    //     (1,1)→(1.586, -0.414), (2,2)→(1.586, 1.0)
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = try a.dupe(RotateArg, &[1]RotateArg{.{ .phi = 45.0, .point = GeneralPoint{ .end = .self } }}) } },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v1 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const v2 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = -1.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
+
+    // Anchor polyline: (1,1) -> (2,2) -> (3,1)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
+
+    // Rotate polyline: (3,1) -> rotated (1,1) -> rotated (2,2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].anchor.point.point.x, 3.0 - std.math.sqrt2, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].anchor.point.point.y, 1.0 - std.math.sqrt2, 0.01);
+
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.x, 3.0 - std.math.sqrt2, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.y, 1.0, 0.01);
+}
