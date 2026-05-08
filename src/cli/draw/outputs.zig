@@ -1430,6 +1430,107 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
         }
     }
 
+    // Handle compose with non-anchor operations (rotate, scale, mirror)
+    // Process ops right-to-left for & composition semantics
+    {
+        var has_non_anchor = false;
+        for (outputs.transformationPairs) |pair| {
+            for (pair.operation.ops) |op| {
+                if (op != .anchor) {
+                    has_non_anchor = true;
+                    break;
+                }
+            }
+            if (has_non_anchor) break;
+        }
+
+        if (has_non_anchor) {
+            var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
+
+            for (outputs.transformationPairs, 0..) |pair, idx| {
+                const ops = pair.operation.ops;
+                const num_ops = ops.len;
+
+                var has_mixed = false;
+                for (ops) |op| {
+                    if (op != .anchor) {
+                        has_mixed = true;
+                        break;
+                    }
+                }
+
+                if (!has_mixed) {
+                    result_pairs[idx] = pair;
+                    continue;
+                }
+
+                var input_sum_x: f32 = 0.0;
+                var input_sum_y: f32 = 0.0;
+                if (idx < inp.input.len) {
+                    const row = inp.input[idx];
+                    for (row.row) |elem| {
+                        if (elem == .vector) {
+                            input_sum_x += elem.vector.x;
+                            input_sum_y += elem.vector.y;
+                        }
+                    }
+                }
+
+                var ctx_begin: ?inputs.Point = null;
+                var ctx_end: ?inputs.Point = null;
+
+                var segments = try allocator.alloc([2]inputs.Point, num_ops);
+                defer allocator.free(segments);
+                var seg_count: usize = 0;
+
+                var i: usize = num_ops;
+                while (i > 0) {
+                    i -= 1;
+                    const op = ops[i];
+
+                    if (op == .anchor) {
+                        const pt = switch (op.anchor.point) {
+                            .point => |p| p,
+                            .beginning => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .beginning = .self }, orientation),
+                            .end => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .end = .self }, orientation),
+                            .middle => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .middle = .self }, orientation),
+                            .fraction => |frac| try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation),
+                        };
+                        const begin = pt;
+                        const end = inputs.Point{ .x = pt.x + input_sum_x, .y = pt.y + input_sum_y };
+                        segments[seg_count] = .{ begin, end };
+                        ctx_begin = begin;
+                        ctx_end = end;
+                        seg_count += 1;
+                    } else if (op == .rotate) {
+                        const arg = op.rotate.elements[0];
+                        const rot_pt = try resolveGeneralPoint(arg.point, ctx_begin, ctx_end, inp, outputs, idx, orientation);
+                        const end_x = rot_pt.x + input_sum_x;
+                        const end_y = rot_pt.y + input_sum_y;
+                        const rotated = rotateAround(arg.phi, rot_pt.x, rot_pt.y, end_x, end_y);
+                        segments[seg_count] = .{ rot_pt, rotated };
+                        ctx_begin = rot_pt;
+                        ctx_end = rotated;
+                        seg_count += 1;
+                    }
+                }
+
+                var new_ops = try allocator.alloc(OneArgFunctionPartial, seg_count * 2);
+                for (0..seg_count) |j| {
+                    new_ops[j * 2] = OneArgFunctionPartial{ .anchor = .{ .point = .{ .point = segments[j][0] } } };
+                    new_ops[j * 2 + 1] = OneArgFunctionPartial{ .anchor = .{ .point = .{ .point = segments[j][1] } } };
+                }
+
+                result_pairs[idx] = OutputTransformationPair{
+                    .outputName = pair.outputName,
+                    .operation = .{ .ops = new_ops },
+                };
+            }
+
+            return OutputsValidated{ .transformationPairs = result_pairs };
+        }
+    }
+
     // ORIGIN MODE: origin shifts with each anchor, anchors positioned relative to current origin
     if (orientation == .origin and !has_non_point_refs) {
         var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
@@ -1853,6 +1954,47 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
     }
 
     return OutputsValidated{ .transformationPairs = result_pairs };
+}
+
+fn resolveGeneralPoint(
+    pt: GeneralPoint,
+    ctx_begin: ?inputs.Point,
+    ctx_end: ?inputs.Point,
+    inp: inputs.Inputs,
+    outputs: OutputsValidated,
+    idx: usize,
+    orientation: CoordinateOrientation,
+) ToExplicitPointError!inputs.Point {
+    switch (pt) {
+        .point => |p| return p,
+        .beginning => |ref| {
+            if (ref == .self) return ctx_begin orelse return ToExplicitPointError.CannotDetermineExplicitPoint;
+            return getExplicitPoint(inp, outputs, ref, idx, .{ .beginning = .self }, orientation);
+        },
+        .end => |ref| {
+            if (ref == .self) return ctx_end orelse return ToExplicitPointError.CannotDetermineExplicitPoint;
+            return getExplicitPoint(inp, outputs, ref, idx, .{ .end = .self }, orientation);
+        },
+        .middle => |ref| {
+            if (ref == .self) {
+                const b = ctx_begin orelse return ToExplicitPointError.CannotDetermineExplicitPoint;
+                const e = ctx_end orelse return ToExplicitPointError.CannotDetermineExplicitPoint;
+                return inputs.Point{ .x = (b.x + e.x) / 2.0, .y = (b.y + e.y) / 2.0 };
+            }
+            return getExplicitPoint(inp, outputs, ref, idx, .{ .middle = .self }, orientation);
+        },
+        .fraction => |frac| {
+            if (frac.element == .self) {
+                const b = ctx_begin orelse return ToExplicitPointError.CannotDetermineExplicitPoint;
+                const e = ctx_end orelse return ToExplicitPointError.CannotDetermineExplicitPoint;
+                const dx = e.x - b.x;
+                const dy = e.y - b.y;
+                const factor = @as(f32, @floatFromInt(frac.fromStart)) / 100.0;
+                return inputs.Point{ .x = b.x + dx * factor, .y = b.y + dy * factor };
+            }
+            return getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation);
+        },
+    }
 }
 
 fn getExplicitPoint(inp: inputs.Inputs, outputs: OutputsValidated, ref: ElementReference, current_idx: usize, pt_type: GeneralPoint, orientation: CoordinateOrientation) ToExplicitPointError!inputs.Point {
@@ -2818,4 +2960,53 @@ test "toExplicitPoint coord mode all - compose with three anchors multi-segment"
 
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.x, 1.0, 0.01);
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.y, 1.5924, 0.01);
+}
+
+test "toExplicitPoint - compose with anchor and rotation" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (rotate [45 a (0% self)] & a {(1,1)}) with input [[1,1]]
+    // & applies in reverse: first anchor (1,1), then rotate
+    // (a) first we have vector [1,1] anchored at (1,1), which means we have vector starting at (1,1) and ending at (2,2)
+    // (b) then rotation acts, and as we rotate around the beginning of itself, ie (1,1), we have the resultant vector starting at (1,1) and ending at (1,1+sqrt(2))
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const p1 = GeneralPoint{ .fraction = f1 };
+    const r1arg = RotateArg{ .phi = 45.0, .point = p1 };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = try a.dupe(RotateArg, &[1]RotateArg{r1arg}) } },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // i=0: begin (1,1), end (2,2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
+
+    // i=1: begin (1,1), end (1,1+sqrt(2))
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.0);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.414, 0.01);
 }
