@@ -1547,17 +1547,49 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                         const arg = op.scale.elements[0];
                         const prev_poly = polylines[poly_count - 1];
                         var poly = try allocator.alloc(inputs.Point, prev_poly.len);
-                        poly[0] = prev_poly[0];
-                        for (prev_poly[1..], 0..) |p, j| {
-                            poly[j + 1] = inputs.Point{
-                                .x = poly[0].x + (p.x - poly[0].x) * arg.translation.x,
-                                .y = poly[0].y + (p.y - poly[0].y) * arg.translation.y,
-                            };
-                        }
-                        if (orientation == .origin) {
-                            for (poly) |*p| {
-                                p.x += ctx_begin.?.x;
-                                p.y += ctx_begin.?.y;
+                        if (orientation == .coord) {
+                            const dx = prev_poly[prev_poly.len - 1].x - prev_poly[0].x;
+                            const dy = prev_poly[prev_poly.len - 1].y - prev_poly[0].y;
+                            const len = @sqrt(@as(f64, dx) * @as(f64, dx) + @as(f64, dy) * @as(f64, dy));
+                            var x_axis_x: f64 = 1.0;
+                            var x_axis_y: f64 = 0.0;
+                            if (len > 1e-10) {
+                                x_axis_x = @as(f64, dx) / len;
+                                x_axis_y = @as(f64, dy) / len;
+                            }
+                            const perp_x = -x_axis_y;
+                            const perp_y = x_axis_x;
+                            var cur_x: f64 = prev_poly[0].x;
+                            var cur_y: f64 = prev_poly[0].y;
+                            for (vectors, 0..) |v, j| {
+                                const gx = @as(f64, v.x) * x_axis_x + @as(f64, v.y) * perp_x;
+                                const gy = @as(f64, v.x) * x_axis_y + @as(f64, v.y) * perp_y;
+                                if (j == 0) {
+                                    cur_x += gx;
+                                    cur_y += gy;
+                                    poly[0] = .{ .x = @floatCast(cur_x), .y = @floatCast(cur_y) };
+                                    cur_x += gx * @as(f64, arg.translation.x);
+                                    cur_y += gy * @as(f64, arg.translation.y);
+                                    poly[1] = .{ .x = @floatCast(cur_x), .y = @floatCast(cur_y) };
+                                } else {
+                                    cur_x += gx * @as(f64, arg.translation.x);
+                                    cur_y += gy * @as(f64, arg.translation.y);
+                                    poly[j + 1] = .{ .x = @floatCast(cur_x), .y = @floatCast(cur_y) };
+                                }
+                            }
+                        } else {
+                            poly[0] = prev_poly[0];
+                            for (prev_poly[1..], 0..) |p, j| {
+                                poly[j + 1] = inputs.Point{
+                                    .x = poly[0].x + (p.x - poly[0].x) * arg.translation.x,
+                                    .y = poly[0].y + (p.y - poly[0].y) * arg.translation.y,
+                                };
+                            }
+                            if (orientation == .origin) {
+                                for (poly) |*p| {
+                                    p.x += ctx_begin.?.x;
+                                    p.y += ctx_begin.?.y;
+                                }
                             }
                         }
                         polylines[poly_count] = poly;
@@ -3618,4 +3650,98 @@ test "toExplicitPoint origin - compose with anchor and scale 3" {
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 4.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 5.0);
+}
+
+test "toExplicitPoint coord - compose with anchor and scale 1" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((scale [[1,1]]) & (anchor {(1,1)})) with input [[1,1]]
+    // & applies in reverse: first anchor (1,1), then rotate around end of self
+    // (a) anchor at (1,1) with vector [1,1]: polyline from (1,1) to (2,2)
+    // (b) scale [1,1] does not affect the vector wrt to new local frame: polyline from (1, 1+sqrt(2)) to (1, 2srqt(2))
+    const v1 = inputs.Vector{ .x = 1.0, .y = 1.0 };
+    const s1 = ScaleArg{ .translation = v1 };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .scale = ScalePartial{ .elements = try a.dupe(ScaleArg, &[1]ScaleArg{s1}) } },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // Anchor polyline: (1,1) -> (2,2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
+
+    // Rotate polyline: (1, 1+ sqrt(2)) -> (1, 1 + 2srqt(2))
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0 + std.math.sqrt(2.0));
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0 + 2.0 * std.math.sqrt(2.0));
+}
+
+test "toExplicitPoint coord - compose with anchor and scale 2" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((scale [[3,3]]) & (anchor {(1,1)})) with input [[1,1]]
+    // & applies in reverse: first anchor (1,1), then rotate around end of self
+    // (a) anchor at (1,1) with vector [1,1]: polyline from (1,1) to (2,2)
+    // (b) scale [3,3] does affect the vector wrt to new local frame: polyline from (1, 1+sqrt(2)) to (1, 1 + 4srqt(2))
+    const v1 = inputs.Vector{ .x = 3.0, .y = 3.0 };
+    const s1 = ScaleArg{ .translation = v1 };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .scale = ScalePartial{ .elements = try a.dupe(ScaleArg, &[1]ScaleArg{s1}) } },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // Anchor polyline: (1,1) -> (2,2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
+
+    // Rotate polyline: (1, 1+ sqrt(2)) -> (1, 1 + 4srqt(2))
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0 + std.math.sqrt(2.0));
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0 + 4.0 * std.math.sqrt(2.0));
 }
