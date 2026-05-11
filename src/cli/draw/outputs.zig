@@ -1554,7 +1554,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                                 .y = poly[0].y + (p.y - poly[0].y) * arg.translation.y,
                             };
                         }
-                        if (orientation == .origin and !(arg.translation.x == 1.0 and arg.translation.y == 1.0)) {
+                        if (orientation == .origin) {
                             for (poly) |*p| {
                                 p.x += ctx_begin.?.x;
                                 p.y += ctx_begin.?.y;
@@ -3484,7 +3484,7 @@ test "toExplicitPoint origin - compose with anchor and scale 1" {
     // ((scale [[1,1]]) & (anchor {(1,1)})) with input [[1,1]]
     // & applies in reverse: first anchor (1,1), then rotate around end of self
     // (a) anchor at (1,1) with vector [1,1]: polyline from (1,1) to (2,2)
-    // (b) scale [1,1] does not change anything: polyline from (1,1) to (2,2)
+    // (b) scale [1,1] does not change anything: polyline from (2,2) to (3,3)
     const v1 = inputs.Vector{ .x = 1.0, .y = 1.0 };
     const s1 = ScaleArg{ .translation = v1 };
     const tp = OutputTransformationPair{
@@ -3516,12 +3516,12 @@ test "toExplicitPoint origin - compose with anchor and scale 1" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
 
-    // Rotate polyline: (1,1) -> (2, 2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
+    // Rotate polyline: (2,2) -> (3, 3)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 2.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 3.0);
 }
 
 test "toExplicitPoint origin - compose with anchor and scale 2" {
