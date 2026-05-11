@@ -1554,6 +1554,12 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                                 .y = poly[0].y + (p.y - poly[0].y) * arg.translation.y,
                             };
                         }
+                        if (orientation == .origin and !(arg.translation.x == 1.0 and arg.translation.y == 1.0)) {
+                            for (poly) |*p| {
+                                p.x += ctx_begin.?.x;
+                                p.y += ctx_begin.?.y;
+                            }
+                        }
                         polylines[poly_count] = poly;
                         ctx_begin = poly[0];
                         ctx_end = poly[poly.len - 1];
