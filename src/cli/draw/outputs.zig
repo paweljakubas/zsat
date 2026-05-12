@@ -1556,6 +1556,165 @@ fn flattenPolylinesToOps(allocator: std.mem.Allocator, polylines: [][]inputs.Poi
     };
 }
 
+/// Generates begin/end ops for each anchor using line-intersection frame positioning (no input vectors).
+/// First anchor is placed at its absolute position; subsequent anchors use the local frame.
+fn processCoordNoVectors(allocator: std.mem.Allocator, anchors: []const inputs.Point) ![]OneArgFunctionPartial {
+    var new_ops = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
+    var cur_origin_x: f32 = anchors[0].x;
+    var cur_origin_y: f32 = anchors[0].y;
+    var cur_x_axis_x: f32 = 1.0;
+    var cur_x_axis_y: f32 = 0.0;
+    var cur_perp_x: f32 = 0.0;
+    var cur_perp_y: f32 = 1.0;
+
+    for (0..anchors.len) |i| {
+        const anchor_x = anchors[i].x;
+        const anchor_y = anchors[i].y;
+        var global_x: f32 = undefined;
+        var global_y: f32 = undefined;
+
+        if (i == 0) {
+            global_x = anchor_x;
+            global_y = anchor_y;
+        } else {
+            const local_px = anchor_x;
+            const local_py = anchor_y;
+            const line_x_p1_x = cur_origin_x + local_py * cur_perp_x;
+            const line_x_p1_y = cur_origin_y + local_py * cur_perp_y;
+            const line_x_p2_x = line_x_p1_x + cur_x_axis_x;
+            const line_x_p2_y = line_x_p1_y + cur_x_axis_y;
+            const line_x = Line.fromTwoPoints(line_x_p1_x, line_x_p1_y, line_x_p2_x, line_x_p2_y);
+            const line_y_p1_x = cur_origin_x + local_px * cur_x_axis_x;
+            const line_y_p1_y = cur_origin_y + local_px * cur_x_axis_y;
+            const line_y_p2_x = line_y_p1_x + cur_perp_x;
+            const line_y_p2_y = line_y_p1_y + cur_perp_y;
+            const line_y = Line.fromTwoPoints(line_y_p1_x, line_y_p1_y, line_y_p2_x, line_y_p2_y);
+            const global_point = line_y.intersection(&line_x);
+            global_x = global_point.x;
+            global_y = global_point.y;
+        }
+
+        new_ops[i * 2] = OneArgFunctionPartial{
+            .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = global_x, .y = global_y } } },
+        };
+        new_ops[i * 2 + 1] = OneArgFunctionPartial{
+            .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = global_x, .y = global_y } } },
+        };
+
+        if (i < anchors.len - 1) {
+            cur_origin_x = global_x;
+            cur_origin_y = global_y;
+            cur_x_axis_x = (anchors[i + 1].x - anchor_x);
+            cur_x_axis_y = (anchors[i + 1].y - anchor_y);
+            const len = @sqrt(cur_x_axis_x * cur_x_axis_x + cur_x_axis_y * cur_x_axis_y);
+            if (len > 1e-10) {
+                cur_x_axis_x /= len;
+                cur_x_axis_y /= len;
+                cur_perp_x = -cur_x_axis_y;
+                cur_perp_y = cur_x_axis_x;
+            }
+        }
+    }
+    return new_ops;
+}
+
+/// Generates polylines for all intermediate anchor steps in coord mode (plot_steps == .all).
+fn processCoordAllSteps(allocator: std.mem.Allocator, anchors: []const inputs.Point, vectors: []const inputs.Vector) ![]OneArgFunctionPartial {
+    const num_points = anchors.len * (vectors.len + 1);
+    var all_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
+
+    var cur_origin_x: f32 = anchors[0].x;
+    var cur_origin_y: f32 = anchors[0].y;
+    var cur_x_axis_x: f32 = 1.0;
+    var cur_x_axis_y: f32 = 0.0;
+    var cur_perp_x: f32 = 0.0;
+    var cur_perp_y: f32 = 1.0;
+
+    var op_idx: usize = 0;
+    for (0..anchors.len) |i| {
+        const anchor_x = anchors[i].x;
+        const anchor_y = anchors[i].y;
+
+        var global_x: f32 = anchor_x;
+        var global_y: f32 = anchor_y;
+        if (i > 0) {
+            const gp = computeAnchorGlobal(anchor_x, anchor_y, cur_origin_x, cur_origin_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
+            global_x = gp.x;
+            global_y = gp.y;
+        }
+
+        const step_ops = try generateCoordPolyline(allocator, vectors, global_x, global_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
+        defer allocator.free(step_ops);
+        for (step_ops, 0..) |op, j| {
+            all_ops[op_idx + j] = op;
+        }
+        op_idx += step_ops.len;
+
+        if (i < anchors.len - 1) {
+            updateCoordFrame(&cur_origin_x, &cur_origin_y, &cur_x_axis_x, &cur_x_axis_y, &cur_perp_x, &cur_perp_y, anchor_x, anchor_y, global_x, global_y, anchors[i + 1].x, anchors[i + 1].y);
+        }
+    }
+
+    return all_ops;
+}
+
+/// Generates a single polyline for the final anchor in coord mode (plot_steps == .last).
+/// Processes all anchors to build the frame, then generates the polyline at the last position.
+fn processCoordLastStep(allocator: std.mem.Allocator, anchors: []const inputs.Point, vectors: []const inputs.Vector) ![]OneArgFunctionPartial {
+    var cur_origin_x: f32 = anchors[0].x;
+    var cur_origin_y: f32 = anchors[0].y;
+    var cur_x_axis_x: f32 = 1.0;
+    var cur_x_axis_y: f32 = 0.0;
+    var cur_perp_x: f32 = 0.0;
+    var cur_perp_y: f32 = 1.0;
+
+    for (0..anchors.len - 1) |i| {
+        const anchor_x = anchors[i].x;
+        const anchor_y = anchors[i].y;
+        var global_x: f32 = anchor_x;
+        var global_y: f32 = anchor_y;
+
+        if (i > 0) {
+            const gp = computeAnchorGlobal(anchor_x, anchor_y, cur_origin_x, cur_origin_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
+            global_x = gp.x;
+            global_y = gp.y;
+        }
+
+        updateCoordFrame(&cur_origin_x, &cur_origin_y, &cur_x_axis_x, &cur_x_axis_y, &cur_perp_x, &cur_perp_y, anchor_x, anchor_y, global_x, global_y, anchors[i + 1].x, anchors[i + 1].y);
+    }
+
+    const last_anchor_x = anchors[anchors.len - 1].x;
+    const last_anchor_y = anchors[anchors.len - 1].y;
+    var last_global_x: f32 = last_anchor_x;
+    var last_global_y: f32 = last_anchor_y;
+
+    if (anchors.len > 1) {
+        const gp = computeAnchorGlobal(last_anchor_x, last_anchor_y, cur_origin_x, cur_origin_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
+        last_global_x = gp.x;
+        last_global_y = gp.y;
+    }
+
+    const num_points = vectors.len + 1;
+    var new_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
+    new_ops[0] = OneArgFunctionPartial{
+        .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = last_global_x, .y = last_global_y } } },
+    };
+
+    var cur_x: f32 = last_global_x;
+    var cur_y: f32 = last_global_y;
+    for (vectors, 0..) |v, j| {
+        const gx = v.x * cur_x_axis_x + v.y * cur_perp_x;
+        const gy = v.x * cur_x_axis_y + v.y * cur_perp_y;
+        cur_x += gx;
+        cur_y += gy;
+        new_ops[j + 1] = OneArgFunctionPartial{
+            .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = cur_x, .y = cur_y } } },
+        };
+    }
+
+    return new_ops;
+}
+
 fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, arg: RotateArg, rot_pt: inputs.Point) ![]inputs.Point {
     var rot_pt_in_poly = false;
     for (prev_poly) |p| {
@@ -1907,169 +2066,22 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
             defer allocator.free(vectors);
 
             if (vectors.len == 0) {
-                // No vectors, just generate (begin, end) for last anchor
-                var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
-                var current_origin_x: f32 = anchors[0].x;
-                var current_origin_y: f32 = anchors[0].y;
-                var current_x_axis_x: f32 = 1.0;
-                var current_x_axis_y: f32 = 0.0;
-                var current_perp_x: f32 = 0.0;
-                var current_perp_y: f32 = 1.0;
-
-                for (0..anchors.len) |i| {
-                    const anchor_x = anchors[i].x;
-                    const anchor_y = anchors[i].y;
-                    var global_x: f32 = undefined;
-                    var global_y: f32 = undefined;
-
-                    if (i == 0) {
-                        global_x = anchor_x;
-                        global_y = anchor_y;
-                    } else {
-                        const local_px = anchor_x;
-                        const local_py = anchor_y;
-                        const line_x_p1_x = current_origin_x + local_py * current_perp_x;
-                        const line_x_p1_y = current_origin_y + local_py * current_perp_y;
-                        const line_x_p2_x = line_x_p1_x + current_x_axis_x;
-                        const line_x_p2_y = line_x_p1_y + current_x_axis_y;
-                        const line_x = Line.fromTwoPoints(line_x_p1_x, line_x_p1_y, line_x_p2_x, line_x_p2_y);
-                        const line_y_p1_x = current_origin_x + local_px * current_x_axis_x;
-                        const line_y_p1_y = current_origin_y + local_px * current_x_axis_y;
-                        const line_y_p2_x = line_y_p1_x + current_perp_x;
-                        const line_y_p2_y = line_y_p1_y + current_perp_y;
-                        const line_y = Line.fromTwoPoints(line_y_p1_x, line_y_p1_y, line_y_p2_x, line_y_p2_y);
-                        const global_point = line_y.intersection(&line_x);
-                        global_x = global_point.x;
-                        global_y = global_point.y;
-                    }
-
-                    new_ops_with_end[i * 2] = OneArgFunctionPartial{
-                        .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = global_x, .y = global_y } } },
-                    };
-                    new_ops_with_end[i * 2 + 1] = OneArgFunctionPartial{
-                        .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = global_x, .y = global_y } } },
-                    };
-
-                    if (i < anchors.len - 1) {
-                        current_origin_x = global_x;
-                        current_origin_y = global_y;
-                        current_x_axis_x = (anchors[i + 1].x - anchor_x);
-                        current_x_axis_y = (anchors[i + 1].y - anchor_y);
-                        const len = @sqrt(current_x_axis_x * current_x_axis_x + current_x_axis_y * current_x_axis_y);
-                        if (len > 1e-10) {
-                            current_x_axis_x /= len;
-                            current_x_axis_y /= len;
-                            current_perp_x = -current_x_axis_y;
-                            current_perp_y = current_x_axis_x;
-                        }
-                    }
-                }
+                const new_ops = try processCoordNoVectors(allocator, anchors);
                 result_pairs[idx] = OutputTransformationPair{
                     .outputName = pair.outputName,
-                    .operation = .{ .ops = new_ops_with_end },
+                    .operation = .{ .ops = new_ops },
                 };
                 continue;
             }
 
             if (plot_steps == .all and anchors.len > 1) {
-                // Generate polylines for all intermediate steps
-                const num_points = anchors.len * (vectors.len + 1);
-                var all_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
-
-                var cur_origin_x: f32 = anchors[0].x;
-                var cur_origin_y: f32 = anchors[0].y;
-                var cur_x_axis_x: f32 = 1.0;
-                var cur_x_axis_y: f32 = 0.0;
-                var cur_perp_x: f32 = 0.0;
-                var cur_perp_y: f32 = 1.0;
-
-                var op_idx: usize = 0;
-                for (0..anchors.len) |i| {
-                    const anchor_x = anchors[i].x;
-                    const anchor_y = anchors[i].y;
-
-                    var global_x: f32 = anchor_x;
-                    var global_y: f32 = anchor_y;
-                    if (i > 0) {
-                        const gp = computeAnchorGlobal(anchor_x, anchor_y, cur_origin_x, cur_origin_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
-                        global_x = gp.x;
-                        global_y = gp.y;
-                    }
-
-                    // Generate polyline for this step
-                    const step_ops = try generateCoordPolyline(allocator, vectors, global_x, global_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
-                    defer allocator.free(step_ops);
-                    for (step_ops, 0..) |op, j| {
-                        all_ops[op_idx + j] = op;
-                    }
-                    op_idx += step_ops.len;
-
-                    // Update frame for next step
-                    if (i < anchors.len - 1) {
-                        updateCoordFrame(&cur_origin_x, &cur_origin_y, &cur_x_axis_x, &cur_x_axis_y, &cur_perp_x, &cur_perp_y, anchor_x, anchor_y, global_x, global_y, anchors[i + 1].x, anchors[i + 1].y);
-                    }
-                }
-
+                const new_ops = try processCoordAllSteps(allocator, anchors, vectors);
                 result_pairs[idx] = OutputTransformationPair{
                     .outputName = pair.outputName,
-                    .operation = .{ .ops = all_ops },
+                    .operation = .{ .ops = new_ops },
                 };
             } else {
-                // .last mode: compute frame after all anchors, generate only final polyline
-                var cur_origin_x: f32 = anchors[0].x;
-                var cur_origin_y: f32 = anchors[0].y;
-                var cur_x_axis_x: f32 = 1.0;
-                var cur_x_axis_y: f32 = 0.0;
-                var cur_perp_x: f32 = 0.0;
-                var cur_perp_y: f32 = 1.0;
-
-                // Process first anchors.len-1 anchors to build frame
-                for (0..anchors.len - 1) |i| {
-                    const anchor_x = anchors[i].x;
-                    const anchor_y = anchors[i].y;
-                    var global_x: f32 = anchor_x;
-                    var global_y: f32 = anchor_y;
-
-                    if (i > 0) {
-                        const gp = computeAnchorGlobal(anchor_x, anchor_y, cur_origin_x, cur_origin_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
-                        global_x = gp.x;
-                        global_y = gp.y;
-                    }
-
-                    updateCoordFrame(&cur_origin_x, &cur_origin_y, &cur_x_axis_x, &cur_x_axis_y, &cur_perp_x, &cur_perp_y, anchor_x, anchor_y, global_x, global_y, anchors[i + 1].x, anchors[i + 1].y);
-                }
-
-                // Last anchor: compute its global position
-                const last_anchor_x = anchors[anchors.len - 1].x;
-                const last_anchor_y = anchors[anchors.len - 1].y;
-                var last_global_x: f32 = last_anchor_x;
-                var last_global_y: f32 = last_anchor_y;
-
-                if (anchors.len > 1) {
-                    const gp = computeAnchorGlobal(last_anchor_x, last_anchor_y, cur_origin_x, cur_origin_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
-                    last_global_x = gp.x;
-                    last_global_y = gp.y;
-                }
-
-                // Generate ops for full input polyline starting at last anchor
-                const num_points = vectors.len + 1;
-                var new_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
-                new_ops[0] = OneArgFunctionPartial{
-                    .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = last_global_x, .y = last_global_y } } },
-                };
-
-                var cur_x: f32 = last_global_x;
-                var cur_y: f32 = last_global_y;
-                for (vectors, 0..) |v, j| {
-                    const gx = v.x * cur_x_axis_x + v.y * cur_perp_x;
-                    const gy = v.x * cur_x_axis_y + v.y * cur_perp_y;
-                    cur_x += gx;
-                    cur_y += gy;
-                    new_ops[j + 1] = OneArgFunctionPartial{
-                        .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = cur_x, .y = cur_y } } },
-                    };
-                }
-
+                const new_ops = try processCoordLastStep(allocator, anchors, vectors);
                 result_pairs[idx] = OutputTransformationPair{
                     .outputName = pair.outputName,
                     .operation = .{ .ops = new_ops },
