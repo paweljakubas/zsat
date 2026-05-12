@@ -38,6 +38,16 @@ pub const RenderedImage = struct {
     allocator: std.mem.Allocator,
 };
 
+const LineStyle = struct {
+    width: f64,
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+    cap_mode: z2d.options.CapMode,
+    join_mode: z2d.options.JoinMode,
+};
+
 fn countVectors(row: anytype) usize {
     var count: usize = 0;
     for (row.row) |elem| {
@@ -144,6 +154,95 @@ fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anyt
     return ValsRange{ .x = .{ minX, maxX }, .y = .{ minY, maxY } };
 }
 
+/// Resolves line style (width, color, cap, join, dashing) for a given input row
+/// from the parsed style definitions. Applies dashing directly to the context.
+fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_idx: usize, height: i32) !LineStyle {
+    var style_idx: usize = 0;
+    for (mappings) |mapping| {
+        if (mapping.from == row_idx) {
+            style_idx = mapping.to;
+            break;
+        }
+    }
+
+    var ls = LineStyle{
+        .width = 10.0,
+        .r = 0,
+        .g = 0,
+        .b = 0,
+        .a = 255,
+        .cap_mode = .butt,
+        .join_mode = .miter,
+    };
+
+    if (style_idx < styles.len) {
+        const style = styles[style_idx];
+        if (style.styleValue.attributes) |attrs| {
+            const lw = attrs.lineWidth;
+            switch (lw.reference) {
+                .normalized => {
+                    const h2: f64 = @floatFromInt(height);
+                    const v: f64 = @floatFromInt(lw.value);
+                    ls.width = v * h2 / 1000.0;
+                },
+                .global => {
+                    const v: f64 = @floatFromInt(lw.value);
+                    ls.width = v / 10.0;
+                },
+                .output => {
+                    const v: f64 = @floatFromInt(lw.value);
+                    ls.width = v;
+                },
+                .local => {
+                    const v: f64 = @floatFromInt(lw.value);
+                    ls.width = v / 10.0;
+                },
+            }
+            const lc = attrs.lineColor;
+            const rgb = colorNameToRGB(lc.value);
+            ls.r = rgb.r;
+            ls.g = rgb.g;
+            ls.b = rgb.b;
+            const alpha: u16 = @intCast(@as(u16, attrs.lineOpacity.value) * 255 / 100);
+            ls.r = @intCast(@as(u16, ls.r) * alpha / 255);
+            ls.g = @intCast(@as(u16, ls.g) * alpha / 255);
+            ls.b = @intCast(@as(u16, ls.b) * alpha / 255);
+            ls.a = @intCast(alpha);
+
+            if (attrs.lineDashing) |ld| {
+                var dashes = try std.heap.page_allocator.alloc(f64, ld.onOff.len);
+                for (ld.onOff, 0..) |val, i| {
+                    dashes[i] = @floatFromInt(val);
+                }
+                context.setDashes(dashes);
+                const offset_px: f64 = @floatFromInt(ld.offset);
+                context.setDashOffset(offset_px);
+            } else {
+                context.setDashes(&.{});
+                context.setDashOffset(0);
+            }
+
+            const cap = attrs.lineCap.value;
+            ls.cap_mode = switch (cap) {
+                .none => .butt,
+                .butt => .butt,
+                .round => .round,
+                .square => .square,
+            };
+
+            const join = attrs.lineJoin.value;
+            ls.join_mode = switch (join) {
+                .none => .miter,
+                .mitter => .miter,
+                .round => .round,
+                .bevel => .bevel,
+            };
+        }
+    }
+
+    return ls;
+}
+
 pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedImage {
     if (parsed_data.panes.len == 0) {
         return error.NoPanes;
@@ -195,95 +294,12 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
         const min_y = margin;
         const max_y = @as(f64, @floatFromInt(height)) - margin;
 
-        const mappings = parsed_data.datum.mappings;
-
         for (parsed_data.inputs.input, 0..) |_, row_idx| {
-            var style_idx: usize = 0;
-            for (mappings) |mapping| {
-                if (mapping.from == row_idx) {
-                    style_idx = mapping.to;
-                    break;
-                }
-            }
-
-            // Extract style
-            var line_width: f64 = 10.0;
-            var line_r: u8 = 0;
-            var line_g: u8 = 0;
-            var line_b: u8 = 0;
-            var line_a: u8 = 255;
-            var line_cap_mode: z2d.options.CapMode = .butt;
-            var line_join_mode: z2d.options.JoinMode = .miter;
-
-            if (style_idx < parsed_data.styles.len) {
-                const style = parsed_data.styles[style_idx];
-                if (style.styleValue.attributes) |attrs| {
-                    const lw = attrs.lineWidth;
-                    switch (lw.reference) {
-                        .normalized => {
-                            const h2: f64 = @floatFromInt(height);
-                            const v: f64 = @floatFromInt(lw.value);
-                            line_width = v * h2 / 1000.0;
-                        },
-                        .global => {
-                            const v: f64 = @floatFromInt(lw.value);
-                            line_width = v / 10.0;
-                        },
-                        .output => {
-                            const v: f64 = @floatFromInt(lw.value);
-                            line_width = v;
-                        },
-                        .local => {
-                            const v: f64 = @floatFromInt(lw.value);
-                            line_width = v / 10.0;
-                        },
-                    }
-                    const lc = attrs.lineColor;
-                    const rgb = colorNameToRGB(lc.value);
-                    line_r = rgb.r;
-                    line_g = rgb.g;
-                    line_b = rgb.b;
-                    const alpha: u16 = @intCast(@as(u16, attrs.lineOpacity.value) * 255 / 100);
-                    line_r = @intCast(@as(u16, line_r) * alpha / 255);
-                    line_g = @intCast(@as(u16, line_g) * alpha / 255);
-                    line_b = @intCast(@as(u16, line_b) * alpha / 255);
-                    line_a = @intCast(alpha);
-
-                    if (attrs.lineDashing) |ld| {
-                        var dashes = try std.heap.page_allocator.alloc(f64, ld.onOff.len);
-                        for (ld.onOff, 0..) |val, i| {
-                            dashes[i] = @floatFromInt(val);
-                        }
-                        context.setDashes(dashes);
-                        const offset_px: f64 = @floatFromInt(ld.offset);
-                        context.setDashOffset(offset_px);
-                    } else {
-                        context.setDashes(&.{});
-                        context.setDashOffset(0);
-                    }
-
-                    const cap = attrs.lineCap.value;
-                    line_cap_mode = switch (cap) {
-                        .none => .butt,
-                        .butt => .butt,
-                        .round => .round,
-                        .square => .square,
-                    };
-
-                    const join = attrs.lineJoin.value;
-                    line_join_mode = switch (join) {
-                        .none => .miter,
-                        .mitter => .miter,
-                        .round => .round,
-                        .bevel => .bevel,
-                    };
-                }
-            }
-
-            context.setSourceToPixel(.{ .rgba = .{ .r = line_r, .g = line_g, .b = line_b, .a = line_a } });
-            context.setLineWidth(line_width);
-            context.setLineCapMode(line_cap_mode);
-            context.setLineJoinMode(line_join_mode);
+            const style = try resolveStyle(&context, parsed_data.styles, parsed_data.datum.mappings, row_idx, height);
+            context.setSourceToPixel(.{ .rgba = .{ .r = style.r, .g = style.g, .b = style.b, .a = style.a } });
+            context.setLineWidth(style.width);
+            context.setLineCapMode(style.cap_mode);
+            context.setLineJoinMode(style.join_mode);
 
             const orientation = if (row_idx < coord_orientations.len) coord_orientations[row_idx] else .fixed;
 
