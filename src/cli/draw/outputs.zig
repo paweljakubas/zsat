@@ -1488,6 +1488,27 @@ fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize) 
     return vectors;
 }
 
+/// Counts explicit point anchors in a composition and returns them in reverse order.
+/// Reverse order matches `&` composition semantics where the last operation is applied first.
+/// Caller owns the returned slice.
+fn collectAnchorsReversed(allocator: std.mem.Allocator, ops: []const OneArgFunctionPartial) ![]inputs.Point {
+    var count: usize = 0;
+    for (ops) |op| {
+        if (op == .anchor and op.anchor.point == .point) {
+            count += 1;
+        }
+    }
+    var anchors = try allocator.alloc(inputs.Point, count);
+    var idx: usize = count;
+    for (ops) |op| {
+        if (op == .anchor and op.anchor.point == .point) {
+            idx -= 1;
+            anchors[idx] = op.anchor.point.point;
+        }
+    }
+    return anchors;
+}
+
 pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize) ToExplicitPointError!OutputsValidated {
     var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
@@ -1731,29 +1752,13 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
         var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
 
         for (outputs.transformationPairs, 0..) |pair, idx| {
-            var anchor_count: usize = 0;
-            for (pair.operation.ops) |op| {
-                if (op == .anchor and op.anchor.point == .point) {
-                    anchor_count += 1;
-                }
-            }
-
-            if (anchor_count < 2) {
+            const anchors = try collectAnchorsReversed(allocator, pair.operation.ops);
+            if (anchors.len < 2) {
                 result_pairs[idx] = pair;
                 continue;
             }
 
-            // & applies in reverse order
-            var anchors = try allocator.alloc(inputs.Point, anchor_count);
-            var anchor_idx: usize = anchor_count;
-            for (pair.operation.ops) |op| {
-                if (op == .anchor and op.anchor.point == .point) {
-                    anchor_idx -= 1;
-                    anchors[anchor_idx] = op.anchor.point.point;
-                }
-            }
-
-            var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchor_count);
+            var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
 
             var input_x: f32 = 0.0;
             var input_y: f32 = 0.0;
@@ -1772,7 +1777,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
 
             var origin_x: f32 = 0.0;
             var origin_y: f32 = 0.0;
-            for (0..anchor_count) |i| {
+            for (0..anchors.len) |i| {
                 const p = anchors[i];
                 const begin_x = p.x + origin_x;
                 const begin_y = p.y + origin_y;
@@ -1806,29 +1811,13 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
         var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
 
         for (outputs.transformationPairs, 0..) |pair, idx| {
-            var anchor_count: usize = 0;
-            for (pair.operation.ops) |op| {
-                if (op == .anchor and op.anchor.point == .point) {
-                    anchor_count += 1;
-                }
-            }
-
-            if (anchor_count < 2) {
+            const anchors = try collectAnchorsReversed(allocator, pair.operation.ops);
+            if (anchors.len < 2) {
                 result_pairs[idx] = pair;
                 continue;
             }
 
-            // Collect anchors in reverse order (matching & semantics: last op applied first)
-            var anchors = try allocator.alloc(inputs.Point, anchor_count);
-            var anchor_idx: usize = anchor_count;
-            for (pair.operation.ops) |op| {
-                if (op == .anchor and op.anchor.point == .point) {
-                    anchor_idx -= 1;
-                    anchors[anchor_idx] = op.anchor.point.point;
-                }
-            }
-
-            var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchor_count);
+            var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
 
             var input_x: f32 = 0.0;
             var input_y: f32 = 0.0;
@@ -1846,7 +1835,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
             }
 
             // Each anchor stays at its position, end = anchor + input
-            for (0..anchor_count) |i| {
+            for (0..anchors.len) |i| {
                 const p = anchors[i];
                 const begin_x = p.x;
                 const begin_y = p.y;
@@ -1884,25 +1873,10 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 result_pairs[idx] = pair;
                 continue;
             }
-            var anchor_count: usize = 0;
-            for (pair.operation.ops) |op| {
-                if (op == .anchor and op.anchor.point == .point) {
-                    anchor_count += 1;
-                }
-            }
-
-            if (anchor_count < 1) {
+            const anchors = try collectAnchorsReversed(allocator, pair.operation.ops);
+            if (anchors.len < 1) {
                 result_pairs[idx] = pair;
                 continue;
-            }
-
-            var anchors = try allocator.alloc(inputs.Point, anchor_count);
-            var anchor_idx: usize = anchor_count;
-            for (pair.operation.ops) |op| {
-                if (op == .anchor and op.anchor.point == .point) {
-                    anchor_idx -= 1;
-                    anchors[anchor_idx] = op.anchor.point.point;
-                }
             }
 
             const vectors = try collectVectors(allocator, inp, output_idx);
@@ -1910,7 +1884,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
 
             if (vectors.len == 0) {
                 // No vectors, just generate (begin, end) for last anchor
-                var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchor_count);
+                var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
                 var current_origin_x: f32 = anchors[0].x;
                 var current_origin_y: f32 = anchors[0].y;
                 var current_x_axis_x: f32 = 1.0;
@@ -1918,7 +1892,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 var current_perp_x: f32 = 0.0;
                 var current_perp_y: f32 = 1.0;
 
-                for (0..anchor_count) |i| {
+                for (0..anchors.len) |i| {
                     const anchor_x = anchors[i].x;
                     const anchor_y = anchors[i].y;
                     var global_x: f32 = undefined;
@@ -1952,7 +1926,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                         .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = global_x, .y = global_y } } },
                     };
 
-                    if (i < anchor_count - 1) {
+                    if (i < anchors.len - 1) {
                         current_origin_x = global_x;
                         current_origin_y = global_y;
                         current_x_axis_x = (anchors[i + 1].x - anchor_x);
@@ -1973,9 +1947,9 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 continue;
             }
 
-            if (plot_steps == .all and anchor_count > 1) {
+            if (plot_steps == .all and anchors.len > 1) {
                 // Generate polylines for all intermediate steps
-                const num_points = anchor_count * (vectors.len + 1);
+                const num_points = anchors.len * (vectors.len + 1);
                 var all_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
 
                 var cur_origin_x: f32 = anchors[0].x;
@@ -1986,7 +1960,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 var cur_perp_y: f32 = 1.0;
 
                 var op_idx: usize = 0;
-                for (0..anchor_count) |i| {
+                for (0..anchors.len) |i| {
                     const anchor_x = anchors[i].x;
                     const anchor_y = anchors[i].y;
 
@@ -2007,7 +1981,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     op_idx += step_ops.len;
 
                     // Update frame for next step
-                    if (i < anchor_count - 1) {
+                    if (i < anchors.len - 1) {
                         updateCoordFrame(&cur_origin_x, &cur_origin_y, &cur_x_axis_x, &cur_x_axis_y, &cur_perp_x, &cur_perp_y, anchor_x, anchor_y, global_x, global_y, anchors[i + 1].x, anchors[i + 1].y);
                     }
                 }
@@ -2025,8 +1999,8 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 var cur_perp_x: f32 = 0.0;
                 var cur_perp_y: f32 = 1.0;
 
-                // Process first anchor_count-1 anchors to build frame
-                for (0..anchor_count - 1) |i| {
+                // Process first anchors.len-1 anchors to build frame
+                for (0..anchors.len - 1) |i| {
                     const anchor_x = anchors[i].x;
                     const anchor_y = anchors[i].y;
                     var global_x: f32 = anchor_x;
@@ -2042,12 +2016,12 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 }
 
                 // Last anchor: compute its global position
-                const last_anchor_x = anchors[anchor_count - 1].x;
-                const last_anchor_y = anchors[anchor_count - 1].y;
+                const last_anchor_x = anchors[anchors.len - 1].x;
+                const last_anchor_y = anchors[anchors.len - 1].y;
                 var last_global_x: f32 = last_anchor_x;
                 var last_global_y: f32 = last_anchor_y;
 
-                if (anchor_count > 1) {
+                if (anchors.len > 1) {
                     const gp = computeAnchorGlobal(last_anchor_x, last_anchor_y, cur_origin_x, cur_origin_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
                     last_global_x = gp.x;
                     last_global_y = gp.y;
