@@ -243,6 +243,103 @@ fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_i
     return ls;
 }
 
+/// Draws a polyline from an anchor point through all input vectors/points.
+/// Shared by origin mode (last anchor's begin) and single-anchor mode.
+/// Vectors accumulate relative displacement; points set absolute position.
+fn drawPolylineFromAnchor(context: *z2d.Context, start_x: f64, start_y: f64, input_data: anytype, row_idx: usize, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
+    var cur_x = start_x;
+    var cur_y = start_y;
+    context.resetPath();
+    var plot_x = origin_x + cur_x * x_scale;
+    var plot_y = origin_y - cur_y * y_scale;
+    if (plot_y < min_y) plot_y = min_y;
+    if (plot_y > max_y) plot_y = max_y;
+    try context.moveTo(plot_x, plot_y);
+
+    if (row_idx < input_data.input.len) {
+        const input_row = input_data.input[row_idx];
+        for (input_row.row) |elem| {
+            if (elem == .vector) {
+                cur_x += @as(f64, elem.vector.x);
+                cur_y += @as(f64, elem.vector.y);
+            } else if (elem == .point) {
+                cur_x = @as(f64, elem.point.x);
+                cur_y = @as(f64, elem.point.y);
+            }
+            plot_x = origin_x + cur_x * x_scale;
+            plot_y = origin_y - cur_y * y_scale;
+            if (plot_y < min_y) plot_y = min_y;
+            if (plot_y > max_y) plot_y = max_y;
+            try context.lineTo(plot_x, plot_y);
+        }
+    }
+    try context.stroke();
+}
+
+/// Draws polylines in coord mode, splitting ops into steps of (vector_count + 1)
+/// points each. Each step is a separate polyline (reset path between steps).
+fn drawCoordPolylines(context: *z2d.Context, ops: anytype, input_data: anytype, row_idx: usize, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
+    const vector_count = if (row_idx < input_data.input.len) countVectors(input_data.input[row_idx]) else 0;
+    const points_per_step = if (vector_count > 0) vector_count + 1 else 1;
+    const step_count = ops.len / points_per_step;
+
+    for (0..step_count) |s| {
+        context.resetPath();
+        var first = true;
+        const start = s * points_per_step;
+        const end = start + points_per_step;
+        for (start..end) |j| {
+            const op = ops[j];
+            if (op == .anchor and op.anchor.point == .point) {
+                const px = @as(f64, op.anchor.point.point.x);
+                const py = @as(f64, op.anchor.point.point.y);
+                const plot_x = origin_x + px * x_scale;
+                var plot_y = origin_y - py * y_scale;
+                if (plot_y < min_y) plot_y = min_y;
+                if (plot_y > max_y) plot_y = max_y;
+                if (first) {
+                    try context.moveTo(plot_x, plot_y);
+                    first = false;
+                } else {
+                    try context.lineTo(plot_x, plot_y);
+                }
+            }
+        }
+        try context.stroke();
+    }
+}
+
+/// Draws (begin, end) line segments for fixed mode, where ops come in
+/// interleaved begin/end point pairs.
+fn drawFixedPairs(context: *z2d.Context, ops: anytype, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
+    const pair_count = ops.len / 2;
+    for (0..pair_count) |i| {
+        const begin_op = ops[i * 2];
+        const end_op = ops[i * 2 + 1];
+        if (begin_op == .anchor and begin_op.anchor.point == .point and
+            end_op == .anchor and end_op.anchor.point == .point)
+        {
+            const bx = @as(f64, begin_op.anchor.point.point.x);
+            const by = @as(f64, begin_op.anchor.point.point.y);
+            const ex = @as(f64, end_op.anchor.point.point.x);
+            const ey = @as(f64, end_op.anchor.point.point.y);
+            const plot_bx = origin_x + bx * x_scale;
+            var plot_by = origin_y - by * y_scale;
+            const plot_ex = origin_x + ex * x_scale;
+            var plot_ey = origin_y - ey * y_scale;
+            if (plot_by < min_y) plot_by = min_y;
+            if (plot_by > max_y) plot_by = max_y;
+            if (plot_ey < min_y) plot_ey = min_y;
+            if (plot_ey > max_y) plot_ey = max_y;
+
+            context.resetPath();
+            try context.moveTo(plot_bx, plot_by);
+            try context.lineTo(plot_ex, plot_ey);
+            try context.stroke();
+        }
+    }
+}
+
 pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedImage {
     if (parsed_data.panes.len == 0) {
         return error.NoPanes;
@@ -309,125 +406,19 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
 
                 if (ops.len >= 2) {
                     if (orientation == .coord) {
-                        // Coord mode: draw polyline(s) from all ops
-                        const vector_count = if (row_idx < input_data.input.len) countVectors(input_data.input[row_idx]) else 0;
-                        const points_per_step = if (vector_count > 0) vector_count + 1 else 1;
-                        const step_count = ops.len / points_per_step;
-
-                        for (0..step_count) |s| {
-                            context.resetPath();
-                            var first = true;
-                            const start = s * points_per_step;
-                            const end = start + points_per_step;
-                            for (start..end) |j| {
-                                const op = ops[j];
-                                if (op == .anchor and op.anchor.point == .point) {
-                                    const px = @as(f64, op.anchor.point.point.x);
-                                    const py = @as(f64, op.anchor.point.point.y);
-                                    const plot_x = origin_x + px * x_scale;
-                                    var plot_y = origin_y - py * y_scale;
-                                    if (plot_y < min_y) plot_y = min_y;
-                                    if (plot_y > max_y) plot_y = max_y;
-                                    if (first) {
-                                        try context.moveTo(plot_x, plot_y);
-                                        first = false;
-                                    } else {
-                                        try context.lineTo(plot_x, plot_y);
-                                    }
-                                }
-                            }
-                            try context.stroke();
-                        }
+                        try drawCoordPolylines(&context, ops, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
                     } else if (orientation == .origin) {
-                        // Origin mode: translate entire input polyline to last anchor position
                         const start_op = ops[ops.len - 2];
                         if (start_op == .anchor and start_op.anchor.point == .point) {
-                            var cur_anchor_x = @as(f64, start_op.anchor.point.point.x);
-                            var cur_anchor_y = @as(f64, start_op.anchor.point.point.y);
-
-                            context.resetPath();
-                            var plot_x = origin_x + cur_anchor_x * x_scale;
-                            var plot_y = origin_y - cur_anchor_y * y_scale;
-                            try context.moveTo(plot_x, plot_y);
-
-                            if (row_idx < input_data.input.len) {
-                                const input_row = input_data.input[row_idx];
-                                for (input_row.row) |input_elem| {
-                                    if (input_elem == .vector) {
-                                        cur_anchor_x += @as(f64, input_elem.vector.x);
-                                        cur_anchor_y += @as(f64, input_elem.vector.y);
-                                    } else if (input_elem == .point) {
-                                        cur_anchor_x = @as(f64, input_elem.point.x);
-                                        cur_anchor_y = @as(f64, input_elem.point.y);
-                                    }
-                                    plot_x = origin_x + cur_anchor_x * x_scale;
-                                    plot_y = origin_y - cur_anchor_y * y_scale;
-                                    if (plot_y < min_y) plot_y = min_y;
-                                    if (plot_y > max_y) plot_y = max_y;
-                                    try context.lineTo(plot_x, plot_y);
-                                }
-                            }
-                            try context.stroke();
+                            try drawPolylineFromAnchor(&context, @as(f64, start_op.anchor.point.point.x), @as(f64, start_op.anchor.point.point.y), input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
                         }
                     } else {
-                        // Fixed mode: ops come in (begin, end) pairs for each anchor
-                        const pair_count = ops.len / 2;
-                        for (0..pair_count) |i| {
-                            const begin_op = ops[i * 2];
-                            const end_op = ops[i * 2 + 1];
-                            if (begin_op == .anchor and begin_op.anchor.point == .point and
-                                end_op == .anchor and end_op.anchor.point == .point)
-                            {
-                                const bx = @as(f64, begin_op.anchor.point.point.x);
-                                const by = @as(f64, begin_op.anchor.point.point.y);
-                                const ex = @as(f64, end_op.anchor.point.point.x);
-                                const ey = @as(f64, end_op.anchor.point.point.y);
-                                const plot_bx = origin_x + bx * x_scale;
-                                var plot_by = origin_y - by * y_scale;
-                                const plot_ex = origin_x + ex * x_scale;
-                                var plot_ey = origin_y - ey * y_scale;
-                                if (plot_by < min_y) plot_by = min_y;
-                                if (plot_by > max_y) plot_by = max_y;
-                                if (plot_ey < min_y) plot_ey = min_y;
-                                if (plot_ey > max_y) plot_ey = max_y;
-
-                                context.resetPath();
-                                try context.moveTo(plot_bx, plot_by);
-                                try context.lineTo(plot_ex, plot_ey);
-                                try context.stroke();
-                            }
-                        }
+                        try drawFixedPairs(&context, ops, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
                     }
                 } else if (ops.len == 1) {
-                    // Single anchor: draw polyline through all input vectors
                     const start_op = ops[0];
                     if (start_op == .anchor and start_op.anchor.point == .point) {
-                        var anchor_x = @as(f64, start_op.anchor.point.point.x);
-                        var anchor_y = @as(f64, start_op.anchor.point.point.y);
-                        const cur_x = origin_x + anchor_x * x_scale;
-                        const cur_y = origin_y - anchor_y * y_scale;
-
-                        context.resetPath();
-                        try context.moveTo(cur_x, cur_y);
-
-                        if (row_idx < input_data.input.len) {
-                            const input_row = input_data.input[row_idx];
-                            for (input_row.row) |input_elem| {
-                                if (input_elem == .vector) {
-                                    anchor_x += @as(f64, input_elem.vector.x);
-                                    anchor_y += @as(f64, input_elem.vector.y);
-                                } else if (input_elem == .point) {
-                                    anchor_x = @as(f64, input_elem.point.x);
-                                    anchor_y = @as(f64, input_elem.point.y);
-                                }
-                                const plot_x = origin_x + anchor_x * x_scale;
-                                var plot_y = origin_y - anchor_y * y_scale;
-                                if (plot_y < min_y) plot_y = min_y;
-                                if (plot_y > max_y) plot_y = max_y;
-                                try context.lineTo(plot_x, plot_y);
-                            }
-                        }
-                        try context.stroke();
+                        try drawPolylineFromAnchor(&context, @as(f64, start_op.anchor.point.point.x), @as(f64, start_op.anchor.point.point.y), input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
                     }
                 }
             }
