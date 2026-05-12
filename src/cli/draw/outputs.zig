@@ -1528,9 +1528,6 @@ fn sumInputVectors(inp: inputs.Inputs, idx: usize) struct { x: f32, y: f32 } {
     return .{ .x = input_x, .y = input_y };
 }
 
-/// Rotates a polyline around a given point by the specified angle.
-/// If the rotation center is part of the polyline, it stays in place while
-/// other points rotate around it. Otherwise all points are rotated.
 /// Flattens processed polylines back into a sequence of anchor ops and frees the polylines.
 /// Each polyline point becomes a separate anchor operation.
 fn flattenPolylinesToOps(allocator: std.mem.Allocator, polylines: [][]inputs.Point, poly_count: usize, output_name: []const u8) !OutputTransformationPair {
@@ -1556,8 +1553,21 @@ fn flattenPolylinesToOps(allocator: std.mem.Allocator, polylines: [][]inputs.Poi
     };
 }
 
-/// Generates begin/end ops for each anchor using line-intersection frame positioning (no input vectors).
-/// First anchor is placed at its absolute position; subsequent anchors use the local frame.
+/// Generates begin/end ops for each anchor in coord mode when there are no input vectors.
+/// Each anchor produces a (begin, end) point pair — both set to the same global position
+/// (no displacement since there are no vectors to apply).
+///
+/// Steps:
+/// - Initialize frame at first anchor's absolute position with x-axis = (1,0), y-axis = (0,1)
+/// - For each anchor:
+///   - Anchor 0: placed at its absolute (anchor_x, anchor_y)
+///   - Anchor i>0: compute global position via line intersection of two lines:
+///     line_x = origin + local_b * perp direction (running parallel to x-axis)
+///     line_y = origin + local_a * x-axis direction (running parallel to y-axis)
+///     The intersection gives the global point in the local frame
+///   - Emit begin and end ops at this global position
+///   - Update frame origin to the computed global position
+///   - Derive next x-axis direction from (anchors[i+1] - anchor_i), normalize, set perpendicular
 fn processCoordNoVectors(allocator: std.mem.Allocator, anchors: []const inputs.Point) ![]OneArgFunctionPartial {
     var new_ops = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
     var cur_origin_x: f32 = anchors[0].x;
@@ -1619,6 +1629,16 @@ fn processCoordNoVectors(allocator: std.mem.Allocator, anchors: []const inputs.P
 }
 
 /// Generates polylines for all intermediate anchor steps in coord mode (plot_steps == .all).
+///
+/// Steps:
+/// - Initialize frame at first anchor's absolute position
+/// - For each anchor:
+///   - Anchor 0: placed at (anchor_x, anchor_y)
+///   - Anchor i>0: compute global position via line intersection (local frame to global)
+///   - Generate a full polyline at this global position: start point + vectors transformed
+///     through the local frame (each vector's (x, y) is converted via x_axis and perp)
+///   - Append polyline points to a flat output array
+///   - Update frame for the next anchor using the delta (anchors[i+1] - anchor_i)
 fn processCoordAllSteps(allocator: std.mem.Allocator, anchors: []const inputs.Point, vectors: []const inputs.Vector) ![]OneArgFunctionPartial {
     const num_points = anchors.len * (vectors.len + 1);
     var all_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
@@ -1659,7 +1679,13 @@ fn processCoordAllSteps(allocator: std.mem.Allocator, anchors: []const inputs.Po
 }
 
 /// Generates a single polyline for the final anchor in coord mode (plot_steps == .last).
-/// Processes all anchors to build the frame, then generates the polyline at the last position.
+///
+/// Steps:
+/// - Walk through all anchors sequentially, updating the local frame at each step
+///   (same frame-walk as processCoordAllSteps, but without emitting intermediate points)
+/// - After the last anchor, compute its global position in the final frame
+/// - Generate one polyline at the last global position: start point + vectors
+///   transformed through the local frame (vector (x, y) -> x * x_axis + y * perp in global)
 fn processCoordLastStep(allocator: std.mem.Allocator, anchors: []const inputs.Point, vectors: []const inputs.Vector) ![]OneArgFunctionPartial {
     var cur_origin_x: f32 = anchors[0].x;
     var cur_origin_y: f32 = anchors[0].y;
@@ -1716,8 +1742,12 @@ fn processCoordLastStep(allocator: std.mem.Allocator, anchors: []const inputs.Po
 }
 
 /// Rotates a polyline around a given point by the specified angle.
-/// If the rotation center is part of the polyline, it stays in place while
-/// other points rotate around it. Otherwise all points are rotated.
+///
+/// Steps:
+/// - Check if the rotation center is one of the polyline points
+/// - If yes: keep the rotation center in place, rotate all other points around it
+/// - If no: rotate every point in the polyline around the center
+/// - Uses geometry.rotateAround for the per-point rotation math
 fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, arg: RotateArg, rot_pt: inputs.Point) ![]inputs.Point {
     var rot_pt_in_poly = false;
     for (prev_poly) |p| {
@@ -1744,9 +1774,14 @@ fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
 }
 
 /// Scales a polyline by a translation factor.
-/// In coord mode, vectors are interpreted in the local frame defined by the polyline's direction.
-/// In non-coord mode, points are scaled relative to the first point (simple relative scaling).
-/// In origin mode, the ctx_begin offset is added after scaling.
+///
+/// Steps by mode:
+/// - coord: vectors are applied in the local frame (x-axis along polyline direction,
+///   y-axis perpendicular). Each vector is converted from local to global coordinates,
+///   scaled by arg.translation, and accumulated to successive polyline points.
+/// - non-coord (fixed/origin): points are scaled relative to the first point:
+///   poly[j+1] = poly[0] + (prev_poly[j+1] - poly[0]) * translation
+/// - origin adds ctx_begin offset to every point after scaling.
 fn processScaleOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, arg: ScaleArg, vectors: []const inputs.Vector, orientation: CoordinateOrientation, ctx_begin: ?inputs.Point) ![]inputs.Point {
     var poly = try allocator.alloc(inputs.Point, prev_poly.len);
     if (orientation == .coord) {
@@ -1797,9 +1832,15 @@ fn processScaleOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point,
     return poly;
 }
 
-/// Mirrors a polyline over a given line.
-/// In coord mode, displacements are converted to the local frame (x-axis along direction),
-/// mirrored, then converted back. In non-coord mode, displacements are mirrored directly.
+/// Mirrors a polyline over a given line. The first point stays fixed; subsequent
+/// point displacements are mirrored.
+///
+/// Steps by mode:
+/// - coord: compute local frame from polyline direction (x-axis along first-to-last
+///   vector, y-axis perpendicular). Convert each displacement to local (a, b),
+///   mirror over the line, convert back to global coordinates.
+/// - non-coord (fixed/origin): displacements are mirrored directly in global space
+///   (dx = p.x - start.x, dy = p.y - start.y) using mirrorPointOverLine.
 fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, line: inputs.Line, orientation: CoordinateOrientation) ![]inputs.Point {
     var poly = try allocator.alloc(inputs.Point, prev_poly.len);
     const start = prev_poly[0];
@@ -1845,9 +1886,19 @@ fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
     return poly;
 }
 
-/// Processes anchors in origin or fixed mode, where each anchor produces a begin
-/// and end point. In origin mode, the origin accumulates with each anchor; in
-/// fixed mode, each anchor is positioned independently.
+/// Processes anchors in origin or fixed mode, expanding each anchor into a
+/// (begin, end) point pair using the input vector sum.
+///
+/// Steps:
+/// - Iterate over all transformation pairs
+/// - Collect explicit-point anchors in reverse order (matching `&` semantics)
+/// - Skip pairs with fewer than 2 anchors (copy unchanged)
+/// - Sum all input vectors for this output into an (x, y) displacement
+/// - For each anchor:
+///   - Origin mode: begin = anchor + running origin, then origin := begin
+///     (each anchor defines a new local origin for the next)
+///   - Fixed mode: begin = anchor (no accumulation, each is independent)
+///   - end = begin + input_sum
 fn processOriginFixed(
     allocator: std.mem.Allocator,
     outputs: OutputsValidated,
@@ -1901,16 +1952,28 @@ fn processOriginFixed(
 
 /// Converts all anchor references in outputs to explicit (x, y) point coordinates.
 ///
-/// Processing follows these phases:
-/// 1. Scan for non-point references (beginning, end, middle, fraction) in any anchor.
-/// 2. If any operation is a non-anchor op (rotate, scale, mirror), process the compose
-///    chain right-to-left: build polylines from anchors, transform them through each op,
-///    then flatten back to anchor ops.
-/// 3. If all ops are plain anchors with explicit points, expand them based on orientation:
-///    - origin/fixed: handled by processOriginFixed — origin mode accumulates origin,
-///      fixed mode positions each anchor independently; both generate (begin, end) pairs
-///    - coord: anchors are chained via local frames using line intersection or vector transforms
-/// 4. If any non-point references exist, resolve them to explicit points via getExplicitPoint.
+/// Processing follows four phases (early-exit when a phase fully handles the data):
+///
+/// Phase 1 — Scan: Detect any non-point references (beginning, end, middle, fraction)
+/// among all anchors. This flag gates Phase 3 vs Phase 4.
+///
+/// Phase 2 — Compose with non-anchor ops: If any transformation pair contains a
+/// rotate, scale, or mirror op, process it right-to-left (matching `&` semantics):
+/// - Build polylines from anchor points + input vectors
+/// - Transform each polyline through each non-anchor op in sequence
+/// - Flatten resulting polylines back to flat anchor ops
+/// - ctx_begin/ctx_end are tracked after each op for self-referencing elements
+///
+/// Phase 3 — Expand plain anchors (no non-anchor ops, no non-point refs):
+/// origin/fixed mode → processOriginFixed: each anchor becomes a (begin, end) pair
+/// using the input vector sum, with origin accumulation in origin mode.
+/// coord mode → local frame chaining: each anchor positions in a frame derived from
+/// (anchors[i+1] - anchor_i) direction, with three sub-branches for vector vs no-vector
+/// and all-steps vs last-step handling (see processCoordNoVectors/AllSteps/LastStep).
+///
+/// Phase 4 — Resolve references: If Phase 1 found non-point references (and Phase 2
+/// did not trigger), resolve them via resolveNonPointReferences, replacing each
+/// beginning/end/middle/fraction with its explicit point coordinate.
 pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize) ToExplicitPointError!OutputsValidated {
     var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
@@ -1924,8 +1987,20 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
         }
     }
 
-    // Handle compose with non-anchor operations (rotate, scale, mirror)
-    // Process ops right-to-left for & composition semantics
+    // Phase 2: Compose with non-anchor operations (rotate, scale, mirror)
+    //
+    // Steps:
+    // - Scan all transformation pairs for any non-anchor op
+    // - If none found, skip to Phase 3
+    // - For each pair with mixed ops (anchors + transforms):
+    //   - Collect input vectors
+    //   - Process ops right-to-left (matching & composition):
+    //     - anchor: build polyline from resolved point + vectors
+    //     - rotate: rotate previous polyline around the rotation center
+    //     - scale:  scale previous polyline (coord: local frame; non-coord: relative)
+    //     - mirror: mirror previous polyline over a line
+    //   - ctx_begin/ctx_end updated after each op for self-references
+    //   - Flatten all polylines back to a flat sequence of anchor ops
     {
         var has_non_anchor = false;
         for (outputs.transformationPairs) |pair| {
@@ -2030,9 +2105,23 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
         return try processOriginFixed(allocator, outputs, inp, orientation);
     }
 
-    // COORD MODE: chained frame-based geometry for any number of anchors
-    // Each anchor defines a new local frame using line intersection
-    // Only the last step is plotted, but it includes the full input polyline
+    // Phase 3 (coord): chained frame-based geometry for any number of anchors
+    //
+    // Each anchor i defines a new local frame using the delta (anchors[i+1] - anchor_i)
+    // as the x-axis direction. Subsequent anchors are positioned via line intersection
+    // in the current frame.
+    //
+    // Steps:
+    // - Only process the output_idx pair; copy others unchanged
+    // - Collect explicit-point anchors in reverse order
+    // - Collect input vectors
+    // - Three sub-branches:
+    //   A. vectors.len == 0: processCoordNoVectors — each anchor gets begin=end at
+    //      its global position (line intersection of two frame-aligned lines)
+    //   B. plot_steps == .all and >1 anchors: processCoordAllSteps — generate full
+    //      polylines at every anchor position (all intermediate steps visible)
+    //   C. otherwise: processCoordLastStep — walk all anchors to build the frame,
+    //      then emit one polyline at the final anchor position
     if (orientation == .coord and !has_non_point_refs) {
         var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
 
