@@ -19,6 +19,55 @@ fn rotateAround(angle_degrees: f32, around_x: f32, around_y: f32, point_x: f32, 
     return inputs.Point{ .x = x_rotated, .y = y_rotated };
 }
 
+fn mirrorPointOverLine(what: inputs.Point, over: inputs.Line, accuracy: ?u8) inputs.Point {
+    if (over.a == 0.0) {
+        const mirror_x = -over.c / over.b;
+        const mirrored_x = 2.0 * mirror_x - what.x;
+        if (accuracy) |acc| {
+            const factor = std.math.pow(f32, 10, @as(f32, @floatFromInt(acc)));
+            return .{ .x = @round(mirrored_x * factor) / factor, .y = what.y };
+        }
+        return .{ .x = mirrored_x, .y = what.y };
+    }
+    if (over.b == 0.0) {
+        const mirror_y = over.c / over.a;
+        const mirrored_y = 2.0 * mirror_y - what.y;
+        if (accuracy) |acc| {
+            const factor = std.math.pow(f32, 10, @as(f32, @floatFromInt(acc)));
+            return .{ .x = what.x, .y = @round(mirrored_y * factor) / factor };
+        }
+        return .{ .x = what.x, .y = mirrored_y };
+    }
+    const denom = over.a * over.a + over.b * over.b;
+    const xL = (what.y * over.a * over.b + what.x * over.a * over.a - over.c * over.b) / denom;
+    const yL = (over.b / over.a) * xL + (over.c / over.a);
+    var mirrored_x: f32 = undefined;
+    var mirrored_y: f32 = undefined;
+    if (what.x > xL) {
+        const delta = what.x - xL;
+        mirrored_x = xL - delta;
+    } else if (what.x == xL) {
+        mirrored_x = what.x;
+    } else {
+        const delta = xL - what.x;
+        mirrored_x = xL + delta;
+    }
+    if (what.y < yL) {
+        const delta = yL - what.y;
+        mirrored_y = yL + delta;
+    } else if (what.y == yL) {
+        mirrored_y = what.y;
+    } else {
+        const delta = what.y - yL;
+        mirrored_y = yL - delta;
+    }
+    if (accuracy) |acc| {
+        const factor = std.math.pow(f32, 10, @as(f32, @floatFromInt(acc)));
+        return .{ .x = @round(mirrored_x * factor) / factor, .y = @round(mirrored_y * factor) / factor };
+    }
+    return .{ .x = mirrored_x, .y = mirrored_y };
+}
+
 const Line = struct {
     a: f32,
     b: f32,
@@ -1590,6 +1639,23 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                                     p.x += ctx_begin.?.x;
                                     p.y += ctx_begin.?.y;
                                 }
+                            }
+                        }
+                        polylines[poly_count] = poly;
+                        ctx_begin = poly[0];
+                        ctx_end = poly[poly.len - 1];
+                        poly_count += 1;
+                    } else if (op == .mirror) {
+                        const prev_poly = polylines[poly_count - 1];
+                        var poly = try allocator.alloc(inputs.Point, prev_poly.len);
+                        poly[0] = prev_poly[0];
+                        for (prev_poly[1..], 0..) |p, j| {
+                            poly[j + 1] = mirrorPointOverLine(p, op.mirror.line, null);
+                        }
+                        if (orientation == .origin) {
+                            for (poly) |*p| {
+                                p.x += ctx_begin.?.x;
+                                p.y += ctx_begin.?.y;
                             }
                         }
                         polylines[poly_count] = poly;
@@ -3744,4 +3810,51 @@ test "toExplicitPoint coord - compose with anchor and scale 2" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0 + std.math.sqrt(2.0));
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0 + 4.0 * std.math.sqrt(2.0));
+}
+
+test "toExplicitPoint fixed - compose with anchor and mirror 1" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((mirror (y=x)) & (anchor {(1,1)})) with input [[1,0]]
+    // & applies in reverse: first anchor (1,1), then mirror
+    // (a) anchor at (1,1) with vector [1,0]: polyline from (1,1) to (2,1)
+    // (b) mirror (y=x) reflects vector wrt to y=x: polyline from (1, 1) to (1, 2)
+    const l1 = inputs.Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    const m1 = MirrorPartial{ .line = l1 };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .mirror = m1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // Anchor polyline: (1,1) -> (2,1)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.0);
+
+    // Mirror polyline: (1, 1) -> (1, 2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0 + 1.0);
 }
