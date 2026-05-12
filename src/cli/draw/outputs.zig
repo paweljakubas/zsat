@@ -1466,6 +1466,28 @@ fn generateCoordPolyline(
     return ops;
 }
 
+/// Counts input vectors for the given output index and returns an allocated slice of them.
+/// Caller owns the returned slice.
+fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize) ![]inputs.Vector {
+    var count: usize = 0;
+    if (idx < inp.input.len) {
+        for (inp.input[idx].row) |elem| {
+            if (elem == .vector) count += 1;
+        }
+    }
+    var vectors = try allocator.alloc(inputs.Vector, count);
+    var vidx: usize = 0;
+    if (idx < inp.input.len) {
+        for (inp.input[idx].row) |elem| {
+            if (elem == .vector) {
+                vectors[vidx] = elem.vector;
+                vidx += 1;
+            }
+        }
+    }
+    return vectors;
+}
+
 pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize) ToExplicitPointError!OutputsValidated {
     var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
@@ -1513,25 +1535,8 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     continue;
                 }
 
-                var vector_count: usize = 0;
-                if (idx < inp.input.len) {
-                    for (inp.input[idx].row) |elem| {
-                        if (elem == .vector) vector_count += 1;
-                    }
-                }
-
-                var vectors = try allocator.alloc(inputs.Vector, vector_count);
+                const vectors = try collectVectors(allocator, inp, idx);
                 defer allocator.free(vectors);
-                var vidx: usize = 0;
-                if (idx < inp.input.len) {
-                    const row = inp.input[idx];
-                    for (row.row) |elem| {
-                        if (elem == .vector) {
-                            vectors[vidx] = elem.vector;
-                            vidx += 1;
-                        }
-                    }
-                }
 
                 var ctx_begin: ?inputs.Point = null;
                 var ctx_end: ?inputs.Point = null;
@@ -1552,7 +1557,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                             .middle => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .middle = .self }, orientation),
                             .fraction => |frac| try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation),
                         };
-                        var poly = try allocator.alloc(inputs.Point, vector_count + 1);
+                        var poly = try allocator.alloc(inputs.Point, vectors.len + 1);
                         poly[0] = pt;
                         var cur = pt;
                         for (vectors, 0..) |v, j| {
@@ -1900,30 +1905,10 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 }
             }
 
-            // Count input vectors
-            var vector_count: usize = 0;
-            if (output_idx < inp.input.len) {
-                const row = inp.input[output_idx];
-                for (row.row) |elem| {
-                    if (elem == .vector) vector_count += 1;
-                }
-            }
-
-            // Collect vectors into slice
-            var vectors = try allocator.alloc(inputs.Vector, vector_count);
+            const vectors = try collectVectors(allocator, inp, output_idx);
             defer allocator.free(vectors);
-            var vidx: usize = 0;
-            if (output_idx < inp.input.len) {
-                const row = inp.input[output_idx];
-                for (row.row) |elem| {
-                    if (elem == .vector) {
-                        vectors[vidx] = elem.vector;
-                        vidx += 1;
-                    }
-                }
-            }
 
-            if (vector_count == 0) {
+            if (vectors.len == 0) {
                 // No vectors, just generate (begin, end) for last anchor
                 var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchor_count);
                 var current_origin_x: f32 = anchors[0].x;
@@ -1990,7 +1975,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
 
             if (plot_steps == .all and anchor_count > 1) {
                 // Generate polylines for all intermediate steps
-                const num_points = anchor_count * (vector_count + 1);
+                const num_points = anchor_count * (vectors.len + 1);
                 var all_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
 
                 var cur_origin_x: f32 = anchors[0].x;
@@ -2069,7 +2054,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 }
 
                 // Generate ops for full input polyline starting at last anchor
-                const num_points = vector_count + 1;
+                const num_points = vectors.len + 1;
                 var new_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
                 new_ops[0] = OneArgFunctionPartial{
                     .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = last_global_x, .y = last_global_y } } },
