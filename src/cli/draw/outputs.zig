@@ -1715,6 +1715,9 @@ fn processCoordLastStep(allocator: std.mem.Allocator, anchors: []const inputs.Po
     return new_ops;
 }
 
+/// Rotates a polyline around a given point by the specified angle.
+/// If the rotation center is part of the polyline, it stays in place while
+/// other points rotate around it. Otherwise all points are rotated.
 fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, arg: RotateArg, rot_pt: inputs.Point) ![]inputs.Point {
     var rot_pt_in_poly = false;
     for (prev_poly) |p| {
@@ -1842,6 +1845,18 @@ fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
     return poly;
 }
 
+/// Converts all anchor references in outputs to explicit (x, y) point coordinates.
+///
+/// Processing follows these phases:
+/// 1. Scan for non-point references (beginning, end, middle, fraction) in any anchor.
+/// 2. If any operation is a non-anchor op (rotate, scale, mirror), process the compose
+///    chain right-to-left: build polylines from anchors, transform them through each op,
+///    then flatten back to anchor ops.
+/// 3. If all ops are plain anchors with explicit points, expand them based on orientation:
+///    - origin: origin shifts to each anchor's begin position, each generates (begin, end)
+///    - fixed: each anchor stays at its position, generates (begin, end) from input sum
+///    - coord: anchors are chained via local frames using line intersection or vector transforms
+/// 4. If any non-point references exist, resolve them to explicit points via getExplicitPoint.
 pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize) ToExplicitPointError!OutputsValidated {
     var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
