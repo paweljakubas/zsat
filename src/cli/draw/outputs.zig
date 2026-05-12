@@ -1509,6 +1509,25 @@ fn collectAnchorsReversed(allocator: std.mem.Allocator, ops: []const OneArgFunct
     return anchors;
 }
 
+/// Sums all input vectors for the given output index into a single (x, y) pair.
+fn sumInputVectors(inp: inputs.Inputs, idx: usize) struct { x: f32, y: f32 } {
+    var input_x: f32 = 0.0;
+    var input_y: f32 = 0.0;
+    if (idx < inp.input.len) {
+        const row = inp.input[idx];
+        for (row.row) |elem| {
+            switch (elem) {
+                .vector => |v| {
+                    input_x += v.x;
+                    input_y += v.y;
+                },
+                .point => {},
+            }
+        }
+    }
+    return .{ .x = input_x, .y = input_y };
+}
+
 pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize) ToExplicitPointError!OutputsValidated {
     var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
@@ -1760,20 +1779,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
 
             var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
 
-            var input_x: f32 = 0.0;
-            var input_y: f32 = 0.0;
-            if (idx < inp.input.len) {
-                const row = inp.input[idx];
-                for (row.row) |elem| {
-                    switch (elem) {
-                        .vector => |v| {
-                            input_x += v.x;
-                            input_y += v.y;
-                        },
-                        .point => {},
-                    }
-                }
-            }
+            const input_sum = sumInputVectors(inp, idx);
 
             var origin_x: f32 = 0.0;
             var origin_y: f32 = 0.0;
@@ -1781,8 +1787,8 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 const p = anchors[i];
                 const begin_x = p.x + origin_x;
                 const begin_y = p.y + origin_y;
-                const end_x = begin_x + input_x;
-                const end_y = begin_y + input_y;
+                const end_x = begin_x + input_sum.x;
+                const end_y = begin_y + input_sum.y;
                 new_ops_with_end[i * 2] = OneArgFunctionPartial{
                     .anchor = AnchorPartial{
                         .point = GeneralPoint{ .point = inputs.Point{ .x = begin_x, .y = begin_y } },
@@ -1819,28 +1825,15 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
 
             var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
 
-            var input_x: f32 = 0.0;
-            var input_y: f32 = 0.0;
-            if (idx < inp.input.len) {
-                const row = inp.input[idx];
-                for (row.row) |elem| {
-                    switch (elem) {
-                        .vector => |v| {
-                            input_x += v.x;
-                            input_y += v.y;
-                        },
-                        .point => {},
-                    }
-                }
-            }
+            const input_sum = sumInputVectors(inp, idx);
 
             // Each anchor stays at its position, end = anchor + input
             for (0..anchors.len) |i| {
                 const p = anchors[i];
                 const begin_x = p.x;
                 const begin_y = p.y;
-                const end_x = p.x + input_x;
-                const end_y = p.y + input_y;
+                const end_x = p.x + input_sum.x;
+                const end_y = p.y + input_sum.y;
                 new_ops_with_end[i * 2] = OneArgFunctionPartial{
                     .anchor = AnchorPartial{
                         .point = GeneralPoint{ .point = inputs.Point{ .x = begin_x, .y = begin_y } },
