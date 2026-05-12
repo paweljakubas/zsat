@@ -1845,6 +1845,60 @@ fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
     return poly;
 }
 
+/// Processes anchors in origin or fixed mode, where each anchor produces a begin
+/// and end point. In origin mode, the origin accumulates with each anchor; in
+/// fixed mode, each anchor is positioned independently.
+fn processOriginFixed(
+    allocator: std.mem.Allocator,
+    outputs: OutputsValidated,
+    inp: inputs.Inputs,
+    orientation: CoordinateOrientation,
+) ToExplicitPointError!OutputsValidated {
+    var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
+
+    for (outputs.transformationPairs, 0..) |pair, idx| {
+        const anchors = try collectAnchorsReversed(allocator, pair.operation.ops);
+        if (anchors.len < 2) {
+            result_pairs[idx] = pair;
+            continue;
+        }
+
+        var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
+        const input_sum = sumInputVectors(inp, idx);
+
+        var origin_x: f32 = 0.0;
+        var origin_y: f32 = 0.0;
+        for (0..anchors.len) |i| {
+            const p = anchors[i];
+            const begin_x = if (orientation == .origin) p.x + origin_x else p.x;
+            const begin_y = if (orientation == .origin) p.y + origin_y else p.y;
+            const end_x = begin_x + input_sum.x;
+            const end_y = begin_y + input_sum.y;
+            new_ops_with_end[i * 2] = OneArgFunctionPartial{
+                .anchor = AnchorPartial{
+                    .point = GeneralPoint{ .point = inputs.Point{ .x = begin_x, .y = begin_y } },
+                },
+            };
+            new_ops_with_end[i * 2 + 1] = OneArgFunctionPartial{
+                .anchor = AnchorPartial{
+                    .point = GeneralPoint{ .point = inputs.Point{ .x = end_x, .y = end_y } },
+                },
+            };
+            if (orientation == .origin) {
+                origin_x = begin_x;
+                origin_y = begin_y;
+            }
+        }
+
+        result_pairs[idx] = OutputTransformationPair{
+            .outputName = pair.outputName,
+            .operation = .{ .ops = new_ops_with_end },
+        };
+    }
+
+    return OutputsValidated{ .transformationPairs = result_pairs };
+}
+
 /// Converts all anchor references in outputs to explicit (x, y) point coordinates.
 ///
 /// Processing follows these phases:
@@ -1853,8 +1907,8 @@ fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
 ///    chain right-to-left: build polylines from anchors, transform them through each op,
 ///    then flatten back to anchor ops.
 /// 3. If all ops are plain anchors with explicit points, expand them based on orientation:
-///    - origin: origin shifts to each anchor's begin position, each generates (begin, end)
-///    - fixed: each anchor stays at its position, generates (begin, end) from input sum
+///    - origin/fixed: handled by processOriginFixed — origin mode accumulates origin,
+///      fixed mode positions each anchor independently; both generate (begin, end) pairs
 ///    - coord: anchors are chained via local frames using line intersection or vector transforms
 /// 4. If any non-point references exist, resolve them to explicit points via getExplicitPoint.
 pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize) ToExplicitPointError!OutputsValidated {
@@ -1971,93 +2025,9 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
         }
     }
 
-    // ORIGIN MODE: origin shifts with each anchor, anchors positioned relative to current origin
-    if (orientation == .origin and !has_non_point_refs) {
-        var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
-
-        for (outputs.transformationPairs, 0..) |pair, idx| {
-            const anchors = try collectAnchorsReversed(allocator, pair.operation.ops);
-            if (anchors.len < 2) {
-                result_pairs[idx] = pair;
-                continue;
-            }
-
-            var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
-
-            const input_sum = sumInputVectors(inp, idx);
-
-            var origin_x: f32 = 0.0;
-            var origin_y: f32 = 0.0;
-            for (0..anchors.len) |i| {
-                const p = anchors[i];
-                const begin_x = p.x + origin_x;
-                const begin_y = p.y + origin_y;
-                const end_x = begin_x + input_sum.x;
-                const end_y = begin_y + input_sum.y;
-                new_ops_with_end[i * 2] = OneArgFunctionPartial{
-                    .anchor = AnchorPartial{
-                        .point = GeneralPoint{ .point = inputs.Point{ .x = begin_x, .y = begin_y } },
-                    },
-                };
-                new_ops_with_end[i * 2 + 1] = OneArgFunctionPartial{
-                    .anchor = AnchorPartial{
-                        .point = GeneralPoint{ .point = inputs.Point{ .x = end_x, .y = end_y } },
-                    },
-                };
-                origin_x = begin_x;
-                origin_y = begin_y;
-            }
-
-            result_pairs[idx] = OutputTransformationPair{
-                .outputName = pair.outputName,
-                .operation = .{ .ops = new_ops_with_end },
-            };
-        }
-
-        return OutputsValidated{ .transformationPairs = result_pairs };
-    }
-
-    // FIXED MODE: each anchor stays at its position, add input to get end
-    if (orientation == .fixed and !has_non_point_refs) {
-        var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
-
-        for (outputs.transformationPairs, 0..) |pair, idx| {
-            const anchors = try collectAnchorsReversed(allocator, pair.operation.ops);
-            if (anchors.len < 2) {
-                result_pairs[idx] = pair;
-                continue;
-            }
-
-            var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
-
-            const input_sum = sumInputVectors(inp, idx);
-
-            // Each anchor stays at its position, end = anchor + input
-            for (0..anchors.len) |i| {
-                const p = anchors[i];
-                const begin_x = p.x;
-                const begin_y = p.y;
-                const end_x = p.x + input_sum.x;
-                const end_y = p.y + input_sum.y;
-                new_ops_with_end[i * 2] = OneArgFunctionPartial{
-                    .anchor = AnchorPartial{
-                        .point = GeneralPoint{ .point = inputs.Point{ .x = begin_x, .y = begin_y } },
-                    },
-                };
-                new_ops_with_end[i * 2 + 1] = OneArgFunctionPartial{
-                    .anchor = AnchorPartial{
-                        .point = GeneralPoint{ .point = inputs.Point{ .x = end_x, .y = end_y } },
-                    },
-                };
-            }
-
-            result_pairs[idx] = OutputTransformationPair{
-                .outputName = pair.outputName,
-                .operation = .{ .ops = new_ops_with_end },
-            };
-        }
-
-        return OutputsValidated{ .transformationPairs = result_pairs };
+    // ORIGIN and FIXED MODE: common handling via processOriginFixed
+    if ((orientation == .origin or orientation == .fixed) and !has_non_point_refs) {
+        return try processOriginFixed(allocator, outputs, inp, orientation);
     }
 
     // COORD MODE: chained frame-based geometry for any number of anchors
