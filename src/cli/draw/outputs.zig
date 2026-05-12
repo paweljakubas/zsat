@@ -1648,15 +1648,16 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     } else if (op == .mirror) {
                         const prev_poly = polylines[poly_count - 1];
                         var poly = try allocator.alloc(inputs.Point, prev_poly.len);
-                        poly[0] = prev_poly[0];
+                        const start = prev_poly[0];
+                        poly[0] = start;
                         for (prev_poly[1..], 0..) |p, j| {
-                            poly[j + 1] = mirrorPointOverLine(p, op.mirror.line, null);
-                        }
-                        if (orientation == .origin) {
-                            for (poly) |*p| {
-                                p.x += ctx_begin.?.x;
-                                p.y += ctx_begin.?.y;
-                            }
+                            const dx = p.x - start.x;
+                            const dy = p.y - start.y;
+                            const mirrored = mirrorPointOverLine(.{ .x = dx, .y = dy }, op.mirror.line, null);
+                            poly[j + 1] = inputs.Point{
+                                .x = start.x + mirrored.x,
+                                .y = start.y + mirrored.y,
+                            };
                         }
                         polylines[poly_count] = poly;
                         ctx_begin = poly[0];
@@ -3856,5 +3857,54 @@ test "toExplicitPoint fixed - compose with anchor and mirror 1" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0 + 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.0);
+}
+
+test "toExplicitPoint origin - compose with anchor and mirror 1" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((mirror (y=x)) & (anchor {(1,0)})) with input [[1,0]]
+    // & applies in reverse: first anchor (1,0), then mirror
+    // (a) anchor at (1,0) with vector [1,0]: polyline from (1,0) to (2,0)
+    // (b) mirror (y=x) reflects vector wrt to y=x, but with local frame having origin at (1,0): polyline from (1, 0) to (1, 1)
+    const l1 = inputs.Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    const m1 = MirrorPartial{ .line = l1 };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .mirror = m1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 0.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // Anchor polyline: (1,0) -> (2,0)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0);
+
+    // Mirror polyline: (1, 0) -> (1, 1)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0);
 }
