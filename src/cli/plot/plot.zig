@@ -10,6 +10,7 @@ const ValsRange = inputs.ValsRange;
 const determine_pane_bounds = inputs.determine_pane_bounds;
 const determine_pane_bounds_with_end = inputs.determine_pane_bounds_with_end;
 
+/// Returns the last explicit point anchor for a given output, or null if none found.
 fn getAnchorPoint(transformationPairs: anytype, output_index: usize) ?Vector {
     if (transformationPairs.len == 0 or output_index >= transformationPairs.len) {
         return null;
@@ -31,6 +32,7 @@ fn getAnchorPoint(transformationPairs: anytype, output_index: usize) ?Vector {
     return last_pin;
 }
 
+/// A rendered plot image, returned as RGBA pixel data.
 pub const RenderedImage = struct {
     pixels: []z2d.pixel.RGBA,
     width: i32,
@@ -38,6 +40,8 @@ pub const RenderedImage = struct {
     allocator: std.mem.Allocator,
 };
 
+/// Resolved line style: width, color, cap mode, and join mode.
+/// Dashing is applied directly to the context during resolution.
 const LineStyle = struct {
     width: f64,
     r: u8,
@@ -48,6 +52,7 @@ const LineStyle = struct {
     join_mode: z2d.options.JoinMode,
 };
 
+/// Counts the number of vector elements in an input row.
 fn countVectors(row: anytype) usize {
     var count: usize = 0;
     for (row.row) |elem| {
@@ -245,7 +250,15 @@ fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_i
 
 /// Draws a polyline from an anchor point through all input vectors/points.
 /// Shared by origin mode (last anchor's begin) and single-anchor mode.
-/// Vectors accumulate relative displacement; points set absolute position.
+///
+/// Steps:
+/// - Convert start point to plot coordinates, moveTo
+/// - Walk through input row elements:
+///   - vector: add displacement to current position
+///   - point: set absolute position
+/// - Convert each intermediate position to plot coords, lineTo
+/// - Clamp Y to [min_y, max_y] (viewport bounds)
+/// - Stroke the path
 fn drawPolylineFromAnchor(context: *z2d.Context, start_x: f64, start_y: f64, input_data: anytype, row_idx: usize, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
     var cur_x = start_x;
     var cur_y = start_y;
@@ -276,8 +289,17 @@ fn drawPolylineFromAnchor(context: *z2d.Context, start_x: f64, start_y: f64, inp
     try context.stroke();
 }
 
-/// Draws polylines in coord mode, splitting ops into steps of (vector_count + 1)
-/// points each. Each step is a separate polyline (reset path between steps).
+/// Draws polylines in coord mode, where ops are organized into steps of
+/// (vector_count + 1) consecutive anchor points. Each step represents one
+/// anchor's full polyline (start + all vectors).
+///
+/// Steps:
+/// - Determine points_per_step from vector count
+/// - For each step:
+///   - reset path, walk its anchor points
+///   - convert to plot coordinates (clamp Y)
+///   - moveTo first point, lineTo subsequent ones
+///   - stroke the completed polyline
 fn drawCoordPolylines(context: *z2d.Context, ops: anytype, input_data: anytype, row_idx: usize, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
     const vector_count = if (row_idx < input_data.input.len) countVectors(input_data.input[row_idx]) else 0;
     const points_per_step = if (vector_count > 0) vector_count + 1 else 1;
@@ -309,8 +331,14 @@ fn drawCoordPolylines(context: *z2d.Context, ops: anytype, input_data: anytype, 
     }
 }
 
-/// Draws (begin, end) line segments for fixed mode, where ops come in
-/// interleaved begin/end point pairs.
+/// Draws (begin, end) line segments for fixed mode, where ops are interleaved
+/// begin/end point pairs (begin_0, end_0, begin_1, end_1, ...).
+///
+/// Steps:
+/// - Iterate over ops as consecutive pairs
+/// - For each pair with valid anchor points:
+///   - convert begin and end to plot coordinates (clamp Y)
+///   - reset path, moveTo begin, lineTo end, stroke
 fn drawFixedPairs(context: *z2d.Context, ops: anytype, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
     const pair_count = ops.len / 2;
     for (0..pair_count) |i| {
@@ -340,6 +368,21 @@ fn drawFixedPairs(context: *z2d.Context, ops: anytype, origin_x: f64, origin_y: 
     }
 }
 
+/// Renders all parsed outputs onto a z2d canvas and returns the resulting image
+/// (or writes it to a PNG file if output_path is provided).
+///
+/// Processing phases:
+/// 1. Canvas setup: create surface, fill white background
+/// 2. Bounds computation: find min/max X/Y across all outputs via computeBounds
+/// 3. Coordinate transform: compute scale and origin from bounds + margin
+/// 4. Drawing loop: for each input row:
+///    a. Resolve line style (width, color, dashing, caps) via resolveStyle
+///    b. Draw data based on orientation:
+///       - coord: drawCoordPolylines (multiple polyline steps)
+///       - origin: drawPolylineFromAnchor (input polyline at last anchor)
+///       - fixed: drawFixedPairs ((begin, end) segments)
+///       - single anchor: drawPolylineFromAnchor (input polyline from anchor)
+/// 5. Output: write PNG or return RenderedImage with pixel data
 pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedImage {
     if (parsed_data.panes.len == 0) {
         return error.NoPanes;
