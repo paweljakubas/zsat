@@ -1528,6 +1528,34 @@ fn sumInputVectors(inp: inputs.Inputs, idx: usize) struct { x: f32, y: f32 } {
     return .{ .x = input_x, .y = input_y };
 }
 
+/// Rotates a polyline around a given point by the specified angle.
+/// If the rotation center is part of the polyline, it stays in place while
+/// other points rotate around it. Otherwise all points are rotated.
+fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, arg: RotateArg, rot_pt: inputs.Point) ![]inputs.Point {
+    var rot_pt_in_poly = false;
+    for (prev_poly) |p| {
+        if (p.x == rot_pt.x and p.y == rot_pt.y) {
+            rot_pt_in_poly = true;
+            break;
+        }
+    }
+    var poly = try allocator.alloc(inputs.Point, prev_poly.len);
+    if (rot_pt_in_poly) {
+        poly[0] = rot_pt;
+        var out_idx: usize = 1;
+        for (prev_poly) |p| {
+            if (p.x == rot_pt.x and p.y == rot_pt.y) continue;
+            poly[out_idx] = rotateAround(arg.phi, rot_pt.x, rot_pt.y, p.x, p.y);
+            out_idx += 1;
+        }
+    } else {
+        for (prev_poly, 0..) |p, j| {
+            poly[j] = rotateAround(arg.phi, rot_pt.x, rot_pt.y, p.x, p.y);
+        }
+    }
+    return poly;
+}
+
 pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize) ToExplicitPointError!OutputsValidated {
     var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
@@ -1612,27 +1640,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                         const arg = op.rotate.elements[0];
                         const prev_poly = polylines[poly_count - 1];
                         const rot_pt = try resolveGeneralPoint(arg.point, ctx_begin, ctx_end, inp, outputs, idx, orientation);
-                        var rot_pt_in_poly = false;
-                        for (prev_poly) |p| {
-                            if (p.x == rot_pt.x and p.y == rot_pt.y) {
-                                rot_pt_in_poly = true;
-                                break;
-                            }
-                        }
-                        var poly = try allocator.alloc(inputs.Point, prev_poly.len);
-                        if (rot_pt_in_poly) {
-                            poly[0] = rot_pt;
-                            var out_idx: usize = 1;
-                            for (prev_poly) |p| {
-                                if (p.x == rot_pt.x and p.y == rot_pt.y) continue;
-                                poly[out_idx] = rotateAround(arg.phi, rot_pt.x, rot_pt.y, p.x, p.y);
-                                out_idx += 1;
-                            }
-                        } else {
-                            for (prev_poly, 0..) |p, j| {
-                                poly[j] = rotateAround(arg.phi, rot_pt.x, rot_pt.y, p.x, p.y);
-                            }
-                        }
+                        const poly = try processRotateOp(allocator, prev_poly, arg, rot_pt);
                         polylines[poly_count] = poly;
                         ctx_begin = poly[0];
                         ctx_end = poly[poly.len - 1];
