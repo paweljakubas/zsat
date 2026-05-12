@@ -1556,6 +1556,108 @@ fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
     return poly;
 }
 
+/// Scales a polyline by a translation factor.
+/// In coord mode, vectors are interpreted in the local frame defined by the polyline's direction.
+/// In non-coord mode, points are scaled relative to the first point (simple relative scaling).
+/// In origin mode, the ctx_begin offset is added after scaling.
+fn processScaleOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, arg: ScaleArg, vectors: []const inputs.Vector, orientation: CoordinateOrientation, ctx_begin: ?inputs.Point) ![]inputs.Point {
+    var poly = try allocator.alloc(inputs.Point, prev_poly.len);
+    if (orientation == .coord) {
+        const dx = prev_poly[prev_poly.len - 1].x - prev_poly[0].x;
+        const dy = prev_poly[prev_poly.len - 1].y - prev_poly[0].y;
+        const len = @sqrt(@as(f64, dx) * @as(f64, dx) + @as(f64, dy) * @as(f64, dy));
+        var x_axis_x: f64 = 1.0;
+        var x_axis_y: f64 = 0.0;
+        if (len > 1e-10) {
+            x_axis_x = @as(f64, dx) / len;
+            x_axis_y = @as(f64, dy) / len;
+        }
+        const perp_x = -x_axis_y;
+        const perp_y = x_axis_x;
+        var cur_x: f64 = prev_poly[0].x;
+        var cur_y: f64 = prev_poly[0].y;
+        for (vectors, 0..) |v, j| {
+            const gx = @as(f64, v.x) * x_axis_x + @as(f64, v.y) * perp_x;
+            const gy = @as(f64, v.x) * x_axis_y + @as(f64, v.y) * perp_y;
+            if (j == 0) {
+                cur_x += gx;
+                cur_y += gy;
+                poly[0] = .{ .x = @floatCast(cur_x), .y = @floatCast(cur_y) };
+                cur_x += gx * @as(f64, arg.translation.x);
+                cur_y += gy * @as(f64, arg.translation.y);
+                poly[1] = .{ .x = @floatCast(cur_x), .y = @floatCast(cur_y) };
+            } else {
+                cur_x += gx * @as(f64, arg.translation.x);
+                cur_y += gy * @as(f64, arg.translation.y);
+                poly[j + 1] = .{ .x = @floatCast(cur_x), .y = @floatCast(cur_y) };
+            }
+        }
+    } else {
+        poly[0] = prev_poly[0];
+        for (prev_poly[1..], 0..) |p, j| {
+            poly[j + 1] = inputs.Point{
+                .x = poly[0].x + (p.x - poly[0].x) * arg.translation.x,
+                .y = poly[0].y + (p.y - poly[0].y) * arg.translation.y,
+            };
+        }
+        if (orientation == .origin) {
+            for (poly) |*p| {
+                p.x += ctx_begin.?.x;
+                p.y += ctx_begin.?.y;
+            }
+        }
+    }
+    return poly;
+}
+
+/// Mirrors a polyline over a given line.
+/// In coord mode, displacements are converted to the local frame (x-axis along direction),
+/// mirrored, then converted back. In non-coord mode, displacements are mirrored directly.
+fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, line: inputs.Line, orientation: CoordinateOrientation) ![]inputs.Point {
+    var poly = try allocator.alloc(inputs.Point, prev_poly.len);
+    const start = prev_poly[0];
+    poly[0] = start;
+    if (orientation == .coord) {
+        const dx = prev_poly[prev_poly.len - 1].x - start.x;
+        const dy = prev_poly[prev_poly.len - 1].y - start.y;
+        const len = @sqrt(@as(f64, dx) * @as(f64, dx) + @as(f64, dy) * @as(f64, dy));
+        var x_axis_x: f64 = 1.0;
+        var x_axis_y: f64 = 0.0;
+        var perp_x: f64 = 0.0;
+        var perp_y: f64 = 1.0;
+        if (len > 1e-10) {
+            x_axis_x = @as(f64, dx) / len;
+            x_axis_y = @as(f64, dy) / len;
+            perp_x = -x_axis_y;
+            perp_y = x_axis_x;
+        }
+        for (prev_poly[1..], 0..) |p, j| {
+            const gdx = @as(f64, p.x - start.x);
+            const gdy = @as(f64, p.y - start.y);
+            const local_a = gdx * x_axis_x + gdy * x_axis_y;
+            const local_b = gdx * perp_x + gdy * perp_y;
+            const mirrored = mirrorPointOverLine(.{ .x = @floatCast(local_a), .y = @floatCast(local_b) }, line, null);
+            const mdx = @as(f64, mirrored.x) * x_axis_x + @as(f64, mirrored.y) * perp_x;
+            const mdy = @as(f64, mirrored.x) * x_axis_y + @as(f64, mirrored.y) * perp_y;
+            poly[j + 1] = inputs.Point{
+                .x = start.x + @as(f32, @floatCast(mdx)),
+                .y = start.y + @as(f32, @floatCast(mdy)),
+            };
+        }
+    } else {
+        for (prev_poly[1..], 0..) |p, j| {
+            const dx = p.x - start.x;
+            const dy = p.y - start.y;
+            const mirrored = mirrorPointOverLine(.{ .x = dx, .y = dy }, line, null);
+            poly[j + 1] = inputs.Point{
+                .x = start.x + mirrored.x,
+                .y = start.y + mirrored.y,
+            };
+        }
+    }
+    return poly;
+}
+
 pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize) ToExplicitPointError!OutputsValidated {
     var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
@@ -1648,99 +1750,14 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     } else if (op == .scale) {
                         const arg = op.scale.elements[0];
                         const prev_poly = polylines[poly_count - 1];
-                        var poly = try allocator.alloc(inputs.Point, prev_poly.len);
-                        if (orientation == .coord) {
-                            const dx = prev_poly[prev_poly.len - 1].x - prev_poly[0].x;
-                            const dy = prev_poly[prev_poly.len - 1].y - prev_poly[0].y;
-                            const len = @sqrt(@as(f64, dx) * @as(f64, dx) + @as(f64, dy) * @as(f64, dy));
-                            var x_axis_x: f64 = 1.0;
-                            var x_axis_y: f64 = 0.0;
-                            if (len > 1e-10) {
-                                x_axis_x = @as(f64, dx) / len;
-                                x_axis_y = @as(f64, dy) / len;
-                            }
-                            const perp_x = -x_axis_y;
-                            const perp_y = x_axis_x;
-                            var cur_x: f64 = prev_poly[0].x;
-                            var cur_y: f64 = prev_poly[0].y;
-                            for (vectors, 0..) |v, j| {
-                                const gx = @as(f64, v.x) * x_axis_x + @as(f64, v.y) * perp_x;
-                                const gy = @as(f64, v.x) * x_axis_y + @as(f64, v.y) * perp_y;
-                                if (j == 0) {
-                                    cur_x += gx;
-                                    cur_y += gy;
-                                    poly[0] = .{ .x = @floatCast(cur_x), .y = @floatCast(cur_y) };
-                                    cur_x += gx * @as(f64, arg.translation.x);
-                                    cur_y += gy * @as(f64, arg.translation.y);
-                                    poly[1] = .{ .x = @floatCast(cur_x), .y = @floatCast(cur_y) };
-                                } else {
-                                    cur_x += gx * @as(f64, arg.translation.x);
-                                    cur_y += gy * @as(f64, arg.translation.y);
-                                    poly[j + 1] = .{ .x = @floatCast(cur_x), .y = @floatCast(cur_y) };
-                                }
-                            }
-                        } else {
-                            poly[0] = prev_poly[0];
-                            for (prev_poly[1..], 0..) |p, j| {
-                                poly[j + 1] = inputs.Point{
-                                    .x = poly[0].x + (p.x - poly[0].x) * arg.translation.x,
-                                    .y = poly[0].y + (p.y - poly[0].y) * arg.translation.y,
-                                };
-                            }
-                            if (orientation == .origin) {
-                                for (poly) |*p| {
-                                    p.x += ctx_begin.?.x;
-                                    p.y += ctx_begin.?.y;
-                                }
-                            }
-                        }
+                        const poly = try processScaleOp(allocator, prev_poly, arg, vectors, orientation, ctx_begin);
                         polylines[poly_count] = poly;
                         ctx_begin = poly[0];
                         ctx_end = poly[poly.len - 1];
                         poly_count += 1;
                     } else if (op == .mirror) {
                         const prev_poly = polylines[poly_count - 1];
-                        var poly = try allocator.alloc(inputs.Point, prev_poly.len);
-                        const start = prev_poly[0];
-                        poly[0] = start;
-                        if (orientation == .coord) {
-                            const dx = prev_poly[prev_poly.len - 1].x - start.x;
-                            const dy = prev_poly[prev_poly.len - 1].y - start.y;
-                            const len = @sqrt(@as(f64, dx) * @as(f64, dx) + @as(f64, dy) * @as(f64, dy));
-                            var x_axis_x: f64 = 1.0;
-                            var x_axis_y: f64 = 0.0;
-                            var perp_x: f64 = 0.0;
-                            var perp_y: f64 = 1.0;
-                            if (len > 1e-10) {
-                                x_axis_x = @as(f64, dx) / len;
-                                x_axis_y = @as(f64, dy) / len;
-                                perp_x = -x_axis_y;
-                                perp_y = x_axis_x;
-                            }
-                            for (prev_poly[1..], 0..) |p, j| {
-                                const gdx = @as(f64, p.x - start.x);
-                                const gdy = @as(f64, p.y - start.y);
-                                const local_a = gdx * x_axis_x + gdy * x_axis_y;
-                                const local_b = gdx * perp_x + gdy * perp_y;
-                                const mirrored = mirrorPointOverLine(.{ .x = @floatCast(local_a), .y = @floatCast(local_b) }, op.mirror.line, null);
-                                const mdx = @as(f64, mirrored.x) * x_axis_x + @as(f64, mirrored.y) * perp_x;
-                                const mdy = @as(f64, mirrored.x) * x_axis_y + @as(f64, mirrored.y) * perp_y;
-                                poly[j + 1] = inputs.Point{
-                                    .x = start.x + @as(f32, @floatCast(mdx)),
-                                    .y = start.y + @as(f32, @floatCast(mdy)),
-                                };
-                            }
-                        } else {
-                            for (prev_poly[1..], 0..) |p, j| {
-                                const dx = p.x - start.x;
-                                const dy = p.y - start.y;
-                                const mirrored = mirrorPointOverLine(.{ .x = dx, .y = dy }, op.mirror.line, null);
-                                poly[j + 1] = inputs.Point{
-                                    .x = start.x + mirrored.x,
-                                    .y = start.y + mirrored.y,
-                                };
-                            }
-                        }
+                        const poly = try processMirrorOp(allocator, prev_poly, op.mirror.line, orientation);
                         polylines[poly_count] = poly;
                         ctx_begin = poly[0];
                         ctx_end = poly[poly.len - 1];
