@@ -61,6 +61,89 @@ fn updateBounds(px: f32, py: f32, minX: *f32, maxX: *f32, minY: *f32, maxY: *f32
     if (py > maxY.*) maxY.* = py;
 }
 
+/// Walks through input vectors/points from a starting position, updating bounds
+/// at each step. Vectors accumulate, points replace the current position.
+fn walkInputRowBounds(start_x: f32, start_y: f32, input_data: anytype, row_idx: usize, minX: *f32, maxX: *f32, minY: *f32, maxY: *f32, initialized: *bool) void {
+    var cur_x: f32 = start_x;
+    var cur_y: f32 = start_y;
+    if (row_idx < input_data.input.len) {
+        const input_row = input_data.input[row_idx];
+        for (input_row.row) |elem| {
+            if (elem == .vector) {
+                cur_x += elem.vector.x;
+                cur_y += elem.vector.y;
+            } else if (elem == .point) {
+                cur_x = elem.point.x;
+                cur_y = elem.point.y;
+            }
+            updateBounds(cur_x, cur_y, minX, maxX, minY, maxY, initialized);
+        }
+    }
+}
+
+/// Computes the bounding box (min/max x/y) across all outputs, respecting each
+/// output's coordinate orientation mode.
+///
+/// Steps per orientation:
+/// - coord: all anchor points from all polylines
+/// - origin: last anchor's begin point + input polyline walk
+/// - fixed: (begin, end) pairs from all anchors
+/// - single anchor: anchor point + input polyline walk
+fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anytype) ValsRange {
+    var minX: f32 = 0.0;
+    var maxX: f32 = 0.0;
+    var minY: f32 = 0.0;
+    var maxY: f32 = 0.0;
+    var boundsInitialized = false;
+
+    for (outputs.transformationPairs, 0..) |pair, row_idx| {
+        const ops = pair.operation.ops;
+        const orientation = if (row_idx < coord_orientations.len) coord_orientations[row_idx] else .fixed;
+
+        if (ops.len >= 2) {
+            if (orientation == .coord) {
+                for (ops) |op| {
+                    if (op == .anchor and op.anchor.point == .point) {
+                        updateBounds(op.anchor.point.point.x, op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                    }
+                }
+            } else if (orientation == .origin) {
+                const start_op = ops[ops.len - 2];
+                if (start_op == .anchor and start_op.anchor.point == .point) {
+                    walkInputRowBounds(start_op.anchor.point.point.x, start_op.anchor.point.point.y, input_data, row_idx, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                    updateBounds(start_op.anchor.point.point.x, start_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                }
+            } else {
+                for (0..ops.len / 2) |i| {
+                    const begin_op = ops[i * 2];
+                    const end_op = ops[i * 2 + 1];
+                    if (begin_op == .anchor and begin_op.anchor.point == .point) {
+                        updateBounds(begin_op.anchor.point.point.x, begin_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                    }
+                    if (end_op == .anchor and end_op.anchor.point == .point) {
+                        updateBounds(end_op.anchor.point.point.x, end_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                    }
+                }
+            }
+        } else if (ops.len == 1) {
+            const start_op = ops[0];
+            if (start_op == .anchor and start_op.anchor.point == .point) {
+                walkInputRowBounds(start_op.anchor.point.point.x, start_op.anchor.point.point.y, input_data, row_idx, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                updateBounds(start_op.anchor.point.point.x, start_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+            }
+        }
+    }
+
+    if (!boundsInitialized) {
+        minX = 0;
+        maxX = 1;
+        minY = 0;
+        maxY = 1;
+    }
+
+    return ValsRange{ .x = .{ minX, maxX }, .y = .{ minY, maxY } };
+}
+
 pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedImage {
     if (parsed_data.panes.len == 0) {
         return error.NoPanes;
@@ -88,104 +171,11 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     try context.fill();
     context.setLineWidth(10.0); // Re-enable for data lines
     context.resetPath(); // Clear path state after fill
-
+    const bounds = computeBounds(parsed_data.outputs, parsed_data.inputs, parsed_data.coord_orientations);
     const outputs = parsed_data.outputs;
     const input_data = parsed_data.inputs;
     const coord_orientations = parsed_data.coord_orientations;
 
-    var minX: f32 = 0.0;
-    var maxX: f32 = 0.0;
-    var minY: f32 = 0.0;
-    var maxY: f32 = 0.0;
-    var boundsInitialized = false;
-
-    // Iterate over all outputs to find bounds
-    for (outputs.transformationPairs, 0..) |pair, row_idx| {
-        const ops = pair.operation.ops;
-        const orientation = if (row_idx < coord_orientations.len) coord_orientations[row_idx] else .fixed;
-
-        if (ops.len >= 2) {
-            if (orientation == .coord) {
-                // Coord mode: bounds from all points in all polylines
-                for (ops) |op| {
-                    if (op == .anchor and op.anchor.point == .point) {
-                        const px = op.anchor.point.point.x;
-                        const py = op.anchor.point.point.y;
-                        updateBounds(px, py, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                    }
-                }
-            } else if (orientation == .origin) {
-                // Origin mode: bounds from input polyline at last anchor
-                const start_op = ops[ops.len - 2];
-                if (start_op == .anchor and start_op.anchor.point == .point) {
-                    var cur_x: f32 = start_op.anchor.point.point.x;
-                    var cur_y: f32 = start_op.anchor.point.point.y;
-                    if (row_idx < input_data.input.len) {
-                        const input_row = input_data.input[row_idx];
-                        for (input_row.row) |input_elem| {
-                            if (input_elem == .vector) {
-                                cur_x += input_elem.vector.x;
-                                cur_y += input_elem.vector.y;
-                            } else if (input_elem == .point) {
-                                cur_x = input_elem.point.x;
-                                cur_y = input_elem.point.y;
-                            }
-                            updateBounds(cur_x, cur_y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                        }
-                    }
-                    updateBounds(cur_x, cur_y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                    updateBounds(start_op.anchor.point.point.x, start_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                }
-            } else {
-                // Fixed mode: ops come in (begin, end) pairs for each anchor
-                for (0..ops.len / 2) |i| {
-                    const begin_op = ops[i * 2];
-                    const end_op = ops[i * 2 + 1];
-                    if (begin_op == .anchor and begin_op.anchor.point == .point) {
-                        const bx = begin_op.anchor.point.point.x;
-                        const by = begin_op.anchor.point.point.y;
-                        updateBounds(bx, by, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                    }
-                    if (end_op == .anchor and end_op.anchor.point == .point) {
-                        const ex = end_op.anchor.point.point.x;
-                        const ey = end_op.anchor.point.point.y;
-                        updateBounds(ex, ey, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                    }
-                }
-            }
-        } else if (ops.len == 1) {
-            const start_op = ops[0];
-            if (start_op == .anchor and start_op.anchor.point == .point) {
-                const anchor_x: f32 = start_op.anchor.point.point.x;
-                const anchor_y: f32 = start_op.anchor.point.point.y;
-                var cur_x: f32 = anchor_x;
-                var cur_y: f32 = anchor_y;
-                if (row_idx < input_data.input.len) {
-                    const input_row = input_data.input[row_idx];
-                    for (input_row.row) |input_elem| {
-                        if (input_elem == .vector) {
-                            cur_x += input_elem.vector.x;
-                            cur_y += input_elem.vector.y;
-                        } else if (input_elem == .point) {
-                            cur_x = input_elem.point.x;
-                            cur_y = input_elem.point.y;
-                        }
-                        updateBounds(cur_x, cur_y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                    }
-                }
-                updateBounds(anchor_x, anchor_y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-            }
-        }
-    }
-
-    if (!boundsInitialized) {
-        minX = 0;
-        maxX = 1;
-        minY = 0;
-        maxY = 1;
-    }
-
-    const bounds = ValsRange{ .x = .{ minX, maxX }, .y = .{ minY, maxY } };
     const x_range = bounds.x[1] - bounds.x[0];
     const y_range = bounds.y[1] - bounds.y[0];
 
