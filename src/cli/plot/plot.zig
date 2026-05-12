@@ -46,6 +46,21 @@ fn countVectors(row: anytype) usize {
     return count;
 }
 
+/// Updates running min/max bounds with a new point. Initializes bounds on first call.
+fn updateBounds(px: f32, py: f32, minX: *f32, maxX: *f32, minY: *f32, maxY: *f32, initialized: *bool) void {
+    if (!initialized.*) {
+        minX.* = px;
+        maxX.* = px;
+        minY.* = py;
+        maxY.* = py;
+        initialized.* = true;
+    }
+    if (px < minX.*) minX.* = px;
+    if (px > maxX.*) maxX.* = px;
+    if (py < minY.*) minY.* = py;
+    if (py > maxY.*) maxY.* = py;
+}
+
 pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedImage {
     if (parsed_data.panes.len == 0) {
         return error.NoPanes;
@@ -96,17 +111,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                     if (op == .anchor and op.anchor.point == .point) {
                         const px = op.anchor.point.point.x;
                         const py = op.anchor.point.point.y;
-                        if (!boundsInitialized) {
-                            minX = px;
-                            maxX = px;
-                            minY = py;
-                            maxY = py;
-                            boundsInitialized = true;
-                        }
-                        if (px < minX) minX = px;
-                        if (px > maxX) maxX = px;
-                        if (py < minY) minY = py;
-                        if (py > maxY) maxY = py;
+                        updateBounds(px, py, &minX, &maxX, &minY, &maxY, &boundsInitialized);
                     }
                 }
             } else if (orientation == .origin) {
@@ -125,30 +130,11 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                                 cur_x = input_elem.point.x;
                                 cur_y = input_elem.point.y;
                             }
-                            if (!boundsInitialized) {
-                                minX = cur_x;
-                                maxX = cur_x;
-                                minY = cur_y;
-                                maxY = cur_y;
-                                boundsInitialized = true;
-                            }
-                            if (cur_x < minX) minX = cur_x;
-                            if (cur_x > maxX) maxX = cur_x;
-                            if (cur_y < minY) minY = cur_y;
-                            if (cur_y > maxY) maxY = cur_y;
+                            updateBounds(cur_x, cur_y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
                         }
                     }
-                    if (!boundsInitialized) {
-                        minX = cur_x;
-                        maxX = cur_x;
-                        minY = cur_y;
-                        maxY = cur_y;
-                        boundsInitialized = true;
-                    }
-                    if (start_op.anchor.point.point.x < minX) minX = start_op.anchor.point.point.x;
-                    if (start_op.anchor.point.point.x > maxX) maxX = start_op.anchor.point.point.x;
-                    if (start_op.anchor.point.point.y < minY) minY = start_op.anchor.point.point.y;
-                    if (start_op.anchor.point.point.y > maxY) maxY = start_op.anchor.point.point.y;
+                    updateBounds(cur_x, cur_y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                    updateBounds(start_op.anchor.point.point.x, start_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
                 }
             } else {
                 // Fixed mode: ops come in (begin, end) pairs for each anchor
@@ -158,32 +144,12 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                     if (begin_op == .anchor and begin_op.anchor.point == .point) {
                         const bx = begin_op.anchor.point.point.x;
                         const by = begin_op.anchor.point.point.y;
-                        if (!boundsInitialized) {
-                            minX = bx;
-                            maxX = bx;
-                            minY = by;
-                            maxY = by;
-                            boundsInitialized = true;
-                        }
-                        if (bx < minX) minX = bx;
-                        if (bx > maxX) maxX = bx;
-                        if (by < minY) minY = by;
-                        if (by > maxY) maxY = by;
+                        updateBounds(bx, by, &minX, &maxX, &minY, &maxY, &boundsInitialized);
                     }
                     if (end_op == .anchor and end_op.anchor.point == .point) {
                         const ex = end_op.anchor.point.point.x;
                         const ey = end_op.anchor.point.point.y;
-                        if (!boundsInitialized) {
-                            minX = ex;
-                            maxX = ex;
-                            minY = ey;
-                            maxY = ey;
-                            boundsInitialized = true;
-                        }
-                        if (ex < minX) minX = ex;
-                        if (ex > maxX) maxX = ex;
-                        if (ey < minY) minY = ey;
-                        if (ey > maxY) maxY = ey;
+                        updateBounds(ex, ey, &minX, &maxX, &minY, &maxY, &boundsInitialized);
                     }
                 }
             }
@@ -204,31 +170,10 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                             cur_x = input_elem.point.x;
                             cur_y = input_elem.point.y;
                         }
-                        if (!boundsInitialized) {
-                            minX = cur_x;
-                            maxX = cur_x;
-                            minY = cur_y;
-                            maxY = cur_y;
-                            boundsInitialized = true;
-                        }
-                        if (cur_x < minX) minX = cur_x;
-                        if (cur_x > maxX) maxX = cur_x;
-                        if (cur_y < minY) minY = cur_y;
-                        if (cur_y > maxY) maxY = cur_y;
+                        updateBounds(cur_x, cur_y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
                     }
                 }
-                // Also include anchor
-                if (!boundsInitialized) {
-                    minX = anchor_x;
-                    maxX = anchor_x;
-                    minY = anchor_y;
-                    maxY = anchor_y;
-                    boundsInitialized = true;
-                }
-                if (anchor_x < minX) minX = anchor_x;
-                if (anchor_x > maxX) maxX = anchor_x;
-                if (anchor_y < minY) minY = anchor_y;
-                if (anchor_y > maxY) maxY = anchor_y;
+                updateBounds(anchor_x, anchor_y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
             }
         }
     }
