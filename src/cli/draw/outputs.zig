@@ -1531,6 +1531,31 @@ fn sumInputVectors(inp: inputs.Inputs, idx: usize) struct { x: f32, y: f32 } {
 /// Rotates a polyline around a given point by the specified angle.
 /// If the rotation center is part of the polyline, it stays in place while
 /// other points rotate around it. Otherwise all points are rotated.
+/// Flattens processed polylines back into a sequence of anchor ops and frees the polylines.
+/// Each polyline point becomes a separate anchor operation.
+fn flattenPolylinesToOps(allocator: std.mem.Allocator, polylines: [][]inputs.Point, poly_count: usize, output_name: []const u8) !OutputTransformationPair {
+    var total_points: usize = 0;
+    for (0..poly_count) |j| total_points += polylines[j].len;
+
+    var new_ops = try allocator.alloc(OneArgFunctionPartial, total_points);
+    var op_idx: usize = 0;
+    for (0..poly_count) |j| {
+        const poly = polylines[j];
+        for (poly) |p| {
+            new_ops[op_idx] = OneArgFunctionPartial{ .anchor = .{ .point = .{ .point = p } } };
+            op_idx += 1;
+        }
+    }
+
+    for (0..poly_count) |j| allocator.free(polylines[j]);
+    allocator.free(polylines);
+
+    return OutputTransformationPair{
+        .outputName = output_name,
+        .operation = .{ .ops = new_ops },
+    };
+}
+
 fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, arg: RotateArg, rot_pt: inputs.Point) ![]inputs.Point {
     var rot_pt_in_poly = false;
     for (prev_poly) |p| {
@@ -1765,26 +1790,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     }
                 }
 
-                var total_points: usize = 0;
-                for (0..poly_count) |j| total_points += polylines[j].len;
-
-                var new_ops = try allocator.alloc(OneArgFunctionPartial, total_points);
-                var op_idx: usize = 0;
-                for (0..poly_count) |j| {
-                    const poly = polylines[j];
-                    for (poly) |p| {
-                        new_ops[op_idx] = OneArgFunctionPartial{ .anchor = .{ .point = .{ .point = p } } };
-                        op_idx += 1;
-                    }
-                }
-
-                for (0..poly_count) |j| allocator.free(polylines[j]);
-                allocator.free(polylines);
-
-                result_pairs[idx] = OutputTransformationPair{
-                    .outputName = pair.outputName,
-                    .operation = .{ .ops = new_ops },
-                };
+                result_pairs[idx] = try flattenPolylinesToOps(allocator, polylines, poly_count, pair.outputName);
             }
 
             return OutputsValidated{ .transformationPairs = result_pairs };
