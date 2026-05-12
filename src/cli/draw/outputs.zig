@@ -2096,6 +2096,13 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
         return outputs;
     }
 
+    return try resolveNonPointReferences(allocator, inp, outputs, orientation);
+}
+
+/// Resolves non-point element references (beginning, end, middle, fraction) in all ops
+/// to explicit point coordinates. Ops that already have explicit points or are
+/// non-anchor ops are passed through unchanged.
+fn resolveNonPointReferences(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation) ToExplicitPointError!OutputsValidated {
     var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
 
     for (outputs.transformationPairs, 0..) |pair, idx| {
