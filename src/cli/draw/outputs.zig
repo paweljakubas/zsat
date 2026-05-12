@@ -1650,14 +1650,43 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                         var poly = try allocator.alloc(inputs.Point, prev_poly.len);
                         const start = prev_poly[0];
                         poly[0] = start;
-                        for (prev_poly[1..], 0..) |p, j| {
-                            const dx = p.x - start.x;
-                            const dy = p.y - start.y;
-                            const mirrored = mirrorPointOverLine(.{ .x = dx, .y = dy }, op.mirror.line, null);
-                            poly[j + 1] = inputs.Point{
-                                .x = start.x + mirrored.x,
-                                .y = start.y + mirrored.y,
-                            };
+                        if (orientation == .coord) {
+                            const dx = prev_poly[prev_poly.len - 1].x - start.x;
+                            const dy = prev_poly[prev_poly.len - 1].y - start.y;
+                            const len = @sqrt(@as(f64, dx) * @as(f64, dx) + @as(f64, dy) * @as(f64, dy));
+                            var x_axis_x: f64 = 1.0;
+                            var x_axis_y: f64 = 0.0;
+                            var perp_x: f64 = 0.0;
+                            var perp_y: f64 = 1.0;
+                            if (len > 1e-10) {
+                                x_axis_x = @as(f64, dx) / len;
+                                x_axis_y = @as(f64, dy) / len;
+                                perp_x = -x_axis_y;
+                                perp_y = x_axis_x;
+                            }
+                            for (prev_poly[1..], 0..) |p, j| {
+                                const gdx = @as(f64, p.x - start.x);
+                                const gdy = @as(f64, p.y - start.y);
+                                const local_a = gdx * x_axis_x + gdy * x_axis_y;
+                                const local_b = gdx * perp_x + gdy * perp_y;
+                                const mirrored = mirrorPointOverLine(.{ .x = @floatCast(local_a), .y = @floatCast(local_b) }, op.mirror.line, null);
+                                const mdx = @as(f64, mirrored.x) * x_axis_x + @as(f64, mirrored.y) * perp_x;
+                                const mdy = @as(f64, mirrored.x) * x_axis_y + @as(f64, mirrored.y) * perp_y;
+                                poly[j + 1] = inputs.Point{
+                                    .x = start.x + @as(f32, @floatCast(mdx)),
+                                    .y = start.y + @as(f32, @floatCast(mdy)),
+                                };
+                            }
+                        } else {
+                            for (prev_poly[1..], 0..) |p, j| {
+                                const dx = p.x - start.x;
+                                const dy = p.y - start.y;
+                                const mirrored = mirrorPointOverLine(.{ .x = dx, .y = dy }, op.mirror.line, null);
+                                poly[j + 1] = inputs.Point{
+                                    .x = start.x + mirrored.x,
+                                    .y = start.y + mirrored.y,
+                                };
+                            }
                         }
                         polylines[poly_count] = poly;
                         ctx_begin = poly[0];
@@ -3907,4 +3936,52 @@ test "toExplicitPoint origin - compose with anchor and mirror 1" {
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0);
+}
+
+test "toExplicitPoint coord - compose with anchor and mirror 1" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((mirror (y=x)) & (anchor {(1,1)})) with input [[1,1]]
+    // & applies in reverse: first anchor (1,1), then mirror
+    // (a) anchor at (1,1) with vector [1,1]: polyline from (1,1) to (2,2)
+    // (b) mirror (y=x) reflects vector wrt to y=x, but with local frame having origin at (1,1) and x axis along vector from step (a). Result: polyline from (1, 1) to (0, 2)
+    const l1 = inputs.Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    const m1 = MirrorPartial{ .line = l1 };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .mirror = m1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // Anchor polyline: (1,1) -> (2,2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
+
+    // Mirror polyline: (1, 1) -> (0, 2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
+
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.0);
 }
