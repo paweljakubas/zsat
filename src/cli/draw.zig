@@ -158,17 +158,19 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     const outputsValidated = try Outputs.validateConnection(alloc, numberOfOutputsForValidation, outputsConnection);
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
+    var coord_orientations = try alloc.alloc(Styles.CoordinateOrientation, outputsValidated.transformationPairs.len);
+    var plot_steps = try alloc.alloc(Styles.PlotSteps, outputsValidated.transformationPairs.len);
     var result_pairs = try alloc.alloc(Outputs.OutputTransformationPair, outputsValidated.transformationPairs.len);
 
     for (0..outputsValidated.transformationPairs.len) |idx| {
         const pair = outputsValidated.transformationPairs[idx];
-        const coord_orientation: Styles.CoordinateOrientation = if (styles.len > idx and styles[idx].styleValue.coordinateOrientation != null) styles[idx].styleValue.coordinateOrientation.? else .fixed;
-        const plot_steps: Styles.PlotSteps = if (styles.len > idx and styles[idx].styleValue.plotSteps != null) styles[idx].styleValue.plotSteps.? else .last;
+        coord_orientations[idx] = if (styles.len > idx and styles[idx].styleValue.coordinateOrientation != null) styles[idx].styleValue.coordinateOrientation.? else .fixed;
+        plot_steps[idx] = if (styles.len > idx and styles[idx].styleValue.plotSteps != null) styles[idx].styleValue.plotSteps.? else .last;
 
         var single_output: Outputs.OutputsValidated = undefined;
         single_output.transformationPairs = &.{pair};
 
-        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientation, plot_steps, idx);
+        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientations[idx], plot_steps[idx], idx);
         result_pairs[idx] = transformed.transformationPairs[0];
     }
 
@@ -215,13 +217,6 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         try ctx.writer.print("--frames {s}\n", .{frames_str});
     }
 
-    var coord_orientations = try alloc.alloc(Styles.CoordinateOrientation, outputsValidated.transformationPairs.len);
-    var plot_steps = try alloc.alloc(Styles.PlotSteps, outputsValidated.transformationPairs.len);
-    for (0..outputsValidated.transformationPairs.len) |idx| {
-        coord_orientations[idx] = if (styles.len > idx and styles[idx].styleValue.coordinateOrientation != null) styles[idx].styleValue.coordinateOrientation.? else .fixed;
-        plot_steps[idx] = if (styles.len > idx and styles[idx].styleValue.plotSteps != null) styles[idx].styleValue.plotSteps.? else .last;
-    }
-
     return ParsedData{
         .styles = styles,
         .inputs = inputs,
@@ -240,6 +235,40 @@ fn checkTerminalSupportsKitty() bool {
         !std.mem.containsAtLeast(u8, term, 1, "kitty") and
         !std.mem.containsAtLeast(u8, term, 1, "ghostty")) return false;
     return true;
+}
+
+fn rgbaPixelsToBase64(allocator: std.mem.Allocator, pixels: anytype) ![]u8 {
+    var byte_data = try std.ArrayList(u8).initCapacity(allocator, pixels.len * 4);
+    defer byte_data.deinit(allocator);
+    for (pixels) |px| {
+        try byte_data.append(allocator, px.r);
+        try byte_data.append(allocator, px.g);
+        try byte_data.append(allocator, px.b);
+        try byte_data.append(allocator, px.a);
+    }
+
+    var encoded = try std.ArrayList(u8).initCapacity(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
+    defer encoded.deinit(allocator);
+    try encoded.resize(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
+    _ = std.base64.standard.Encoder.encode(encoded.items, byte_data.items);
+    return encoded.items;
+}
+
+fn kittyEncode(writer: anytype, width: i32, height: i32, encoded: []const u8) !void {
+    try writer.writeAll("\n     ");
+    const chunk_size = 4096;
+    if (encoded.len <= chunk_size) {
+        try writer.print("\x1B_Gf=32,s={d},v={d},a=T;{s}\x1B\\", .{ width, height, encoded });
+    } else {
+        try writer.print("\x1B_Gf=32,s={d},v={d},a=T,m=1;{s}\x1B\\", .{ width, height, encoded[0..chunk_size] });
+        var start: usize = chunk_size;
+        while (start + chunk_size < encoded.len) {
+            try writer.print("\x1B_Gm=1;{s}\x1B\\", .{encoded[start..][0..chunk_size]});
+            start += chunk_size;
+        }
+        try writer.print("\x1B_Gm=0;{s}\x1B\\", .{encoded[start..]});
+    }
+    try writer.writeAll("\n\n");
 }
 
 fn renderToStdout(allocator: std.mem.Allocator, img: Plot.RenderedImage, writer: anytype) !void {
@@ -281,35 +310,9 @@ fn renderToStdout(allocator: std.mem.Allocator, img: Plot.RenderedImage, writer:
         pixels = resized;
     }
 
-    var byte_data = try std.ArrayList(u8).initCapacity(allocator, pixels.len * 4);
-    defer byte_data.deinit(allocator);
-    for (pixels) |px| {
-        try byte_data.append(allocator, px.r);
-        try byte_data.append(allocator, px.g);
-        try byte_data.append(allocator, px.b);
-        try byte_data.append(allocator, px.a);
-    }
-
-    var encoded = try std.ArrayList(u8).initCapacity(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
-    defer encoded.deinit(allocator);
-    try encoded.resize(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
-    _ = std.base64.standard.Encoder.encode(encoded.items, byte_data.items);
-
-    try writer.writeAll("\n     ");
-    const chunk_size = 4096;
-    const data = encoded.items;
-    if (data.len <= chunk_size) {
-        try writer.print("\x1B_Gf=32,s={d},v={d},a=T;{s}\x1B\\", .{ img.width, img.height, data });
-    } else {
-        try writer.print("\x1B_Gf=32,s={d},v={d},a=T,m=1;{s}\x1B\\", .{ img.width, img.height, data[0..chunk_size] });
-        var start: usize = chunk_size;
-        while (start + chunk_size < data.len) {
-            try writer.print("\x1B_Gm=1;{s}\x1B\\", .{data[start..][0..chunk_size]});
-            start += chunk_size;
-        }
-        try writer.print("\x1B_Gm=0;{s}\x1B\\", .{data[start..]});
-    }
-    try writer.writeAll("\n\n");
+    const encoded = try rgbaPixelsToBase64(allocator, pixels);
+    defer allocator.free(encoded);
+    try kittyEncode(writer, img.width, img.height, encoded);
     try writer.flush();
 }
 
@@ -397,35 +400,9 @@ fn renderImageToStdout(allocator: std.mem.Allocator, file: *std.fs.File, writer:
         try resizeImage(allocator, &img, new_w, new_h);
     }
 
-    var byte_data = try std.ArrayList(u8).initCapacity(allocator, img.pixels.rgba32.len * 4);
-    defer byte_data.deinit(allocator);
-    for (img.pixels.rgba32) |px| {
-        try byte_data.append(allocator, px.r);
-        try byte_data.append(allocator, px.g);
-        try byte_data.append(allocator, px.b);
-        try byte_data.append(allocator, px.a);
-    }
-
-    var encoded = try std.ArrayList(u8).initCapacity(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
-    defer encoded.deinit(allocator);
-    try encoded.resize(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
-    _ = std.base64.standard.Encoder.encode(encoded.items, byte_data.items);
-
-    try writer.writeAll("\n     ");
-    const chunk_size = 4096;
-    const data = encoded.items;
-    if (data.len <= chunk_size) {
-        try writer.print("\x1B_Gf=32,s={d},v={d},a=T;{s}\x1B\\", .{ img.width, img.height, data });
-    } else {
-        try writer.print("\x1B_Gf=32,s={d},v={d},a=T,m=1;{s}\x1B\\", .{ img.width, img.height, data[0..chunk_size] });
-        var start: usize = chunk_size;
-        while (start + chunk_size < data.len) {
-            try writer.print("\x1B_Gm=1;{s}\x1B\\", .{data[start..][0..chunk_size]});
-            start += chunk_size;
-        }
-        try writer.print("\x1B_Gm=0;{s}\x1B\\", .{data[start..]});
-    }
-    try writer.writeAll("\n\n");
+    const encoded = try rgbaPixelsToBase64(allocator, img.pixels.rgba32);
+    defer allocator.free(encoded);
+    try kittyEncode(writer, @intCast(img.width), @intCast(img.height), encoded);
     try writer.flush();
 }
 
