@@ -1384,6 +1384,23 @@ pub fn validateConnection(_: std.mem.Allocator, numberOfOutputs: u8, connection:
     return OutputsValidated{ .transformationPairs = connection.transformationPairs };
 }
 
+/// Converts a point from local frame coordinates to global coordinates.
+///
+/// The local frame is defined by:
+///   - origin: current_origin
+///   - x-axis: (current_x_axis_x, current_x_axis_y), a unit vector
+///   - y-axis: (current_perp_x, current_perp_y), a unit vector perpendicular to x-axis
+///
+/// The conversion works by constructing two lines:
+///   - line_x: parallel to x-axis, passing through `origin + anchor_y * perp`
+///   - line_y: parallel to y-axis, passing through `origin + anchor_x * x_axis`
+/// The intersection of these two lines gives the global position.
+///
+/// Example usage:
+/// ```
+/// const gp = computeAnchorGlobal(1.0, 2.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0);
+/// // With identity frame, global = (1, 2)
+/// ```
 fn computeAnchorGlobal(
     anchor_x: f32,
     anchor_y: f32,
@@ -1410,6 +1427,38 @@ fn computeAnchorGlobal(
     return global_point;
 }
 
+test "computeAnchorGlobal" {
+    // Identity frame: origin=(0,0), x_axis=(1,0), perp=(0,1)
+    // Anchor (1,2) -> global (1,2)
+    const r1 = computeAnchorGlobal(1.0, 2.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0);
+    try testing.expectEqual(@as(f32, 1.0), r1.x);
+    try testing.expectEqual(@as(f32, 2.0), r1.y);
+
+    // Non-identity frame: origin=(10,10), x_axis=(0,1), perp=(-1,0) (rotated 90° CW)
+    // Anchor (2,3) local -> intersect frame lines
+    const r2 = computeAnchorGlobal(2.0, 3.0, 10.0, 10.0, 0.0, 1.0, -1.0, 0.0);
+    // line_x: origin + 3*perp = (10-3, 10) = (7,10), direction x_axis=(0,1)
+    // line_y: origin + 2*x_axis = (10, 12), direction perp=(-1,0)
+    // intersect: x=7, y=12
+    try testing.expectEqual(@as(f32, 7.0), r2.x);
+    try testing.expectEqual(@as(f32, 12.0), r2.y);
+}
+
+/// Updates the local coordinate frame after processing an anchor.
+///
+/// Sets the frame origin to the computed global position of the current anchor,
+/// then derives the next x-axis direction from the delta to the next anchor.
+/// The perpendicular is set as a 90° counter-clockwise rotation of the x-axis.
+///
+/// Example:
+/// ```
+/// var ox: f32 = 0, oy: f32 = 0;
+/// var xax: f32 = 1, xay: f32 = 0;
+/// var px: f32 = 0, py: f32 = 1;
+/// updateCoordFrame(&ox, &oy, &xax, &xay, &px, &py,
+///     0, 0, 5, 5, 3, 4);
+/// // origin becomes (5,5), x_axis = (3,4) normalized = (0.6, 0.8), perp = (-0.8, 0.6)
+/// ```
 fn updateCoordFrame(
     current_origin_x: *f32,
     current_origin_y: *f32,
@@ -1437,6 +1486,37 @@ fn updateCoordFrame(
     }
 }
 
+test "updateCoordFrame" {
+    var ox: f32 = 0.0;
+    var oy: f32 = 0.0;
+    var xax: f32 = 1.0;
+    var xay: f32 = 0.0;
+    var px: f32 = 0.0;
+    var py: f32 = 1.0;
+
+    // anchor=(5,5), global=(5,5), next=(3,4)
+    updateCoordFrame(&ox, &oy, &xax, &xay, &px, &py, 5.0, 5.0, 5.0, 5.0, 3.0, 4.0);
+    try testing.expectEqual(@as(f32, 5.0), ox);
+    try testing.expectEqual(@as(f32, 5.0), oy);
+    // dx = 3-5 = -2, dy = 4-5 = -1, len = sqrt(5) ≈ 2.236
+    try testing.expectApproxEqAbs(@as(f32, -2.0 / @sqrt(5.0)), xax, 0.001);
+    try testing.expectApproxEqAbs(@as(f32, -1.0 / @sqrt(5.0)), xay, 0.001);
+    // perp = (-xay, xax)
+    try testing.expectApproxEqAbs(@as(f32, 1.0 / @sqrt(5.0)), px, 0.001);
+    try testing.expectApproxEqAbs(@as(f32, -2.0 / @sqrt(5.0)), py, 0.001);
+}
+
+/// Generates a polyline of anchor ops from a start point and vectors in a local frame.
+///
+/// Each vector (x, y) is transformed to global via: x * x_axis + y * perp.
+/// The first op anchors at the start point; subsequent ops anchor at successively displaced points.
+/// Returns `OneArgFunctionPartial` with `len = vectors.len + 1`.
+///
+/// Example:
+/// ```
+/// const ops = try generateCoordPolyline(a, &.{.{1,0}, {0,1}}, 0, 0, 1, 0, 0, 1);
+/// // ops[0] = anchor (0,0), ops[1] = anchor (1,0), ops[2] = anchor (1,1)
+/// ```
 fn generateCoordPolyline(
     allocator: std.mem.Allocator,
     vectors: []const inputs.Vector,
@@ -1466,8 +1546,43 @@ fn generateCoordPolyline(
     return ops;
 }
 
+test "generateCoordPolyline" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const vectors = [_]inputs.Vector{ .{ .x = 2.0, .y = 0.0 }, .{ .x = 0.0, .y = 3.0 } };
+    const ops = try generateCoordPolyline(a, &vectors, 1.0, 1.0, 1.0, 0.0, 0.0, 1.0);
+    defer a.free(ops);
+
+    try testing.expectEqual(@as(usize, 3), ops.len);
+    try testing.expectEqual(@as(f32, 1.0), ops[0].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 1.0), ops[0].anchor.point.point.y);
+    // vector (2,0) in identity frame -> (3, 1)
+    try testing.expectEqual(@as(f32, 3.0), ops[1].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 1.0), ops[1].anchor.point.point.y);
+    // vector (1, -2) in rotated frame
+    const vectors2 = [_]inputs.Vector{ .{ .x = 1.0, .y = 0.0 }, .{ .x = 0.0, .y = -2.0 } };
+    const ops2 = try generateCoordPolyline(a, &vectors2, 0.0, 0.0, 0.0, 1.0, -1.0, 0.0);
+    defer a.free(ops2);
+    // (1,0) in (x_axis=(0,1), perp=(-1,0)) -> (0,1)
+    // (0,-2) in (x_axis=(0,1), perp=(-1,0)) -> (2,0)
+    try testing.expectEqual(@as(f32, 0.0), ops2[0].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 0.0), ops2[0].anchor.point.point.y);
+    try testing.expectEqual(@as(f32, 0.0), ops2[1].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 1.0), ops2[1].anchor.point.point.y);
+    try testing.expectEqual(@as(f32, 2.0), ops2[2].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 1.0), ops2[2].anchor.point.point.y);
+}
+
 /// Counts input vectors for the given output index and returns an allocated slice of them.
 /// Caller owns the returned slice.
+///
+/// Example:
+/// ```
+/// const vectors = try collectVectors(a, inp, 0);
+/// // vectors now contains all InputElement.vector values from inp.input[0]
+/// ```
 fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize) ![]inputs.Vector {
     var count: usize = 0;
     if (idx < inp.input.len) {
@@ -1488,9 +1603,43 @@ fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize) 
     return vectors;
 }
 
+test "collectVectors" {
+    const v1 = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 2.0 } };
+    const v2 = inputs.InputElement{ .vector = .{ .x = 3.0, .y = 4.0 } };
+    const p = inputs.InputElement{ .point = .{ .x = 5.0, .y = 6.0 } };
+    const row = inputs.InputElementRow{ .row = &[3]inputs.InputElement{ v1, v2, p } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const vectors = try collectVectors(a, inp, 0);
+    defer a.free(vectors);
+    try testing.expectEqual(@as(usize, 2), vectors.len);
+    try testing.expectEqual(@as(f32, 1.0), vectors[0].x);
+    try testing.expectEqual(@as(f32, 2.0), vectors[0].y);
+    try testing.expectEqual(@as(f32, 3.0), vectors[1].x);
+    try testing.expectEqual(@as(f32, 4.0), vectors[1].y);
+
+    // idx out of range -> empty
+    const empty = try collectVectors(a, inp, 5);
+    try testing.expectEqual(@as(usize, 0), empty.len);
+}
+
 /// Counts explicit point anchors in a composition and returns them in reverse order.
 /// Reverse order matches `&` composition semantics where the last operation is applied first.
 /// Caller owns the returned slice.
+///
+/// Example:
+/// ```
+/// const ops = [_]OneArgFunctionPartial{
+///     .{ .anchor = .{ .point = .{ .point = .{2,2} } } },
+///     .{ .anchor = .{ .point = .{ .point = .{1,1} } } },
+/// };
+/// const anchors = try collectAnchorsReversed(a, &ops);
+/// // anchors = [(1,1), (2,2)]  — reversed order
+/// ```
 fn collectAnchorsReversed(allocator: std.mem.Allocator, ops: []const OneArgFunctionPartial) ![]inputs.Point {
     var count: usize = 0;
     for (ops) |op| {
@@ -1509,7 +1658,70 @@ fn collectAnchorsReversed(allocator: std.mem.Allocator, ops: []const OneArgFunct
     return anchors;
 }
 
+test "collectAnchorsReversed" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Two explicit-point anchors, one non-anchor op (should be skipped)
+    const ops = [_]OneArgFunctionPartial{
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
+        .{ .rotate = RotatePartial{ .elements = &.{} } },
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+    };
+    const anchors = try collectAnchorsReversed(a, &ops);
+    defer a.free(anchors);
+    try testing.expectEqual(@as(usize, 2), anchors.len);
+    // Reversed order: (1,1) first, then (2,2)
+    try testing.expectEqual(@as(f32, 1.0), anchors[0].x);
+    try testing.expectEqual(@as(f32, 1.0), anchors[0].y);
+    try testing.expectEqual(@as(f32, 2.0), anchors[1].x);
+    try testing.expectEqual(@as(f32, 2.0), anchors[1].y);
+
+    // Non-point anchor (fraction) should be skipped
+    const frac = GeneralPoint{ .fraction = .{ .fromStart = 50, .element = .self } };
+    const ops2 = [_]OneArgFunctionPartial{
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 5.0, .y = 5.0 } } } },
+        .{ .anchor = .{ .point = frac } },
+    };
+    const anchors2 = try collectAnchorsReversed(a, &ops2);
+    defer a.free(anchors2);
+    try testing.expectEqual(@as(usize, 1), anchors2.len);
+}
+
+test "sumInputVectors" {
+    // Two vectors: [1,2] + [3,4] = [4,6]
+    const v1 = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 2.0 } };
+    const v2 = inputs.InputElement{ .vector = .{ .x = 3.0, .y = 4.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const sum = sumInputVectors(inp, 0);
+    try testing.expectEqual(@as(f32, 4.0), sum.x);
+    try testing.expectEqual(@as(f32, 6.0), sum.y);
+
+    // idx out of range -> (0,0)
+    const sum2 = sumInputVectors(inp, 5);
+    try testing.expectEqual(@as(f32, 0.0), sum2.x);
+    try testing.expectEqual(@as(f32, 0.0), sum2.y);
+
+    // Point elements are skipped
+    const p = inputs.InputElement{ .point = .{ .x = 10.0, .y = 20.0 } };
+    const v3 = inputs.InputElement{ .vector = .{ .x = -1.0, .y = 1.0 } };
+    const row2 = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ p, v3 } };
+    const inp2 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row2} };
+    const sum3 = sumInputVectors(inp2, 0);
+    try testing.expectEqual(@as(f32, -1.0), sum3.x);
+    try testing.expectEqual(@as(f32, 1.0), sum3.y);
+}
+
 /// Sums all input vectors for the given output index into a single (x, y) pair.
+///
+/// Example:
+/// ```
+/// const sum = sumInputVectors(inp, 0);
+/// // sum.x = total x displacement, sum.y = total y displacement
+/// ```
 fn sumInputVectors(inp: inputs.Inputs, idx: usize) struct { x: f32, y: f32 } {
     var input_x: f32 = 0.0;
     var input_y: f32 = 0.0;
@@ -1528,8 +1740,41 @@ fn sumInputVectors(inp: inputs.Inputs, idx: usize) struct { x: f32, y: f32 } {
     return .{ .x = input_x, .y = input_y };
 }
 
+test "flattenPolylinesToOps" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Two polylines: [(1,1),(2,2)] and [(3,3)]
+    const poly1 = try a.alloc(inputs.Point, 2);
+    poly1[0] = .{ .x = 1.0, .y = 1.0 };
+    poly1[1] = .{ .x = 2.0, .y = 2.0 };
+    const poly2 = try a.alloc(inputs.Point, 1);
+    poly2[0] = .{ .x = 3.0, .y = 3.0 };
+
+    const polylines = try a.alloc([]inputs.Point, 2);
+    polylines[0] = poly1;
+    polylines[1] = poly2;
+
+    const result = try flattenPolylinesToOps(a, polylines, 2, "out");
+    try testing.expectEqualStrings("out", result.outputName);
+    try testing.expectEqual(@as(usize, 3), result.operation.ops.len);
+    try testing.expectEqual(@as(f32, 1.0), result.operation.ops[0].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 2.0), result.operation.ops[1].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 3.0), result.operation.ops[2].anchor.point.point.x);
+    // polylines should be freed by flattenPolylinesToOps — don't free them here
+}
+
 /// Flattens processed polylines back into a sequence of anchor ops and frees the polylines.
 /// Each polyline point becomes a separate anchor operation.
+///
+/// Example:
+/// ```
+/// const polylines = try a.alloc([]inputs.Point, 1);
+/// polylines[0] = &[_]inputs.Point{.{1,1}, .{2,2}};
+/// const result = try flattenPolylinesToOps(a, polylines, 1, "out");
+/// // result.operation.ops = [anchor (1,1), anchor (2,2)]
+/// ```
 fn flattenPolylinesToOps(allocator: std.mem.Allocator, polylines: [][]inputs.Point, poly_count: usize, output_name: []const u8) !OutputTransformationPair {
     var total_points: usize = 0;
     for (0..poly_count) |j| total_points += polylines[j].len;
@@ -1553,6 +1798,30 @@ fn flattenPolylinesToOps(allocator: std.mem.Allocator, polylines: [][]inputs.Poi
     };
 }
 
+test "processCoordNoVectors" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const anchors = [_]inputs.Point{ .{ .x = 1.0, .y = 1.0 }, .{ .x = 2.0, .y = 2.0 } };
+    const ops = try processCoordNoVectors(a, &anchors);
+    defer a.free(ops);
+
+    // 2 anchors -> 4 ops (begin+end per anchor)
+    try testing.expectEqual(@as(usize, 4), ops.len);
+    // Anchor 0 at (1,1) in global frame
+    try testing.expectEqual(@as(f32, 1.0), ops[0].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 1.0), ops[0].anchor.point.point.y);
+    try testing.expectEqual(@as(f32, 1.0), ops[1].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 1.0), ops[1].anchor.point.point.y);
+    // Frame after anchor 0: origin=(1,1), x_axis=(0.707,0.707), perp=(-0.707,0.707)
+    // Anchor 1 at (2,2) local -> global via line intersection: (1.0, 3.8284)
+    try testing.expectApproxEqAbs(@as(f32, 1.0), ops[2].anchor.point.point.x, 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 3.8284), ops[2].anchor.point.point.y, 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), ops[3].anchor.point.point.x, 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 3.8284), ops[3].anchor.point.point.y, 0.01);
+}
+
 /// Generates begin/end ops for each anchor in coord mode when there are no input vectors.
 /// Each anchor produces a (begin, end) point pair — both set to the same global position
 /// (no displacement since there are no vectors to apply).
@@ -1568,6 +1837,12 @@ fn flattenPolylinesToOps(allocator: std.mem.Allocator, polylines: [][]inputs.Poi
 ///   - Emit begin and end ops at this global position
 ///   - Update frame origin to the computed global position
 ///   - Derive next x-axis direction from (anchors[i+1] - anchor_i), normalize, set perpendicular
+///
+/// Example:
+/// ```
+/// const ops = try processCoordNoVectors(a, &.{.{1,1}, .{2,2}});
+/// // ops.len = 4: [(1,1),(1,1),(2,2),(2,2)]
+/// ```
 fn processCoordNoVectors(allocator: std.mem.Allocator, anchors: []const inputs.Point) ![]OneArgFunctionPartial {
     var new_ops = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
     var cur_origin_x: f32 = anchors[0].x;
@@ -1628,6 +1903,35 @@ fn processCoordNoVectors(allocator: std.mem.Allocator, anchors: []const inputs.P
     return new_ops;
 }
 
+test "processCoordAllSteps" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // 2 anchors, 1 vector -> 2 * (1+1) = 4 ops
+    const anchors = [_]inputs.Point{ .{ .x = 1.0, .y = 1.0 }, .{ .x = 2.0, .y = 2.0 } };
+    const vectors = [_]inputs.Vector{.{ .x = 1.0, .y = 0.0 }};
+    const ops = try processCoordAllSteps(a, &anchors, &vectors);
+    defer a.free(ops);
+
+    try testing.expectEqual(@as(usize, 4), ops.len);
+    // Step 0 (global frame, anchor 1,1): ops 0-1
+    try testing.expectEqual(@as(f32, 1.0), ops[0].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 1.0), ops[0].anchor.point.point.y);
+    try testing.expectEqual(@as(f32, 2.0), ops[1].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 1.0), ops[1].anchor.point.point.y);
+    // Step 1 (rotated frame along (1,1)->(2,2), anchor 2,2): ops 2-3
+    // x_axis = (1,1)/sqrt(2) ≈ (0.707,0.707), perp = (-0.707,0.707)
+    // Frame origin after step 0: (1,1), x_axis=(0.707,0.707), perp=(-0.707,0.707)
+    // Anchor 2,2 local -> global via line intersection: (1.0, 3.8284)
+    try testing.expectApproxEqAbs(@as(f32, 1.0), ops[2].anchor.point.point.x, 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 3.8284), ops[2].anchor.point.point.y, 0.01);
+    // vector (1,0) in frame -> gx=1*0.707+0*(-0.707)=0.707, gy=1*0.707+0*0.707=0.707
+    // global end = (1+0.707, 3.828+0.707) ≈ (1.707, 4.535)
+    try testing.expectApproxEqAbs(@as(f32, 1.7071), ops[3].anchor.point.point.x, 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 4.5355), ops[3].anchor.point.point.y, 0.01);
+}
+
 /// Generates polylines for all intermediate anchor steps in coord mode (plot_steps == .all).
 ///
 /// Steps:
@@ -1639,6 +1943,12 @@ fn processCoordNoVectors(allocator: std.mem.Allocator, anchors: []const inputs.P
 ///     through the local frame (each vector's (x, y) is converted via x_axis and perp)
 ///   - Append polyline points to a flat output array
 ///   - Update frame for the next anchor using the delta (anchors[i+1] - anchor_i)
+///
+/// Example:
+/// ```
+/// const ops = try processCoordAllSteps(a, &.{.{1,1}, .{2,2}}, &.{.{1,0}});
+/// // ops.len = 4 (2 anchors * (1 vector + 1))
+/// ```
 fn processCoordAllSteps(allocator: std.mem.Allocator, anchors: []const inputs.Point, vectors: []const inputs.Vector) ![]OneArgFunctionPartial {
     const num_points = anchors.len * (vectors.len + 1);
     var all_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
@@ -1678,6 +1988,30 @@ fn processCoordAllSteps(allocator: std.mem.Allocator, anchors: []const inputs.Po
     return all_ops;
 }
 
+test "processCoordLastStep" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Single anchor: acts like global frame, vectors applied directly
+    const anchors1 = [_]inputs.Point{.{ .x = 3.0, .y = 4.0 }};
+    const vectors1 = [_]inputs.Vector{.{ .x = 1.0, .y = 2.0 }};
+    const ops1 = try processCoordLastStep(a, &anchors1, &vectors1);
+    defer a.free(ops1);
+    try testing.expectEqual(@as(usize, 2), ops1.len);
+    try testing.expectEqual(@as(f32, 3.0), ops1[0].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 4.0), ops1[0].anchor.point.point.y);
+    try testing.expectEqual(@as(f32, 4.0), ops1[1].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 6.0), ops1[1].anchor.point.point.y);
+
+    // Two anchors: walk frame through both, only emit polyline at last
+    const anchors2 = [_]inputs.Point{ .{ .x = 1.0, .y = 1.0 }, .{ .x = 2.0, .y = 2.0 } };
+    const vectors2 = [_]inputs.Vector{.{ .x = 1.0, .y = 1.0 }};
+    const ops2 = try processCoordLastStep(a, &anchors2, &vectors2);
+    defer a.free(ops2);
+    try testing.expectEqual(@as(usize, 2), ops2.len);
+}
+
 /// Generates a single polyline for the final anchor in coord mode (plot_steps == .last).
 ///
 /// Steps:
@@ -1686,6 +2020,12 @@ fn processCoordAllSteps(allocator: std.mem.Allocator, anchors: []const inputs.Po
 /// - After the last anchor, compute its global position in the final frame
 /// - Generate one polyline at the last global position: start point + vectors
 ///   transformed through the local frame (vector (x, y) -> x * x_axis + y * perp in global)
+///
+/// Example:
+/// ```
+/// const ops = try processCoordLastStep(a, &.{.{3,4}}, &.{.{1,2}});
+/// // ops.len = 2: [(3,4), (4,6)]
+/// ```
 fn processCoordLastStep(allocator: std.mem.Allocator, anchors: []const inputs.Point, vectors: []const inputs.Vector) ![]OneArgFunctionPartial {
     var cur_origin_x: f32 = anchors[0].x;
     var cur_origin_y: f32 = anchors[0].y;
@@ -1741,13 +2081,52 @@ fn processCoordLastStep(allocator: std.mem.Allocator, anchors: []const inputs.Po
     return new_ops;
 }
 
+test "processRotateOp" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Polyline (1,1)->(2,2), rotate 90° around (1,1) (rotation point is in polyline)
+    const prev = [_]inputs.Point{ .{ .x = 1.0, .y = 1.0 }, .{ .x = 2.0, .y = 2.0 } };
+    const arg = RotateArg{ .phi = 90.0, .point = .{ .fraction = .{ .fromStart = 0, .element = .self } } };
+    const rot_pt = inputs.Point{ .x = 1.0, .y = 1.0 };
+    const poly = try processRotateOp(a, &prev, arg, rot_pt);
+    defer a.free(poly);
+    try testing.expectEqual(@as(usize, 2), poly.len);
+    // Rotation center kept at (1,1)
+    try testing.expectEqual(@as(f32, 1.0), poly[0].x);
+    try testing.expectEqual(@as(f32, 1.0), poly[0].y);
+    // (2,2) rotated 90° around (1,1) = (0, 2)?
+    // dx=1, dy=1 -> rotated: dx*cos90 - dy*sin90 = 0-1 = -1, dx*sin90 + dy*cos90 = 1+0 = 1
+    // So (1-1, 1+1) = (0, 2)
+    try testing.expectApproxEqAbs(@as(f32, 0.0), poly[1].x, 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 2.0), poly[1].y, 0.01);
+
+    // Rotate around a point NOT in the polyline: (1,1)->(2,2) around (3,3) by 90°
+    const rot_pt2 = inputs.Point{ .x = 3.0, .y = 3.0 };
+    const poly2 = try processRotateOp(a, &prev, arg, rot_pt2);
+    defer a.free(poly2);
+    // (1,1): dx=-2,dy=-2 -> rot: -2*0 - (-2)*1 = 2, -2*1 + (-2)*0 = -2 -> (5,1)
+    // (2,2): dx=-1,dy=-1 -> rot: -1*0 - (-1)*1 = 1, -1*1 + (-1)*0 = -1 -> (4,2)
+    try testing.expectApproxEqAbs(@as(f32, 5.0), poly2[0].x, 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), poly2[0].y, 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 4.0), poly2[1].x, 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 2.0), poly2[1].y, 0.01);
+}
+
 /// Rotates a polyline around a given point by the specified angle.
 ///
 /// Steps:
 /// - Check if the rotation center is one of the polyline points
 /// - If yes: keep the rotation center in place, rotate all other points around it
 /// - If no: rotate every point in the polyline around the center
-/// - Uses geometry.rotateAround for the per-point rotation math
+/// - Uses rotateAround for the per-point rotation math
+///
+/// Example:
+/// ```
+/// const poly = try processRotateOp(a, &.{.{1,1}, .{2,2}}, arg, .{1,1});
+/// // poly[0]=(1,1) (kept in place), poly[1]=(1, 1+√2) (rotated 45° around (1,1))
+/// ```
 fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, arg: RotateArg, rot_pt: inputs.Point) ![]inputs.Point {
     var rot_pt_in_poly = false;
     for (prev_poly) |p| {
@@ -1773,6 +2152,31 @@ fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
     return poly;
 }
 
+test "processScaleOp" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const prev = [_]inputs.Point{ .{ .x = 1.0, .y = 1.0 }, .{ .x = 2.0, .y = 2.0 } };
+    const vectors = [_]inputs.Vector{.{ .x = 1.0, .y = 1.0 }};
+    const arg = ScaleArg{ .translation = .{ .x = 2.0, .y = 3.0 } };
+
+    // Fixed mode: poly[0] stays at prev[0], poly[1] = prev[0] + (prev[1]-prev[0]) * (2,3)
+    // (1,1) + (1,1)*(2,3) = (1+2, 1+3) = (3,4)
+    const poly1 = try processScaleOp(a, &prev, arg, &vectors, .fixed, null);
+    defer a.free(poly1);
+    try testing.expectEqual(@as(usize, 2), poly1.len);
+    try testing.expectEqual(@as(f32, 1.0), poly1[0].x);
+    try testing.expectEqual(@as(f32, 1.0), poly1[0].y);
+    try testing.expectEqual(@as(f32, 3.0), poly1[1].x);
+    try testing.expectEqual(@as(f32, 4.0), poly1[1].y);
+
+    // Coord mode: vectors transformed in local frame
+    const poly2 = try processScaleOp(a, &prev, arg, &vectors, .coord, null);
+    defer a.free(poly2);
+    try testing.expectEqual(@as(usize, 2), poly2.len);
+}
+
 /// Scales a polyline by a translation factor.
 ///
 /// Steps by mode:
@@ -1782,6 +2186,12 @@ fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
 /// - non-coord (fixed/origin): points are scaled relative to the first point:
 ///   poly[j+1] = poly[0] + (prev_poly[j+1] - poly[0]) * translation
 /// - origin adds ctx_begin offset to every point after scaling.
+///
+/// Example:
+/// ```
+/// const poly = try processScaleOp(a, &.{.{1,1},{2,2}}, arg, &.{.{1,1}}, .fixed, null);
+/// // poly[0]=(1,1), poly[1]=(1+(2-1)*2, 1+(2-1)*3) = (3,4)
+/// ```
 fn processScaleOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, arg: ScaleArg, vectors: []const inputs.Vector, orientation: CoordinateOrientation, ctx_begin: ?inputs.Point) ![]inputs.Point {
     var poly = try allocator.alloc(inputs.Point, prev_poly.len);
     if (orientation == .coord) {
@@ -1832,6 +2242,36 @@ fn processScaleOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point,
     return poly;
 }
 
+test "processMirrorOp" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Polyline (1,1)->(2,1), mirror over y=x (a=1,b=1,c=0)
+    const prev = [_]inputs.Point{ .{ .x = 1.0, .y = 1.0 }, .{ .x = 2.0, .y = 1.0 } };
+    const line = inputs.Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+
+    const poly = try processMirrorOp(a, &prev, line, .fixed);
+    defer a.free(poly);
+    try testing.expectEqual(@as(usize, 2), poly.len);
+    // First point stays fixed
+    try testing.expectEqual(@as(f32, 1.0), poly[0].x);
+    try testing.expectEqual(@as(f32, 1.0), poly[0].y);
+    // Displacement (1,0) mirrored over y=x -> (0,1), so poly[1] = (1,1)+(0,1) = (1,2)
+    try testing.expectEqual(@as(f32, 1.0), poly[1].x);
+    try testing.expectEqual(@as(f32, 2.0), poly[1].y);
+
+    // Same in coord mode (single-segment polyline, x-axis = (1,0), perp = (0,1))
+    const poly2 = try processMirrorOp(a, &prev, line, .coord);
+    defer a.free(poly2);
+    try testing.expectEqual(@as(usize, 2), poly2.len);
+    try testing.expectEqual(@as(f32, 1.0), poly2[0].x);
+    try testing.expectEqual(@as(f32, 1.0), poly2[0].y);
+    // Mirror in coord should be same as fixed for identity-like frame
+    try testing.expectEqual(@as(f32, 1.0), poly2[1].x);
+    try testing.expectEqual(@as(f32, 2.0), poly2[1].y);
+}
+
 /// Mirrors a polyline over a given line. The first point stays fixed; subsequent
 /// point displacements are mirrored.
 ///
@@ -1841,6 +2281,12 @@ fn processScaleOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point,
 ///   mirror over the line, convert back to global coordinates.
 /// - non-coord (fixed/origin): displacements are mirrored directly in global space
 ///   (dx = p.x - start.x, dy = p.y - start.y) using mirrorPointOverLine.
+///
+/// Example:
+/// ```
+/// const poly = try processMirrorOp(a, &.{.{1,1},{2,1}}, line, .fixed);
+/// // poly[0]=(1,1), poly[1]=(1,2) — (1,0) displacement mirrored over y=x
+/// ```
 fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, line: inputs.Line, orientation: CoordinateOrientation) ![]inputs.Point {
     var poly = try allocator.alloc(inputs.Point, prev_poly.len);
     const start = prev_poly[0];
@@ -1886,6 +2332,41 @@ fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
     return poly;
 }
 
+test "processOriginFixed" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Single anchor pair: (a {(2,2)} & a {(1,1)}) with fixed mode, input sum=[1,1]
+    const ops = [_]OneArgFunctionPartial{
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } },
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+    };
+    const pair = OutputTransformationPair{ .outputName = "out", .operation = .{ .ops = &ops } };
+    const validated = OutputsValidated{ .transformationPairs = &[1]OutputTransformationPair{pair} };
+
+    const v = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    // Fixed mode: anchors [(1,1), (2,2)] -> begin=(1,1), end=(2,2); begin=(2,2), end=(3,3)
+    const res = try processOriginFixed(a, validated, inp, .fixed);
+    try testing.expectEqual(@as(usize, 1), res.transformationPairs.len);
+    try testing.expectEqual(@as(usize, 4), res.transformationPairs[0].operation.ops.len);
+    try testing.expectEqual(@as(f32, 1.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 2.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 2.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 3.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.x);
+
+    // Origin mode: begin=(1,1), end=(2,2); origin=(1,1), begin=(1+2,1+2)=(3,3), end=(4,4)
+    const res2 = try processOriginFixed(a, validated, inp, .origin);
+    try testing.expectEqual(@as(usize, 4), res2.transformationPairs[0].operation.ops.len);
+    try testing.expectEqual(@as(f32, 1.0), res2.transformationPairs[0].operation.ops[0].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 2.0), res2.transformationPairs[0].operation.ops[1].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 3.0), res2.transformationPairs[0].operation.ops[2].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 4.0), res2.transformationPairs[0].operation.ops[3].anchor.point.point.x);
+}
+
 /// Processes anchors in origin or fixed mode, expanding each anchor into a
 /// (begin, end) point pair using the input vector sum.
 ///
@@ -1899,6 +2380,12 @@ fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
 ///     (each anchor defines a new local origin for the next)
 ///   - Fixed mode: begin = anchor (no accumulation, each is independent)
 ///   - end = begin + input_sum
+///
+/// Example:
+/// ```
+/// const res = try processOriginFixed(a, validated, inp, .fixed);
+/// // Each anchor becomes (begin=anchor, end=anchor+input_sum)
+/// ```
 fn processOriginFixed(
     allocator: std.mem.Allocator,
     outputs: OutputsValidated,
@@ -2173,9 +2660,41 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
     return try resolveNonPointReferences(allocator, inp, outputs, orientation);
 }
 
+test "resolveNonPointReferences" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Pair with beginning reference to other output
+    const eref = ElementReference{ .other = "out2" };
+    const gp = GeneralPoint{ .beginning = eref };
+    const ops = [_]OneArgFunctionPartial{
+        .{ .anchor = .{ .point = gp } },
+    };
+    const pair1 = OutputTransformationPair{ .outputName = "out1", .operation = .{ .ops = &ops } };
+    const pair2 = OutputTransformationPair{ .outputName = "out2", .operation = .{ .ops = &[1]OneArgFunctionPartial{.{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } }} } };
+    const validated = OutputsValidated{ .transformationPairs = &[2]OutputTransformationPair{ pair1, pair2 } };
+
+    const v = inputs.InputElement{ .vector = .{ .x = 2.0, .y = 3.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row, row } };
+
+    const res = try resolveNonPointReferences(a, inp, validated, .fixed);
+    try testing.expectEqual(@as(usize, 2), res.transformationPairs.len);
+    // out1's beginning reference to out2 resolved: beginning of [2,3] = (0,0)
+    try testing.expectEqual(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y);
+}
+
 /// Resolves non-point element references (beginning, end, middle, fraction) in all ops
 /// to explicit point coordinates. Ops that already have explicit points or are
 /// non-anchor ops are passed through unchanged.
+///
+/// Example:
+/// ```
+/// const res = try resolveNonPointReferences(a, inp, validated, .fixed);
+/// // res.transformationPairs[i].operation.ops[j] all have .point = explicit (x,y)
+/// ```
 fn resolveNonPointReferences(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation) ToExplicitPointError!OutputsValidated {
     var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
 
@@ -2222,6 +2741,70 @@ fn resolveNonPointReferences(allocator: std.mem.Allocator, inp: inputs.Inputs, o
     return OutputsValidated{ .transformationPairs = result_pairs };
 }
 
+test "resolveGeneralPoint" {
+    const p = inputs.Point{ .x = 3.0, .y = 4.0 };
+    const ctx_b = inputs.Point{ .x = 1.0, .y = 1.0 };
+    const ctx_e = inputs.Point{ .x = 3.0, .y = 3.0 };
+
+    const v = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+    const pair = OutputTransformationPair{ .outputName = "out", .operation = .{ .ops = &.{} } };
+    const validated = OutputsValidated{ .transformationPairs = &[1]OutputTransformationPair{pair} };
+
+    // Direct point
+    const r1 = try resolveGeneralPoint(.{ .point = p }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    try testing.expectEqual(@as(f32, 3.0), r1.x);
+    try testing.expectEqual(@as(f32, 4.0), r1.y);
+
+    // Beginning of self
+    const r2 = try resolveGeneralPoint(.{ .beginning = .self }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    try testing.expectEqual(@as(f32, 1.0), r2.x);
+    try testing.expectEqual(@as(f32, 1.0), r2.y);
+
+    // End of self
+    const r3 = try resolveGeneralPoint(.{ .end = .self }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    try testing.expectEqual(@as(f32, 3.0), r3.x);
+    try testing.expectEqual(@as(f32, 3.0), r3.y);
+
+    // Middle of self
+    const r4 = try resolveGeneralPoint(.{ .middle = .self }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    try testing.expectEqual(@as(f32, 2.0), r4.x);
+    try testing.expectEqual(@as(f32, 2.0), r4.y);
+
+    // Fraction 50% of self = (1,1) + 0.5*((3,3)-(1,1)) = (2,2)
+    const r5 = try resolveGeneralPoint(.{ .fraction = .{ .fromStart = 50, .element = .self } }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    try testing.expectEqual(@as(f32, 2.0), r5.x);
+    try testing.expectEqual(@as(f32, 2.0), r5.y);
+
+    // Fraction -50% of self = (1,1) + -0.5*((3,3)-(1,1)) = (0,0)
+    const r6 = try resolveGeneralPoint(.{ .fraction = .{ .fromStart = -50, .element = .self } }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    try testing.expectEqual(@as(f32, 0.0), r6.x);
+    try testing.expectEqual(@as(f32, 0.0), r6.y);
+
+    // Beginning of other output
+    const eref = ElementReference{ .other = "out2" };
+    const v2 = inputs.InputElement{ .vector = .{ .x = 5.0, .y = 5.0 } };
+    const row2 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v2} };
+    const inp2 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row, row2 } };
+    const pair2 = OutputTransformationPair{ .outputName = "out2", .operation = .{ .ops = &.{} } };
+    const validated2 = OutputsValidated{ .transformationPairs = &[2]OutputTransformationPair{ pair, pair2 } };
+    const r7 = try resolveGeneralPoint(.{ .beginning = eref }, ctx_b, ctx_e, inp2, validated2, 0, .fixed);
+    try testing.expectEqual(@as(f32, 0.0), r7.x);
+    try testing.expectEqual(@as(f32, 0.0), r7.y);
+}
+
+/// Resolves a GeneralPoint (which may be a direct point, reference to beginning/end/middle
+/// of self or another output, or a fractional position) to an explicit (x, y) coordinate.
+///
+/// Context (ctx_begin, ctx_end) is used for self-referencing elements in the current
+/// transformation pipeline. For references to other outputs, the input data is consulted.
+///
+/// Example:
+/// ```
+/// const pt = try resolveGeneralPoint(.{.beginning = .self}, ctx_b, ctx_e, ...);
+/// // pt = ctx_begin
+/// ```
 fn resolveGeneralPoint(
     pt: GeneralPoint,
     ctx_begin: ?inputs.Point,
@@ -2263,6 +2846,72 @@ fn resolveGeneralPoint(
     }
 }
 
+test "getExplicitPoint" {
+    // Two outputs: out1 has vectors [1,1], out2 has vectors [2,3]
+    const v1 = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 1.0 } };
+    const v2 = inputs.InputElement{ .vector = .{ .x = 2.0, .y = 3.0 } };
+    const row1 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v1} };
+    const row2 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v2} };
+    const inp = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row1, row2 } };
+
+    const pair1 = OutputTransformationPair{ .outputName = "out1", .operation = .{ .ops = &.{} } };
+    const pair2 = OutputTransformationPair{ .outputName = "out2", .operation = .{ .ops = &.{} } };
+    const validated = OutputsValidated{ .transformationPairs = &[2]OutputTransformationPair{ pair1, pair2 } };
+
+    // End of out2 (idx=0 referencing other=out2): sum of out2 vectors = (2,3)
+    const r1 = try getExplicitPoint(inp, validated, .{ .other = "out2" }, 0, .{ .end = .self }, .fixed);
+    try testing.expectEqual(@as(f32, 2.0), r1.x);
+    try testing.expectEqual(@as(f32, 3.0), r1.y);
+
+    // Beginning of out2 = (0,0)
+    const r2 = try getExplicitPoint(inp, validated, .{ .other = "out2" }, 0, .{ .beginning = .self }, .fixed);
+    try testing.expectEqual(@as(f32, 0.0), r2.x);
+    try testing.expectEqual(@as(f32, 0.0), r2.y);
+
+    // Middle of out2 = end/2 = (1, 1.5)
+    const r3 = try getExplicitPoint(inp, validated, .{ .other = "out2" }, 0, .{ .middle = .self }, .fixed);
+    try testing.expectEqual(@as(f32, 1.0), r3.x);
+    try testing.expectEqual(@as(f32, 1.5), r3.y);
+
+    // Fraction 50% of out2: factor = 1 + 50/100 = 1.5, (2,3)*1.5 = (3, 4.5)
+    const r4 = try getExplicitPoint(inp, validated, .{ .other = "out2" }, 0, .{ .fraction = .{ .fromStart = 50, .element = .self } }, .fixed);
+    try testing.expectEqual(@as(f32, 3.0), r4.x);
+    try testing.expectEqual(@as(f32, 4.5), r4.y);
+
+    // Fraction -50% of out2: factor = 1 - 50/100 = 0.5, (2,3)*0.5 = (1, 1.5)
+    const r5 = try getExplicitPoint(inp, validated, .{ .other = "out2" }, 0, .{ .fraction = .{ .fromStart = -50, .element = .self } }, .fixed);
+    try testing.expectEqual(@as(f32, 1.0), r5.x);
+    try testing.expectEqual(@as(f32, 1.5), r5.y);
+
+    // Self reference -> error (can't resolve self here, only .other)
+    try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, getExplicitPoint(inp, validated, .self, 0, .{ .end = .self }, .fixed));
+
+    // Unknown output name -> error
+    try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, getExplicitPoint(inp, validated, .{ .other = "nonexistent" }, 0, .{ .end = .self }, .fixed));
+
+    // Empty row -> error
+    const row_empty = inputs.InputElementRow{ .row = &.{} };
+    const inp_empty = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row_empty} };
+    const pair_empty = OutputTransformationPair{ .outputName = "out", .operation = .{ .ops = &.{} } };
+    const validated_empty = OutputsValidated{ .transformationPairs = &[1]OutputTransformationPair{pair_empty} };
+    try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, getExplicitPoint(inp_empty, validated_empty, .{ .other = "out" }, 0, .{ .end = .self }, .fixed));
+}
+
+/// Looks up an explicit point coordinate for a given element reference from input data.
+///
+/// Only `.other` references are resolved here (`.self` returns CannotDetermineExplicitPoint).
+/// The reference is resolved by summing all vectors in the target output's input row,
+/// then returning a position based on pt_type:
+///   - .beginning → (0, 0)
+///   - .end → (sum_x, sum_y)
+///   - .middle → (sum_x/2, sum_y/2)
+///   - .fraction → (sum_x * (1 + fromStart/100), sum_y * (1 + fromStart/100))
+///
+/// Example:
+/// ```
+/// const pt = try getExplicitPoint(inp, validated, .{.other = "out2"}, 0, .{.end = .self}, .fixed);
+/// // pt = (sum of out2's input vectors)
+/// ```
 fn getExplicitPoint(inp: inputs.Inputs, outputs: OutputsValidated, ref: ElementReference, current_idx: usize, pt_type: GeneralPoint, orientation: CoordinateOrientation) ToExplicitPointError!inputs.Point {
     _ = orientation;
     const target_idx: usize = switch (ref) {
