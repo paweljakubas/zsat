@@ -11,22 +11,15 @@ pub fn build(b: *std.Build) void {
     const z2d_dep = b.dependency("z2d", .{ .target = target, .optimize = optimize });
     const zigimg_dep = b.dependency("zigimg", .{ .target = target, .optimize = optimize });
 
-    const draw_common_mod = b.createModule(.{
-        .root_source_file = b.path("src/cli/draw/common.zig"),
-    });
-
     const inputs_mod = b.createModule(.{
         .root_source_file = b.path("src/cli/draw/inputs.zig"),
     });
-    inputs_mod.addImport("common", draw_common_mod);
     const styles_mod = b.createModule(.{
         .root_source_file = b.path("src/cli/draw/styles.zig"),
     });
-    styles_mod.addImport("common", draw_common_mod);
     const outputs_mod = b.createModule(.{
         .root_source_file = b.path("src/cli/draw/outputs.zig"),
     });
-    outputs_mod.addImport("common", draw_common_mod);
     outputs_mod.addImport("cli", inputs_mod);
     styles_mod.addImport("outputs", outputs_mod);
     inputs_mod.addImport("styles", styles_mod);
@@ -34,7 +27,6 @@ pub fn build(b: *std.Build) void {
     const panes_mod = b.createModule(.{
         .root_source_file = b.path("src/cli/draw/panes.zig"),
     });
-    panes_mod.addImport("common", draw_common_mod);
     panes_mod.addImport("inputs", inputs_mod);
 
     {
@@ -76,7 +68,6 @@ pub fn build(b: *std.Build) void {
         plot_mod.addImport("plot_types", b.createModule(.{
             .root_source_file = b.path("src/cli/plot/plot_types.zig"),
         }));
-        plot_mod.addImport("common", draw_common_mod);
         plot_mod.addImport("styles", styles_mod);
         exe.root_module.addImport("plot", plot_mod);
 
@@ -135,7 +126,6 @@ pub fn build(b: *std.Build) void {
             plot_test_mod.addImport("plot_types", b.createModule(.{
                 .root_source_file = b.path("src/cli/plot/plot_types.zig"),
             }));
-            plot_test_mod.addImport("common", draw_common_mod);
             plot_test_mod.addImport("draw_styles", styles_mod);
             const plot_unit_tests = b.addTest(.{
                 .root_module = plot_test_mod,

@@ -1,4 +1,5 @@
 const std = @import("std");
+const testing = std.testing;
 const z2d = @import("z2d");
 const inputs = @import("plot_types");
 
@@ -10,7 +11,54 @@ const ValsRange = inputs.ValsRange;
 const determine_pane_bounds = inputs.determine_pane_bounds;
 const determine_pane_bounds_with_end = inputs.determine_pane_bounds_with_end;
 
+test "getAnchorPoint" {
+    const TestPoint = struct { x: f32, y: f32 };
+    const TestAnchorPoint = union(enum) { point: TestPoint, fraction: void, beginning: void, end: void, middle: void };
+    const TestAnchor = struct { point: TestAnchorPoint };
+    const TestOp = union(enum) { anchor: TestAnchor, rotate: void, scale: void, mirror: void, none: void };
+    const TestOps = struct { ops: []const TestOp };
+    const TestPair = struct { operation: TestOps };
+
+    // Empty pairs
+    try testing.expectEqual(@as(?Vector, null), getAnchorPoint(&[0]TestPair{}, 0));
+
+    // Single anchor at (5,6)
+    const op1 = TestOp{ .anchor = .{ .point = .{ .point = .{ .x = 5.0, .y = 6.0 } } } };
+    const pair1 = TestPair{ .operation = .{ .ops = &[1]TestOp{op1} } };
+    const r1 = getAnchorPoint(&[1]TestPair{pair1}, 0);
+    try testing.expectEqual(@as(f32, 5.0), r1.?.x);
+    try testing.expectEqual(@as(f32, 6.0), r1.?.y);
+
+    // Multiple ops, returns the last anchor point
+    const op2a = TestOp{ .rotate = {} };
+    const op2b = TestOp{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 2.0 } } } };
+    const op2c = TestOp{ .anchor = .{ .point = .{ .point = .{ .x = 3.0, .y = 4.0 } } } };
+    const pair2 = TestPair{ .operation = .{ .ops = &[3]TestOp{ op2a, op2b, op2c } } };
+    const r2 = getAnchorPoint(&[1]TestPair{pair2}, 0);
+    try testing.expectEqual(@as(f32, 3.0), r2.?.x);
+    try testing.expectEqual(@as(f32, 4.0), r2.?.y);
+
+    // Non-point anchor (fraction) is skipped
+    const op3a = TestOp{ .anchor = .{ .point = .{ .fraction = {} } } };
+    const pair3 = TestPair{ .operation = .{ .ops = &[1]TestOp{op3a} } };
+    try testing.expectEqual(@as(?Vector, null), getAnchorPoint(&[1]TestPair{pair3}, 0));
+
+    // Index out of bounds
+    try testing.expectEqual(@as(?Vector, null), getAnchorPoint(&[1]TestPair{pair1}, 5));
+}
+
 /// Returns the last explicit point anchor for a given output, or null if none found.
+///
+/// Scans all operations in the transformation pair for the given output index,
+/// returning the coordinates of the last one that is an anchor with an explicit point.
+/// Non-anchor ops (rotate, scale, mirror) and non-point anchors (fraction, beginning,
+/// end, middle) are ignored.
+///
+/// Example:
+/// ```
+/// const pt = getAnchorPoint(&pairs, 0);
+/// // pt = Vector{ .x = last_anchor.x, .y = last_anchor.y } or null
+/// ```
 fn getAnchorPoint(transformationPairs: anytype, output_index: usize) ?Vector {
     if (transformationPairs.len == 0 or output_index >= transformationPairs.len) {
         return null;
@@ -52,7 +100,46 @@ const LineStyle = struct {
     join_mode: z2d.options.JoinMode,
 };
 
+test "countVectors" {
+    const TestElem = union(enum) { point: struct { x: f32, y: f32 }, vector: struct { x: f32, y: f32 } };
+    const TestRow = struct { row: []const TestElem };
+
+    // Two vectors, one point
+    const row1 = TestRow{ .row = &[3]TestElem{
+        .{ .vector = .{ .x = 1, .y = 2 } },
+        .{ .point = .{ .x = 3, .y = 4 } },
+        .{ .vector = .{ .x = 5, .y = 6 } },
+    } };
+    try testing.expectEqual(@as(usize, 2), countVectors(&row1));
+
+    // Only points
+    const row2 = TestRow{ .row = &[2]TestElem{
+        .{ .point = .{ .x = 1, .y = 2 } },
+        .{ .point = .{ .x = 3, .y = 4 } },
+    } };
+    try testing.expectEqual(@as(usize, 0), countVectors(&row2));
+
+    // Empty row
+    const row3 = TestRow{ .row = &[0]TestElem{} };
+    try testing.expectEqual(@as(usize, 0), countVectors(&row3));
+
+    // All vectors
+    const row4 = TestRow{ .row = &[3]TestElem{
+        .{ .vector = .{ .x = 1, .y = 1 } },
+        .{ .vector = .{ .x = 2, .y = 2 } },
+        .{ .vector = .{ .x = 3, .y = 3 } },
+    } };
+    try testing.expectEqual(@as(usize, 3), countVectors(&row4));
+}
+
 /// Counts the number of vector elements in an input row.
+/// Point elements are ignored.
+///
+/// Example:
+/// ```
+/// const n = countVectors(row);
+/// // n = number of InputElement.vector entries in the row
+/// ```
 fn countVectors(row: anytype) usize {
     var count: usize = 0;
     for (row.row) |elem| {
@@ -61,7 +148,49 @@ fn countVectors(row: anytype) usize {
     return count;
 }
 
+test "updateBounds" {
+    var minX: f32 = 0;
+    var maxX: f32 = 0;
+    var minY: f32 = 0;
+    var maxY: f32 = 0;
+    var initialized = false;
+
+    // First call initializes bounds to the point
+    updateBounds(5.0, 10.0, &minX, &maxX, &minY, &maxY, &initialized);
+    try testing.expect(initialized);
+    try testing.expectEqual(@as(f32, 5.0), minX);
+    try testing.expectEqual(@as(f32, 5.0), maxX);
+    try testing.expectEqual(@as(f32, 10.0), minY);
+    try testing.expectEqual(@as(f32, 10.0), maxY);
+
+    // Wider point expands max
+    updateBounds(15.0, 20.0, &minX, &maxX, &minY, &maxY, &initialized);
+    try testing.expectEqual(@as(f32, 5.0), minX);
+    try testing.expectEqual(@as(f32, 15.0), maxX);
+    try testing.expectEqual(@as(f32, 10.0), minY);
+    try testing.expectEqual(@as(f32, 20.0), maxY);
+
+    // Negative point expands min
+    updateBounds(-5.0, -10.0, &minX, &maxX, &minY, &maxY, &initialized);
+    try testing.expectEqual(@as(f32, -5.0), minX);
+    try testing.expectEqual(@as(f32, 15.0), maxX);
+    try testing.expectEqual(@as(f32, -10.0), minY);
+    try testing.expectEqual(@as(f32, 20.0), maxY);
+
+    // Point within existing bounds does not change them
+    updateBounds(0.0, 0.0, &minX, &maxX, &minY, &maxY, &initialized);
+    try testing.expectEqual(@as(f32, -5.0), minX);
+    try testing.expectEqual(@as(f32, 15.0), maxX);
+    try testing.expectEqual(@as(f32, -10.0), minY);
+    try testing.expectEqual(@as(f32, 20.0), maxY);
+}
+
 /// Updates running min/max bounds with a new point. Initializes bounds on first call.
+///
+/// Example:
+/// ```
+/// updateBounds(1.0, 2.0, &minX, &maxX, &minY, &maxY, &initialized);
+/// ```
 fn updateBounds(px: f32, py: f32, minX: *f32, maxX: *f32, minY: *f32, maxY: *f32, initialized: *bool) void {
     if (!initialized.*) {
         minX.* = px;
@@ -76,8 +205,47 @@ fn updateBounds(px: f32, py: f32, minX: *f32, maxX: *f32, minY: *f32, maxY: *f32
     if (py > maxY.*) maxY.* = py;
 }
 
+test "walkInputRowBounds" {
+    const TestElem = union(enum) { point: struct { x: f32, y: f32 }, vector: struct { x: f32, y: f32 } };
+    const TestRow = struct { row: []const TestElem };
+    const TestInputs = struct { input: []const TestRow };
+
+    var minX: f32 = 0;
+    var maxX: f32 = 0;
+    var minY: f32 = 0;
+    var maxY: f32 = 0;
+    var initialized = false;
+
+    // Start at (10,10), then vector (1,2) -> (11,12), then point (0,0) -> (0,0)
+    const row = TestRow{ .row = &[2]TestElem{
+        .{ .vector = .{ .x = 1.0, .y = 2.0 } },
+        .{ .point = .{ .x = 0.0, .y = 0.0 } },
+    } };
+    const test_inputs = TestInputs{ .input = &[1]TestRow{row} };
+
+    walkInputRowBounds(10.0, 10.0, &test_inputs, 0, &minX, &maxX, &minY, &maxY, &initialized);
+    try testing.expect(initialized);
+    // After start (10,10): bounds = (10,10,10,10)
+    // After vector (1,2): cur = (11,12), bounds = (10,11,10,12)
+    // After point (0,0): cur = (0,0), bounds = (0,11,0,12)
+    try testing.expectEqual(@as(f32, 0.0), minX);
+    try testing.expectEqual(@as(f32, 11.0), maxX);
+    try testing.expectEqual(@as(f32, 0.0), minY);
+    try testing.expectEqual(@as(f32, 12.0), maxY);
+
+    // idx out of range — no change
+    updateBounds(100.0, 100.0, &minX, &maxX, &minY, &maxY, &initialized);
+    walkInputRowBounds(0.0, 0.0, &test_inputs, 5, &minX, &maxX, &minY, &maxY, &initialized);
+    try testing.expectEqual(@as(f32, 100.0), maxX);
+}
+
 /// Walks through input vectors/points from a starting position, updating bounds
 /// at each step. Vectors accumulate, points replace the current position.
+///
+/// Example:
+/// ```
+/// walkInputRowBounds(0, 0, &input_data, 0, &minX, &maxX, &minY, &maxY, &initialized);
+/// ```
 fn walkInputRowBounds(start_x: f32, start_y: f32, input_data: anytype, row_idx: usize, minX: *f32, maxX: *f32, minY: *f32, maxY: *f32, initialized: *bool) void {
     var cur_x: f32 = start_x;
     var cur_y: f32 = start_y;
@@ -96,6 +264,83 @@ fn walkInputRowBounds(start_x: f32, start_y: f32, input_data: anytype, row_idx: 
     }
 }
 
+test "computeBounds" {
+    const TestPoint = struct { x: f32, y: f32 };
+    const TestAnchorPoint = union(enum) { point: TestPoint, fraction: void, beginning: void, end: void, middle: void };
+    const TestAnchor = struct { point: TestAnchorPoint };
+    const TestOp = union(enum) { anchor: TestAnchor, rotate: void, scale: void, mirror: void, none: void };
+    const TestOps = struct { ops: []const TestOp };
+    const TestPair = struct { operation: TestOps };
+
+    const TestElem = union(enum) { point: struct { x: f32, y: f32 }, vector: struct { x: f32, y: f32 } };
+    const TestRow = struct { row: []const TestElem };
+    const TestInputs = struct { input: []const TestRow };
+
+    // Fixed mode: one begin/end pair (1,1)->(5,5)
+    const op_fixed = [_]TestOp{
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 5.0, .y = 5.0 } } } },
+    };
+    const pair_fixed = TestPair{ .operation = .{ .ops = &op_fixed } };
+    const outputs_fixed = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_fixed} };
+    const inputs_empty = TestInputs{ .input = &[0]TestRow{} };
+    const r1 = computeBounds(&outputs_fixed, &inputs_empty, &[1]enum { coord, origin, fixed }{.fixed});
+    try testing.expectEqual(@as(f32, 1.0), r1.x[0]);
+    try testing.expectEqual(@as(f32, 5.0), r1.x[1]);
+    try testing.expectEqual(@as(f32, 1.0), r1.y[0]);
+    try testing.expectEqual(@as(f32, 5.0), r1.y[1]);
+
+    // Coord mode: all anchor points
+    const op_coord = [_]TestOp{
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 2.0, .y = 3.0 } } } },
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 7.0, .y = 1.0 } } } },
+    };
+    const pair_coord = TestPair{ .operation = .{ .ops = &op_coord } };
+    const outputs_coord = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_coord} };
+    const r2 = computeBounds(&outputs_coord, &inputs_empty, &[1]enum { coord, origin, fixed }{.coord});
+    try testing.expectEqual(@as(f32, 2.0), r2.x[0]);
+    try testing.expectEqual(@as(f32, 7.0), r2.x[1]);
+    try testing.expectEqual(@as(f32, 1.0), r2.y[0]);
+    try testing.expectEqual(@as(f32, 3.0), r2.y[1]);
+
+    // Origin mode: last anchor's begin + input walk
+    const row = TestRow{ .row = &[1]TestElem{.{ .vector = .{ .x = 3.0, .y = 4.0 } }} };
+    const test_inputs = TestInputs{ .input = &[1]TestRow{row} };
+    const op_origin = [_]TestOp{
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 100.0, .y = 100.0 } } } },
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 10.0, .y = 20.0 } } } },
+    };
+    const pair_origin = TestPair{ .operation = .{ .ops = &op_origin } };
+    const outputs_origin = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_origin} };
+    const r3 = computeBounds(&outputs_origin, &test_inputs, &[1]enum { coord, origin, fixed }{.origin});
+    // start=(100,100) [ops.len-2=0], vector=(3,4) -> end=(103,104), bounds cover (100,100) and (103,104)
+    try testing.expectEqual(@as(f32, 100.0), r3.x[0]);
+    try testing.expectEqual(@as(f32, 103.0), r3.x[1]);
+    try testing.expectEqual(@as(f32, 100.0), r3.y[0]);
+    try testing.expectEqual(@as(f32, 104.0), r3.y[1]);
+
+    // Empty outputs -> default bounds (0,0)-(1,1)
+    const outputs_empty = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[0]TestPair{} };
+    const r4 = computeBounds(&outputs_empty, &inputs_empty, &[0]enum { coord, origin, fixed }{});
+    try testing.expectEqual(@as(f32, 0.0), r4.x[0]);
+    try testing.expectEqual(@as(f32, 1.0), r4.x[1]);
+    try testing.expectEqual(@as(f32, 0.0), r4.y[0]);
+    try testing.expectEqual(@as(f32, 1.0), r4.y[1]);
+
+    // Single anchor: walk from anchor point
+    const op_single = [_]TestOp{
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 5.0, .y = 5.0 } } } },
+    };
+    const pair_single = TestPair{ .operation = .{ .ops = &op_single } };
+    const outputs_single = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_single} };
+    const r5 = computeBounds(&outputs_single, &test_inputs, &[1]enum { coord, origin, fixed }{.fixed});
+    // start=(5,5), vector=(3,4) -> end=(8,9), bounds cover (5,5) and (8,9)
+    try testing.expectEqual(@as(f32, 5.0), r5.x[0]);
+    try testing.expectEqual(@as(f32, 8.0), r5.x[1]);
+    try testing.expectEqual(@as(f32, 5.0), r5.y[0]);
+    try testing.expectEqual(@as(f32, 9.0), r5.y[1]);
+}
+
 /// Computes the bounding box (min/max x/y) across all outputs, respecting each
 /// output's coordinate orientation mode.
 ///
@@ -104,6 +349,12 @@ fn walkInputRowBounds(start_x: f32, start_y: f32, input_data: anytype, row_idx: 
 /// - origin: last anchor's begin point + input polyline walk
 /// - fixed: (begin, end) pairs from all anchors
 /// - single anchor: anchor point + input polyline walk
+///
+/// Example:
+/// ```
+/// const bounds = computeBounds(&outputs, &input_data, &coord_orientations);
+/// // bounds.x = {min_x, max_x}, bounds.y = {min_y, max_y}
+/// ```
 fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anytype) ValsRange {
     var minX: f32 = 0.0;
     var maxX: f32 = 0.0;
@@ -161,6 +412,16 @@ fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anyt
 
 /// Resolves line style (width, color, cap, join, dashing) for a given input row
 /// from the parsed style definitions. Applies dashing directly to the context.
+///
+/// Looks up the style index from the datum mappings, then reads line width (supporting
+/// normalized/global/output/local references), color with opacity blending, dashing
+/// pattern/offset, line cap mode (butt/round/square), and line join mode (miter/round/bevel).
+///
+/// Example:
+/// ```
+/// const style = try resolveStyle(&ctx, styles, mappings, 0, height);
+/// // style.width, style.r/g/b/a, style.cap_mode, style.join_mode
+/// ```
 fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_idx: usize, height: i32) !LineStyle {
     var style_idx: usize = 0;
     for (mappings) |mapping| {
@@ -259,6 +520,11 @@ fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_i
 /// - Convert each intermediate position to plot coords, lineTo
 /// - Clamp Y to [min_y, max_y] (viewport bounds)
 /// - Stroke the path
+///
+/// Example:
+/// ```
+/// try drawPolylineFromAnchor(&ctx, 0, 0, &input_data, 0, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
+/// ```
 fn drawPolylineFromAnchor(context: *z2d.Context, start_x: f64, start_y: f64, input_data: anytype, row_idx: usize, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
     var cur_x = start_x;
     var cur_y = start_y;
@@ -300,6 +566,11 @@ fn drawPolylineFromAnchor(context: *z2d.Context, start_x: f64, start_y: f64, inp
 ///   - convert to plot coordinates (clamp Y)
 ///   - moveTo first point, lineTo subsequent ones
 ///   - stroke the completed polyline
+///
+/// Example:
+/// ```
+/// try drawCoordPolylines(&ctx, ops, &input_data, 0, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
+/// ```
 fn drawCoordPolylines(context: *z2d.Context, ops: anytype, input_data: anytype, row_idx: usize, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
     const vector_count = if (row_idx < input_data.input.len) countVectors(input_data.input[row_idx]) else 0;
     const points_per_step = if (vector_count > 0) vector_count + 1 else 1;
@@ -486,6 +757,197 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     };
 }
 
+test "colorNameToRGB" {
+    const TestColor = enum {
+        aliceblue,
+        antiquewhite,
+        aqua,
+        aquamarine,
+        azure,
+        beige,
+        bisque,
+        black,
+        blanchedalmond,
+        blue,
+        blueviolet,
+        brown,
+        burlywood,
+        cadetblue,
+        chartreuse,
+        chocolate,
+        coral,
+        cornflowerblue,
+        cornsilk,
+        crimson,
+        cyan,
+        darkblue,
+        darkcyan,
+        darkgoldenrod,
+        darkgray,
+        darkgreen,
+        darkgrey,
+        darkkhaki,
+        darkmagenta,
+        darkolivegreen,
+        darkorange,
+        darkorchid,
+        darkred,
+        darksalmon,
+        darkseagreen,
+        darkslateblue,
+        darkslategray,
+        darkslategrey,
+        darkturquoise,
+        darkviolet,
+        deeppink,
+        deepskyblue,
+        dimgray,
+        dimgrey,
+        dodgerblue,
+        firebrick,
+        floralwhite,
+        forestgreen,
+        fuchsia,
+        gainsboro,
+        ghostwhite,
+        gold,
+        goldenrod,
+        gray,
+        green,
+        greenyellow,
+        grey,
+        honeydew,
+        hotpink,
+        indianred,
+        indigo,
+        ivory,
+        khaki,
+        lavender,
+        lavenderblush,
+        lawngreen,
+        lemonchiffon,
+        lightblue,
+        lightcoral,
+        lightcyan,
+        lightgoldenrodyellow,
+        lightgray,
+        lightgreen,
+        lightgrey,
+        lightpink,
+        lightsalmon,
+        lightseagreen,
+        lightskyblue,
+        lightslategray,
+        lightslategrey,
+        lightsteelblue,
+        lightyellow,
+        lime,
+        limegreen,
+        linen,
+        magenta,
+        maroon,
+        mediumaquamarine,
+        mediumblue,
+        mediumorchid,
+        mediumpurple,
+        mediumseagreen,
+        mediumslateblue,
+        mediumspringgreen,
+        mediumturquoise,
+        mediumvioletred,
+        midnightblue,
+        mintcream,
+        mistyrose,
+        moccasin,
+        navajowhite,
+        navy,
+        oldlace,
+        olive,
+        olivedrab,
+        orange,
+        orangered,
+        orchid,
+        palegoldenrod,
+        palegreen,
+        paleturquoise,
+        palevioletred,
+        papayawhip,
+        peachpuff,
+        peru,
+        pink,
+        plum,
+        powderblue,
+        purple,
+        rebeccapurple,
+        red,
+        rosybrown,
+        royalblue,
+        saddlebrown,
+        salmon,
+        sandybrown,
+        seagreen,
+        seashell,
+        sienna,
+        silver,
+        skyblue,
+        slateblue,
+        slategray,
+        slategrey,
+        snow,
+        springgreen,
+        steelblue,
+        tan,
+        teal,
+        thistle,
+        tomato,
+        turquoise,
+        violet,
+        wheat,
+        white,
+        whitesmoke,
+        yellow,
+        yellowgreen,
+    };
+
+    try testing.expectEqual(@as(u8, 0), (colorNameToRGB(@as(TestColor, .black))).r);
+    try testing.expectEqual(@as(u8, 0), (colorNameToRGB(@as(TestColor, .black))).g);
+    try testing.expectEqual(@as(u8, 0), (colorNameToRGB(@as(TestColor, .black))).b);
+
+    try testing.expectEqual(@as(u8, 255), (colorNameToRGB(@as(TestColor, .white))).r);
+    try testing.expectEqual(@as(u8, 255), (colorNameToRGB(@as(TestColor, .white))).g);
+    try testing.expectEqual(@as(u8, 255), (colorNameToRGB(@as(TestColor, .white))).b);
+
+    try testing.expectEqual(@as(u8, 255), (colorNameToRGB(@as(TestColor, .red))).r);
+    try testing.expectEqual(@as(u8, 0), (colorNameToRGB(@as(TestColor, .red))).g);
+    try testing.expectEqual(@as(u8, 0), (colorNameToRGB(@as(TestColor, .red))).b);
+
+    try testing.expectEqual(@as(u8, 0), (colorNameToRGB(@as(TestColor, .green))).r);
+    try testing.expectEqual(@as(u8, 128), (colorNameToRGB(@as(TestColor, .green))).g);
+    try testing.expectEqual(@as(u8, 0), (colorNameToRGB(@as(TestColor, .green))).b);
+
+    try testing.expectEqual(@as(u8, 0), (colorNameToRGB(@as(TestColor, .blue))).r);
+    try testing.expectEqual(@as(u8, 0), (colorNameToRGB(@as(TestColor, .blue))).g);
+    try testing.expectEqual(@as(u8, 255), (colorNameToRGB(@as(TestColor, .blue))).b);
+
+    try testing.expectEqual(@as(u8, 240), (colorNameToRGB(@as(TestColor, .aliceblue))).r);
+    try testing.expectEqual(@as(u8, 248), (colorNameToRGB(@as(TestColor, .aliceblue))).g);
+    try testing.expectEqual(@as(u8, 255), (colorNameToRGB(@as(TestColor, .aliceblue))).b);
+
+    try testing.expectEqual(@as(u8, 255), (colorNameToRGB(@as(TestColor, .coral))).r);
+    try testing.expectEqual(@as(u8, 127), (colorNameToRGB(@as(TestColor, .coral))).g);
+    try testing.expectEqual(@as(u8, 80), (colorNameToRGB(@as(TestColor, .coral))).b);
+}
+
+/// Converts a CSS named color to its (r, g, b) components.
+///
+/// Accepts any enum type whose variants match standard CSS color names.
+/// Used by resolveStyle to convert parsed color names to pixel values.
+///
+/// Example:
+/// ```
+/// const rgb = colorNameToRGB(common.ColorName.coral);
+/// // rgb = .{ .r = 255, .g = 127, .b = 80 }
+/// ```
 fn colorNameToRGB(c: anytype) struct { r: u8, g: u8, b: u8 } {
     return switch (c) {
         .aliceblue => .{ .r = 240, .g = 248, .b = 255 },

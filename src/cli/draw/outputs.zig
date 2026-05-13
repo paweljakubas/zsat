@@ -202,6 +202,10 @@ const GeneralPoint = union(enum) {
     fraction: ElementFraction,
 };
 
+fn anchorOp(p: inputs.Point) OneArgFunctionPartial {
+    return .{ .anchor = .{ .point = .{ .point = p } } };
+}
+
 //Parsers
 const outputSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
 const outputCharacterParser =
@@ -536,7 +540,7 @@ test "rotationArgParser" {
     try testing.expectEqualDeep(o6, r6.value.ok);
 }
 
-const rotatePartialParserRawWithout = mecha.combine(.{
+const rotatePartialParserRawInner = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{
         mecha.string("rotate"),
@@ -547,17 +551,10 @@ const rotatePartialParserRawWithout = mecha.combine(.{
     rotationArgParser.many(.{ .collect = true, .separator = common.skipComma }),
     common.skipCloseSquare,
 });
+const rotatePartialParserRawWithout = rotatePartialParserRawInner;
 const rotatePartialParserRawWith = mecha.combine(.{
     common.skipOpenBracket,
-    common.skipWhitespace,
-    mecha.oneOf(.{
-        mecha.string("rotate"),
-        mecha.string("r"),
-    }).discard(),
-    common.skipWhitespace,
-    common.skipOpenSquare,
-    rotationArgParser.many(.{ .collect = true, .separator = common.skipComma }),
-    common.skipCloseSquare,
+    rotatePartialParserRawInner,
     common.skipCloseBracket,
 });
 
@@ -609,7 +606,7 @@ test "rotatePartialParser" {
     try testing.expectEqualDeep(r4arg, r4.value.ok.elements[0]);
 }
 
-const scalePartialParserRawWithout = mecha.combine(.{
+const scalePartialParserRawInner = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{
         mecha.string("scale by"),
@@ -621,18 +618,10 @@ const scalePartialParserRawWithout = mecha.combine(.{
     inputs.vectorsParser,
     common.skipWhitespace,
 });
+const scalePartialParserRawWithout = scalePartialParserRawInner;
 const scalePartialParserRawWith = mecha.combine(.{
     common.skipOpenBracket,
-    common.skipWhitespace,
-    mecha.oneOf(.{
-        mecha.string("scale by"),
-        mecha.string("s by"),
-        mecha.string("scale"),
-        mecha.string("s"),
-    }).discard(),
-    common.skipWhitespace,
-    inputs.vectorsParser,
-    common.skipWhitespace,
+    scalePartialParserRawInner,
     common.skipCloseBracket,
 });
 
@@ -684,7 +673,7 @@ test "scalePartialParser" {
     try testing.expectEqualDeep(s4, r4.value.ok.elements[0]);
 }
 
-const anchorPartialParserRawWithout = mecha.combine(.{
+const anchorPartialParserRawInner = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{
         mecha.string("anchor"),
@@ -693,16 +682,10 @@ const anchorPartialParserRawWithout = mecha.combine(.{
     common.skipWhitespace,
     generalPointParser,
 });
+const anchorPartialParserRawWithout = anchorPartialParserRawInner;
 const anchorPartialParserRawWith = mecha.combine(.{
     common.skipOpenBracket,
-    common.skipWhitespace,
-    mecha.oneOf(.{
-        mecha.string("anchor"),
-        mecha.string("a"),
-    }).discard(),
-    common.skipWhitespace,
-    generalPointParser,
-    common.skipWhitespace,
+    anchorPartialParserRawInner,
     common.skipCloseBracket,
 });
 
@@ -799,7 +782,7 @@ const mirrorLineParser = mecha.combine(.{
     }
 }.toLine);
 
-const mirrorPartialParserRawWithout = mecha.combine(.{
+const mirrorPartialParserRawInner = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{
         mecha.string("mirror"),
@@ -808,16 +791,10 @@ const mirrorPartialParserRawWithout = mecha.combine(.{
     common.skipWhitespace,
     mirrorLineParser,
 });
+const mirrorPartialParserRawWithout = mirrorPartialParserRawInner;
 const mirrorPartialParserRawWith = mecha.combine(.{
     common.skipOpenBracket,
-    common.skipWhitespace,
-    mecha.oneOf(.{
-        mecha.string("mirror"),
-        mecha.string("m"),
-    }).discard(),
-    common.skipWhitespace,
-    mirrorLineParser,
-    common.skipWhitespace,
+    mirrorPartialParserRawInner,
     common.skipCloseBracket,
 });
 const mirrorPartialParserRaw = mecha.oneOf(.{
@@ -1529,9 +1506,7 @@ fn generateCoordPolyline(
 ) ![]OneArgFunctionPartial {
     const num_points = vectors.len + 1;
     var ops = try allocator.alloc(OneArgFunctionPartial, num_points);
-    ops[0] = OneArgFunctionPartial{
-        .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = start_x, .y = start_y } } },
-    };
+    ops[0] = anchorOp(inputs.Point{ .x = start_x, .y = start_y });
     var cur_x: f32 = start_x;
     var cur_y: f32 = start_y;
     for (vectors, 0..) |v, j| {
@@ -1539,9 +1514,7 @@ fn generateCoordPolyline(
         const gy = v.x * x_axis_y + v.y * perp_y;
         cur_x += gx;
         cur_y += gy;
-        ops[j + 1] = OneArgFunctionPartial{
-            .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = cur_x, .y = cur_y } } },
-        };
+        ops[j + 1] = anchorOp(inputs.Point{ .x = cur_x, .y = cur_y });
     }
     return ops;
 }
@@ -1855,49 +1828,19 @@ fn processCoordNoVectors(allocator: std.mem.Allocator, anchors: []const inputs.P
     for (0..anchors.len) |i| {
         const anchor_x = anchors[i].x;
         const anchor_y = anchors[i].y;
-        var global_x: f32 = undefined;
-        var global_y: f32 = undefined;
 
-        if (i == 0) {
-            global_x = anchor_x;
-            global_y = anchor_y;
-        } else {
-            const local_px = anchor_x;
-            const local_py = anchor_y;
-            const line_x_p1_x = cur_origin_x + local_py * cur_perp_x;
-            const line_x_p1_y = cur_origin_y + local_py * cur_perp_y;
-            const line_x_p2_x = line_x_p1_x + cur_x_axis_x;
-            const line_x_p2_y = line_x_p1_y + cur_x_axis_y;
-            const line_x = Line.fromTwoPoints(line_x_p1_x, line_x_p1_y, line_x_p2_x, line_x_p2_y);
-            const line_y_p1_x = cur_origin_x + local_px * cur_x_axis_x;
-            const line_y_p1_y = cur_origin_y + local_px * cur_x_axis_y;
-            const line_y_p2_x = line_y_p1_x + cur_perp_x;
-            const line_y_p2_y = line_y_p1_y + cur_perp_y;
-            const line_y = Line.fromTwoPoints(line_y_p1_x, line_y_p1_y, line_y_p2_x, line_y_p2_y);
-            const global_point = line_y.intersection(&line_x);
-            global_x = global_point.x;
-            global_y = global_point.y;
-        }
+        const global_pt = if (i == 0)
+            inputs.Point{ .x = anchor_x, .y = anchor_y }
+        else
+            computeAnchorGlobal(anchor_x, anchor_y, cur_origin_x, cur_origin_y, cur_x_axis_x, cur_x_axis_y, cur_perp_x, cur_perp_y);
+        const global_x = global_pt.x;
+        const global_y = global_pt.y;
 
-        new_ops[i * 2] = OneArgFunctionPartial{
-            .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = global_x, .y = global_y } } },
-        };
-        new_ops[i * 2 + 1] = OneArgFunctionPartial{
-            .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = global_x, .y = global_y } } },
-        };
+        new_ops[i * 2] = anchorOp(inputs.Point{ .x = global_x, .y = global_y });
+        new_ops[i * 2 + 1] = anchorOp(inputs.Point{ .x = global_x, .y = global_y });
 
         if (i < anchors.len - 1) {
-            cur_origin_x = global_x;
-            cur_origin_y = global_y;
-            cur_x_axis_x = (anchors[i + 1].x - anchor_x);
-            cur_x_axis_y = (anchors[i + 1].y - anchor_y);
-            const len = @sqrt(cur_x_axis_x * cur_x_axis_x + cur_x_axis_y * cur_x_axis_y);
-            if (len > 1e-10) {
-                cur_x_axis_x /= len;
-                cur_x_axis_y /= len;
-                cur_perp_x = -cur_x_axis_y;
-                cur_perp_y = cur_x_axis_x;
-            }
+            updateCoordFrame(&cur_origin_x, &cur_origin_y, &cur_x_axis_x, &cur_x_axis_y, &cur_perp_x, &cur_perp_y, anchor_x, anchor_y, global_x, global_y, anchors[i + 1].x, anchors[i + 1].y);
         }
     }
     return new_ops;
@@ -2062,9 +2005,7 @@ fn processCoordLastStep(allocator: std.mem.Allocator, anchors: []const inputs.Po
 
     const num_points = vectors.len + 1;
     var new_ops = try allocator.alloc(OneArgFunctionPartial, num_points);
-    new_ops[0] = OneArgFunctionPartial{
-        .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = last_global_x, .y = last_global_y } } },
-    };
+    new_ops[0] = anchorOp(inputs.Point{ .x = last_global_x, .y = last_global_y });
 
     var cur_x: f32 = last_global_x;
     var cur_y: f32 = last_global_y;
@@ -2073,9 +2014,7 @@ fn processCoordLastStep(allocator: std.mem.Allocator, anchors: []const inputs.Po
         const gy = v.x * cur_x_axis_y + v.y * cur_perp_y;
         cur_x += gx;
         cur_y += gy;
-        new_ops[j + 1] = OneArgFunctionPartial{
-            .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = cur_x, .y = cur_y } } },
-        };
+        new_ops[j + 1] = anchorOp(inputs.Point{ .x = cur_x, .y = cur_y });
     }
 
     return new_ops;
@@ -2534,6 +2473,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     i -= 1;
                     const op = ops[i];
 
+                    var poly: []inputs.Point = undefined;
                     if (op == .anchor) {
                         const pt = switch (op.anchor.point) {
                             .point => |p| p,
@@ -2542,42 +2482,30 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                             .middle => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .middle = .self }, orientation),
                             .fraction => |frac| try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation),
                         };
-                        var poly = try allocator.alloc(inputs.Point, vectors.len + 1);
+                        poly = try allocator.alloc(inputs.Point, vectors.len + 1);
                         poly[0] = pt;
                         var cur = pt;
                         for (vectors, 0..) |v, j| {
                             cur = inputs.Point{ .x = cur.x + v.x, .y = cur.y + v.y };
                             poly[j + 1] = cur;
                         }
-                        polylines[poly_count] = poly;
-                        ctx_begin = poly[0];
-                        ctx_end = poly[poly.len - 1];
-                        poly_count += 1;
                     } else if (op == .rotate) {
                         const arg = op.rotate.elements[0];
                         const prev_poly = polylines[poly_count - 1];
                         const rot_pt = try resolveGeneralPoint(arg.point, ctx_begin, ctx_end, inp, outputs, idx, orientation);
-                        const poly = try processRotateOp(allocator, prev_poly, arg, rot_pt);
-                        polylines[poly_count] = poly;
-                        ctx_begin = poly[0];
-                        ctx_end = poly[poly.len - 1];
-                        poly_count += 1;
+                        poly = try processRotateOp(allocator, prev_poly, arg, rot_pt);
                     } else if (op == .scale) {
                         const arg = op.scale.elements[0];
                         const prev_poly = polylines[poly_count - 1];
-                        const poly = try processScaleOp(allocator, prev_poly, arg, vectors, orientation, ctx_begin);
-                        polylines[poly_count] = poly;
-                        ctx_begin = poly[0];
-                        ctx_end = poly[poly.len - 1];
-                        poly_count += 1;
+                        poly = try processScaleOp(allocator, prev_poly, arg, vectors, orientation, ctx_begin);
                     } else if (op == .mirror) {
                         const prev_poly = polylines[poly_count - 1];
-                        const poly = try processMirrorOp(allocator, prev_poly, op.mirror.line, orientation);
-                        polylines[poly_count] = poly;
-                        ctx_begin = poly[0];
-                        ctx_end = poly[poly.len - 1];
-                        poly_count += 1;
-                    }
+                        poly = try processMirrorOp(allocator, prev_poly, op.mirror.line, orientation);
+                    } else continue;
+                    polylines[poly_count] = poly;
+                    ctx_begin = poly[0];
+                    ctx_end = poly[poly.len - 1];
+                    poly_count += 1;
                 }
 
                 result_pairs[idx] = try flattenPolylinesToOps(allocator, polylines, poly_count, pair.outputName);
