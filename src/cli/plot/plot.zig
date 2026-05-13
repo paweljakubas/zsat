@@ -70,11 +70,9 @@ fn getAnchorPoint(transformationPairs: anytype, output_index: usize) ?Vector {
     }
     var last_pin: ?Vector = null;
     for (ops) |op| {
-        if (@as(u1, @intFromBool(op == .anchor)) == 1) {
-            if (@as(u1, @intFromBool(op.anchor.point == .point)) == 1) {
-                const p = op.anchor.point.point;
-                last_pin = Vector{ .x = p.x, .y = p.y };
-            }
+        if (op == .anchor and op.anchor.point == .point) {
+            const p = op.anchor.point.point;
+            last_pin = Vector{ .x = p.x, .y = p.y };
         }
     }
     return last_pin;
@@ -366,36 +364,30 @@ fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anyt
         const ops = pair.operation.ops;
         const orientation = if (row_idx < coord_orientations.len) coord_orientations[row_idx] else .fixed;
 
-        if (ops.len >= 2) {
-            if (orientation == .coord) {
-                for (ops) |op| {
-                    if (op == .anchor and op.anchor.point == .point) {
-                        updateBounds(op.anchor.point.point.x, op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                    }
-                }
-            } else if (orientation == .origin) {
-                const start_op = ops[ops.len - 2];
-                if (start_op == .anchor and start_op.anchor.point == .point) {
-                    walkInputRowBounds(start_op.anchor.point.point.x, start_op.anchor.point.point.y, input_data, row_idx, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                    updateBounds(start_op.anchor.point.point.x, start_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                }
-            } else {
-                for (0..ops.len / 2) |i| {
-                    const begin_op = ops[i * 2];
-                    const end_op = ops[i * 2 + 1];
-                    if (begin_op == .anchor and begin_op.anchor.point == .point) {
-                        updateBounds(begin_op.anchor.point.point.x, begin_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                    }
-                    if (end_op == .anchor and end_op.anchor.point == .point) {
-                        updateBounds(end_op.anchor.point.point.x, end_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                    }
+        if (ops.len >= 2 and orientation == .coord) {
+            for (ops) |op| {
+                if (op == .anchor and op.anchor.point == .point) {
+                    updateBounds(op.anchor.point.point.x, op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
                 }
             }
-        } else if (ops.len == 1) {
-            const start_op = ops[0];
+        } else if (ops.len >= 2 and orientation == .fixed) {
+            for (0..ops.len / 2) |i| {
+                const begin_op = ops[i * 2];
+                const end_op = ops[i * 2 + 1];
+                if (begin_op == .anchor and begin_op.anchor.point == .point) {
+                    updateBounds(begin_op.anchor.point.point.x, begin_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                }
+                if (end_op == .anchor and end_op.anchor.point == .point) {
+                    updateBounds(end_op.anchor.point.point.x, end_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                }
+            }
+        } else if (ops.len >= 2 and orientation == .origin or ops.len == 1) {
+            const start_op = if (ops.len == 1) ops[0] else ops[ops.len - 2];
             if (start_op == .anchor and start_op.anchor.point == .point) {
-                walkInputRowBounds(start_op.anchor.point.point.x, start_op.anchor.point.point.y, input_data, row_idx, &minX, &maxX, &minY, &maxY, &boundsInitialized);
-                updateBounds(start_op.anchor.point.point.x, start_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                const sx = start_op.anchor.point.point.x;
+                const sy = start_op.anchor.point.point.y;
+                walkInputRowBounds(sx, sy, input_data, row_idx, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                updateBounds(sx, sy, &minX, &maxX, &minY, &maxY, &boundsInitialized);
             }
         }
     }
@@ -721,16 +713,12 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                 if (ops.len >= 2) {
                     if (orientation == .coord) {
                         try drawCoordPolylines(&context, ops, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
-                    } else if (orientation == .origin) {
-                        const start_op = ops[ops.len - 2];
-                        if (start_op == .anchor and start_op.anchor.point == .point) {
-                            try drawPolylineFromAnchor(&context, @as(f64, start_op.anchor.point.point.x), @as(f64, start_op.anchor.point.point.y), input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
-                        }
-                    } else {
+                    } else if (orientation != .origin) {
                         try drawFixedPairs(&context, ops, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
                     }
-                } else if (ops.len == 1) {
-                    const start_op = ops[0];
+                }
+                if ((ops.len >= 2 and orientation == .origin) or ops.len == 1) {
+                    const start_op = if (ops.len == 1) ops[0] else ops[ops.len - 2];
                     if (start_op == .anchor and start_op.anchor.point == .point) {
                         try drawPolylineFromAnchor(&context, @as(f64, start_op.anchor.point.point.x), @as(f64, start_op.anchor.point.point.y), input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
                     }
