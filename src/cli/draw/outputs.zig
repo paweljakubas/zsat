@@ -6,18 +6,10 @@ const mecha = @import("mecha");
 const common = @import("common.zig");
 const inputs = @import("inputs.zig");
 const Styles = @import("styles.zig");
+const geometry = @import("../transform/geometry.zig");
 
 const CoordinateOrientation = Styles.CoordinateOrientation;
 const PlotSteps = Styles.PlotSteps;
-
-fn rotateAround(angle_degrees: f32, around_x: f32, around_y: f32, point_x: f32, point_y: f32) inputs.Point {
-    const phi = angle_degrees * std.math.pi / 180.0;
-    const dx = point_x - around_x;
-    const dy = point_y - around_y;
-    const x_rotated = dx * @cos(phi) - dy * @sin(phi) + around_x;
-    const y_rotated = dx * @sin(phi) + dy * @cos(phi) + around_y;
-    return inputs.Point{ .x = x_rotated, .y = y_rotated };
-}
 
 fn mirrorPointOverLine(what: inputs.Point, over: inputs.Line, accuracy: ?u8) inputs.Point {
     if (over.a == 0.0) {
@@ -2059,7 +2051,7 @@ test "processRotateOp" {
 /// - Check if the rotation center is one of the polyline points
 /// - If yes: keep the rotation center in place, rotate all other points around it
 /// - If no: rotate every point in the polyline around the center
-/// - Uses rotateAround for the per-point rotation math
+/// - Uses geometry.rotateByAngleAroundPoint for the per-point rotation math
 ///
 /// Example:
 /// ```
@@ -2080,12 +2072,12 @@ fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
         var out_idx: usize = 1;
         for (prev_poly) |p| {
             if (p.x == rot_pt.x and p.y == rot_pt.y) continue;
-            poly[out_idx] = rotateAround(arg.phi, rot_pt.x, rot_pt.y, p.x, p.y);
+            poly[out_idx] = geometry.rotateByAngleAroundPoint(.{ .degrees = arg.phi }, rot_pt, p, null);
             out_idx += 1;
         }
     } else {
         for (prev_poly, 0..) |p, j| {
-            poly[j] = rotateAround(arg.phi, rot_pt.x, rot_pt.y, p.x, p.y);
+            poly[j] = geometry.rotateByAngleAroundPoint(.{ .degrees = arg.phi }, rot_pt, p, null);
         }
     }
     return poly;

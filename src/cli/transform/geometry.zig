@@ -1,6 +1,6 @@
 const std = @import("std");
 const testing = std.testing;
-const inputs = @import("cli");
+const inputs = @import("../draw/inputs.zig");
 
 const Point = inputs.Point;
 const Angle = inputs.Angle;

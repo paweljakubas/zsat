@@ -91,10 +91,8 @@ pub fn build(b: *std.Build) void {
             "src/cli/draw/datum.zig",
             "src/cli/draw/frames.zig",
             "src/cli/draw/inputs.zig",
-            "src/cli/draw/outputs.zig",
             "src/cli/draw/panes.zig",
             "src/cli/draw/styles.zig",
-            "src/cli/transform/geometry.zig",
         };
 
         for (test_files) |test_file| {
@@ -113,6 +111,24 @@ pub fn build(b: *std.Build) void {
 
             const run_unit_tests = b.addRunArtifact(unit_tests);
             test_step.dependOn(&run_unit_tests.step);
+        }
+
+        // Test outputs.zig and geometry.zig using a runner at src/ level
+        // to allow cross-directory relative imports
+        {
+            const exports_mod = b.createModule(.{
+                .root_source_file = b.path("src/exports.zig"),
+                .optimize = optimize,
+                .target = target,
+            });
+            const exports_tests = b.addTest(.{
+                .root_module = exports_mod,
+            });
+            exports_mod.addImport("zli", zli_dep.module("zli"));
+            exports_mod.addImport("mecha", mecha_dep.module("mecha"));
+            exports_mod.addImport("cli", inputs_mod);
+            const run_exports_tests = b.addRunArtifact(exports_tests);
+            test_step.dependOn(&run_exports_tests.step);
         }
 
         // Test plot.zig separately - doesn't include panes dependency
