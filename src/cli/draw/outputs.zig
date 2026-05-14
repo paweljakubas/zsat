@@ -11,55 +11,6 @@ const geometry = @import("../transform/geometry.zig");
 const CoordinateOrientation = Styles.CoordinateOrientation;
 const PlotSteps = Styles.PlotSteps;
 
-fn mirrorPointOverLine(what: inputs.Point, over: inputs.Line, accuracy: ?u8) inputs.Point {
-    if (over.a == 0.0) {
-        const mirror_x = -over.c / over.b;
-        const mirrored_x = 2.0 * mirror_x - what.x;
-        if (accuracy) |acc| {
-            const factor = std.math.pow(f32, 10, @as(f32, @floatFromInt(acc)));
-            return .{ .x = @round(mirrored_x * factor) / factor, .y = what.y };
-        }
-        return .{ .x = mirrored_x, .y = what.y };
-    }
-    if (over.b == 0.0) {
-        const mirror_y = over.c / over.a;
-        const mirrored_y = 2.0 * mirror_y - what.y;
-        if (accuracy) |acc| {
-            const factor = std.math.pow(f32, 10, @as(f32, @floatFromInt(acc)));
-            return .{ .x = what.x, .y = @round(mirrored_y * factor) / factor };
-        }
-        return .{ .x = what.x, .y = mirrored_y };
-    }
-    const denom = over.a * over.a + over.b * over.b;
-    const xL = (what.y * over.a * over.b + what.x * over.a * over.a - over.c * over.b) / denom;
-    const yL = (over.b / over.a) * xL + (over.c / over.a);
-    var mirrored_x: f32 = undefined;
-    var mirrored_y: f32 = undefined;
-    if (what.x > xL) {
-        const delta = what.x - xL;
-        mirrored_x = xL - delta;
-    } else if (what.x == xL) {
-        mirrored_x = what.x;
-    } else {
-        const delta = xL - what.x;
-        mirrored_x = xL + delta;
-    }
-    if (what.y < yL) {
-        const delta = yL - what.y;
-        mirrored_y = yL + delta;
-    } else if (what.y == yL) {
-        mirrored_y = what.y;
-    } else {
-        const delta = what.y - yL;
-        mirrored_y = yL - delta;
-    }
-    if (accuracy) |acc| {
-        const factor = std.math.pow(f32, 10, @as(f32, @floatFromInt(acc)));
-        return .{ .x = @round(mirrored_x * factor) / factor, .y = @round(mirrored_y * factor) / factor };
-    }
-    return .{ .x = mirrored_x, .y = mirrored_y };
-}
-
 const Line = struct {
     a: f32,
     b: f32,
@@ -2211,7 +2162,7 @@ test "processMirrorOp" {
 ///   vector, y-axis perpendicular). Convert each displacement to local (a, b),
 ///   mirror over the line, convert back to global coordinates.
 /// - non-coord (fixed/origin): displacements are mirrored directly in global space
-///   (dx = p.x - start.x, dy = p.y - start.y) using mirrorPointOverLine.
+///   (dx = p.x - start.x, dy = p.y - start.y) using geometry.mirrorPointOverLine.
 ///
 /// Example:
 /// ```
@@ -2241,7 +2192,7 @@ fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
             const gdy = @as(f64, p.y - start.y);
             const local_a = gdx * x_axis_x + gdy * x_axis_y;
             const local_b = gdx * perp_x + gdy * perp_y;
-            const mirrored = mirrorPointOverLine(.{ .x = @floatCast(local_a), .y = @floatCast(local_b) }, line, null);
+            const mirrored = geometry.mirrorPointOverLine(.{ .x = @floatCast(local_a), .y = @floatCast(local_b) }, line, null);
             const mdx = @as(f64, mirrored.x) * x_axis_x + @as(f64, mirrored.y) * perp_x;
             const mdy = @as(f64, mirrored.x) * x_axis_y + @as(f64, mirrored.y) * perp_y;
             poly[j + 1] = inputs.Point{
@@ -2253,7 +2204,7 @@ fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
         for (prev_poly[1..], 0..) |p, j| {
             const dx = p.x - start.x;
             const dy = p.y - start.y;
-            const mirrored = mirrorPointOverLine(.{ .x = dx, .y = dy }, line, null);
+            const mirrored = geometry.mirrorPointOverLine(.{ .x = dx, .y = dy }, line, null);
             poly[j + 1] = inputs.Point{
                 .x = start.x + mirrored.x,
                 .y = start.y + mirrored.y,
