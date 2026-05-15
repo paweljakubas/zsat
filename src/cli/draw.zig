@@ -166,11 +166,12 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         const pair = outputsValidated.transformationPairs[idx];
         coord_orientations[idx] = if (styles.len > idx and styles[idx].styleValue.coordinateOrientation != null) styles[idx].styleValue.coordinateOrientation.? else .fixed;
         plot_steps[idx] = if (styles.len > idx and styles[idx].styleValue.plotSteps != null) styles[idx].styleValue.plotSteps.? else .last;
+        const coord_type = if (styles.len > idx and styles[idx].styleValue.coordinateSystem != null) styles[idx].styleValue.coordinateSystem.? else .xy;
 
         var single_output: Outputs.OutputsValidated = undefined;
         single_output.transformationPairs = &.{pair};
 
-        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientations[idx], plot_steps[idx], idx);
+        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientations[idx], plot_steps[idx], idx, coord_type);
         result_pairs[idx] = transformed.transformationPairs[0];
     }
 

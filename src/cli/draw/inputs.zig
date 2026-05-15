@@ -154,6 +154,16 @@ pub const Vector = struct {
     y: f32,
 };
 
+/// Converts a polar vector (x=r, y=phi_degrees) to Cartesian (dx, dy).
+/// This is used when CoordinateType is .polar in styles.
+pub fn polarVectorToCartesian(v: Vector) Vector {
+    const phi_rad = v.y * (pi / 180.0);
+    return Vector{
+        .x = v.x * @cos(phi_rad),
+        .y = v.x * @sin(phi_rad),
+    };
+}
+
 const vectorParserRaw = mecha.combine(.{ common.skipOpenSquare, floatParser, common.skipComma, floatParser, common.skipCloseSquare });
 const vectorParserRawP = @TypeOf(vectorParserRaw);
 fn toVectorParser(_: std.mem.Allocator, res: vectorParserRawP.T) mecha.ConvertError!Vector {
@@ -177,6 +187,28 @@ test "vectorParser" {
     const r3 = try vectorParser.parse(fa, " [2e+003 , -1.1] ");
     const p3 = Vector{ .x = 2000.0, .y = -1.1 };
     try testing.expectEqual(p3, r3.value.ok);
+}
+
+test "polarVectorToCartesian" {
+    // sqrt(2) @ 45° -> (1, 1)
+    const v1 = polarVectorToCartesian(Vector{ .x = @sqrt(2.0), .y = 45.0 });
+    try testing.expectApproxEqAbs(@as(f32, 1.0), v1.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), v1.y, 0.0001);
+
+    // r=2 @ 90° -> (0, 2)
+    const v2 = polarVectorToCartesian(Vector{ .x = 2.0, .y = 90.0 });
+    try testing.expectApproxEqAbs(@as(f32, 0.0), v2.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 2.0), v2.y, 0.0001);
+
+    // r=0 -> (0, 0)
+    const v3 = polarVectorToCartesian(Vector{ .x = 0.0, .y = 45.0 });
+    try testing.expectApproxEqAbs(@as(f32, 0.0), v3.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), v3.y, 0.0001);
+
+    // r=1 @ 0° -> (1, 0)
+    const v4 = polarVectorToCartesian(Vector{ .x = 1.0, .y = 0.0 });
+    try testing.expectApproxEqAbs(@as(f32, 1.0), v4.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), v4.y, 0.0001);
 }
 
 pub const vectorsParser = mecha.combine(.{

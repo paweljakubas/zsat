@@ -9,6 +9,7 @@ const Styles = @import("styles.zig");
 const geometry = @import("../transform/geometry.zig");
 
 const CoordinateOrientation = Styles.CoordinateOrientation;
+const CoordinateType = Styles.CoordinateType;
 const PlotSteps = Styles.PlotSteps;
 
 const Line = struct {
@@ -1499,7 +1500,7 @@ test "generateCoordPolyline" {
 /// const vectors = try collectVectors(a, inp, 0);
 /// // vectors now contains all InputElement.vector values from inp.input[0]
 /// ```
-fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize) ![]inputs.Vector {
+fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize, coordinate_type: CoordinateType) ![]inputs.Vector {
     var count: usize = 0;
     if (idx < inp.input.len) {
         for (inp.input[idx].row) |elem| {
@@ -1511,7 +1512,11 @@ fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize) 
     if (idx < inp.input.len) {
         for (inp.input[idx].row) |elem| {
             if (elem == .vector) {
-                vectors[vidx] = elem.vector;
+                var v = elem.vector;
+                if (coordinate_type == .polar) {
+                    v = inputs.polarVectorToCartesian(v);
+                }
+                vectors[vidx] = v;
                 vidx += 1;
             }
         }
@@ -1530,7 +1535,7 @@ test "collectVectors" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const vectors = try collectVectors(a, inp, 0);
+    const vectors = try collectVectors(a, inp, 0, .xy);
     defer a.free(vectors);
     try testing.expectEqual(@as(usize, 2), vectors.len);
     try testing.expectEqual(@as(f32, 1.0), vectors[0].x);
@@ -1539,7 +1544,7 @@ test "collectVectors" {
     try testing.expectEqual(@as(f32, 4.0), vectors[1].y);
 
     // idx out of range -> empty
-    const empty = try collectVectors(a, inp, 5);
+    const empty = try collectVectors(a, inp, 5, .xy);
     try testing.expectEqual(@as(usize, 0), empty.len);
 }
 
@@ -1638,7 +1643,7 @@ test "sumInputVectors" {
 /// const sum = sumInputVectors(inp, 0);
 /// // sum.x = total x displacement, sum.y = total y displacement
 /// ```
-fn sumInputVectors(inp: inputs.Inputs, idx: usize) struct { x: f32, y: f32 } {
+fn sumInputVectors(inp: inputs.Inputs, idx: usize, coordinate_type: CoordinateType) struct { x: f32, y: f32 } {
     var input_x: f32 = 0.0;
     var input_y: f32 = 0.0;
     if (idx < inp.input.len) {
@@ -1646,8 +1651,9 @@ fn sumInputVectors(inp: inputs.Inputs, idx: usize) struct { x: f32, y: f32 } {
         for (row.row) |elem| {
             switch (elem) {
                 .vector => |v| {
-                    input_x += v.x;
-                    input_y += v.y;
+                    const resolved = if (coordinate_type == .polar) inputs.polarVectorToCartesian(v) else v;
+                    input_x += resolved.x;
+                    input_y += resolved.y;
                 },
                 .point => {},
             }
@@ -2273,6 +2279,7 @@ fn processOriginFixed(
     outputs: OutputsValidated,
     inp: inputs.Inputs,
     orientation: CoordinateOrientation,
+    coordinate_type: CoordinateType,
 ) ToExplicitPointError!OutputsValidated {
     var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
 
@@ -2284,7 +2291,7 @@ fn processOriginFixed(
         }
 
         var new_ops_with_end = try allocator.alloc(OneArgFunctionPartial, 2 * anchors.len);
-        const input_sum = sumInputVectors(inp, idx);
+        const input_sum = sumInputVectors(inp, idx, coordinate_type);
 
         var origin_x: f32 = 0.0;
         var origin_y: f32 = 0.0;
@@ -2343,7 +2350,7 @@ fn processOriginFixed(
 /// Phase 4 — Resolve references: If Phase 1 found non-point references (and Phase 2
 /// did not trigger), resolve them via resolveNonPointReferences, replacing each
 /// beginning/end/middle/fraction with its explicit point coordinate.
-pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize) ToExplicitPointError!OutputsValidated {
+pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize, coordinate_type: CoordinateType) ToExplicitPointError!OutputsValidated {
     var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
         for (pair.operation.ops) |op| {
@@ -2402,7 +2409,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     continue;
                 }
 
-                const vectors = try collectVectors(allocator, inp, idx);
+                const vectors = try collectVectors(allocator, inp, idx, coordinate_type);
                 defer allocator.free(vectors);
 
                 var ctx_begin: ?inputs.Point = null;
@@ -2460,7 +2467,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
 
     // ORIGIN and FIXED MODE: common handling via processOriginFixed
     if ((orientation == .origin or orientation == .fixed) and !has_non_point_refs) {
-        return try processOriginFixed(allocator, outputs, inp, orientation);
+        return try processOriginFixed(allocator, outputs, inp, orientation, coordinate_type);
     }
 
     // Phase 3 (coord): chained frame-based geometry for any number of anchors
@@ -2494,7 +2501,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 continue;
             }
 
-            const vectors = try collectVectors(allocator, inp, output_idx);
+            const vectors = try collectVectors(allocator, inp, output_idx, coordinate_type);
             defer allocator.free(vectors);
 
             if (vectors.len == 0) {
@@ -2870,7 +2877,7 @@ test "toExplicitPoint" {
     const row1 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v1} };
     const input1 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row1} };
 
-    const res1 = try toExplicitPoint(a, input1, outputValidated1, .fixed, .last, 0);
+    const res1 = try toExplicitPoint(a, input1, outputValidated1, .fixed, .last, 0, .xy);
     try testing.expectEqualDeep(res1, outputValidated1);
 
     const p2 = ElementFraction{ .fromStart = 30, .element = .self };
@@ -2890,7 +2897,7 @@ test "toExplicitPoint" {
     const row2 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v2} };
     const input2 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row2} };
 
-    const res2 = toExplicitPoint(a, input2, outputValidated2, .fixed, .last, 0);
+    const res2 = toExplicitPoint(a, input2, outputValidated2, .fixed, .last, 0, .xy);
     try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, res2);
 
     const f3a = ElementFraction{ .fromStart = 50, .element = ElementReference{ .other = "out2" } };
@@ -2935,7 +2942,7 @@ test "toExplicitPoint" {
     const outputValidated3post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp3c, tp3b },
     };
-    const res3 = try toExplicitPoint(a, input3, outputValidated3, .fixed, .last, 0);
+    const res3 = try toExplicitPoint(a, input3, outputValidated3, .fixed, .last, 0, .xy);
     try testing.expectEqualDeep(res3, outputValidated3post);
 
     const f4a = ElementFraction{ .fromStart = 50, .element = ElementReference{ .other = "out2" } };
@@ -2965,7 +2972,7 @@ test "toExplicitPoint" {
     const row4b = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v4b} };
     const input4 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row4a, row4b } };
 
-    const res4 = toExplicitPoint(a, input4, outputValidated4, .fixed, .last, 0);
+    const res4 = toExplicitPoint(a, input4, outputValidated4, .fixed, .last, 0, .xy);
     try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, res4);
 
     const f5a = ElementFraction{ .fromStart = -50, .element = ElementReference{ .other = "out2" } };
@@ -3010,7 +3017,7 @@ test "toExplicitPoint" {
     const outputValidated5post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp5c, tp5b },
     };
-    const res5 = try toExplicitPoint(a, input5, outputValidated5, .fixed, .last, 0);
+    const res5 = try toExplicitPoint(a, input5, outputValidated5, .fixed, .last, 0, .xy);
     try testing.expectEqualDeep(res5, outputValidated5post);
 
     const f6a = ElementFraction{ .fromStart = 30, .element = ElementReference{ .other = "out1" } };
@@ -3056,7 +3063,7 @@ test "toExplicitPoint" {
     const outputValidated6post = OutputsValidated{
         .transformationPairs = &[2]OutputTransformationPair{ tp6b, tp6c },
     };
-    const res6 = try toExplicitPoint(a, input6, outputValidated6, .fixed, .last, 0);
+    const res6 = try toExplicitPoint(a, input6, outputValidated6, .fixed, .last, 0, .xy);
     try testing.expectEqualDeep(res6, outputValidated6post);
 }
 
@@ -3083,7 +3090,7 @@ test "toExplicitPoint coord mode - one anchor" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
@@ -3127,7 +3134,7 @@ test "toExplicitPoint coord mode - compose with two anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
@@ -3169,7 +3176,7 @@ test "toExplicitPoint coord mode - compose with three anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
@@ -3211,7 +3218,7 @@ test "toExplicitPoint coord mode - compose with three anchors input [-1,0]" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
@@ -3250,7 +3257,7 @@ test "toExplicitPoint fixed mode - compose with two anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -3298,7 +3305,7 @@ test "toExplicitPoint fixed mode - compose with three anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
@@ -3353,7 +3360,7 @@ test "toExplicitPoint origin mode - compose with two anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -3404,7 +3411,7 @@ test "toExplicitPoint origin mode - compose with three anchors" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
@@ -3460,7 +3467,7 @@ test "toExplicitPoint origin mode - compose with three anchors input [-1,0]" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
@@ -3516,7 +3523,7 @@ test "toExplicitPoint fixed mode - compose with two anchors multi-segment input"
     const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -3564,7 +3571,7 @@ test "toExplicitPoint origin mode - compose with two anchors multi-segment input
     const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -3614,7 +3621,7 @@ test "toExplicitPoint coord mode - compose with three anchors multi-segment inpu
     const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
@@ -3660,7 +3667,7 @@ test "toExplicitPoint coord mode all - compose with two anchors multi-segment" {
     const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .all, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .all, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
@@ -3721,7 +3728,7 @@ test "toExplicitPoint coord mode all - compose with three anchors multi-segment"
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .all, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .all, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
@@ -3777,7 +3784,7 @@ test "toExplicitPoint - compose with anchor and rotation" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -3825,7 +3832,7 @@ test "toExplicitPoint - compose with anchor and rotation multi-segment" {
     const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
@@ -3877,7 +3884,7 @@ test "toExplicitPoint - compose with anchor and rotation 360 multi-segment" {
     const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
@@ -3932,7 +3939,7 @@ test "toExplicitPoint - compose with anchor and rotation around end self" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -3982,7 +3989,7 @@ test "toExplicitPoint - compose with anchor and rotation around end self multi-s
     const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
@@ -4036,7 +4043,7 @@ test "toExplicitPoint - compose with anchor and rotation around mid self" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4084,7 +4091,7 @@ test "toExplicitPoint fixed - compose with anchor and scale 1" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4132,7 +4139,7 @@ test "toExplicitPoint fixed - compose with anchor and scale 2" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4180,7 +4187,7 @@ test "toExplicitPoint fixed - compose with anchor and scale 3" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4228,7 +4235,7 @@ test "toExplicitPoint origin - compose with anchor and scale 1" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4276,7 +4283,7 @@ test "toExplicitPoint origin - compose with anchor and scale 2" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4324,7 +4331,7 @@ test "toExplicitPoint origin - compose with anchor and scale 3" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4372,7 +4379,7 @@ test "toExplicitPoint coord - compose with anchor and scale 1" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4419,7 +4426,7 @@ test "toExplicitPoint coord - compose with anchor and scale 2" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4466,7 +4473,7 @@ test "toExplicitPoint fixed - compose with anchor and mirror 1" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4514,7 +4521,7 @@ test "toExplicitPoint origin - compose with anchor and mirror 1" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4562,7 +4569,7 @@ test "toExplicitPoint coord - compose with anchor and mirror 1" {
     const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0);
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
@@ -4580,4 +4587,86 @@ test "toExplicitPoint coord - compose with anchor and mirror 1" {
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.0);
+}
+
+test "toExplicitPoint fixed - polar coordinates" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Two anchors (0,0) and (5,5) with polar vector [sqrt(2), 45]
+    // Polar [sqrt(2),45] resolves to Cartesian (1,1)
+    // fixed mode: begin=(0,0), end=(0+1,0+1)=(1,1); begin=(5,5), end=(5+1,5+1)=(6,6)
+    const gp1 = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 0.0 } };
+    const gp2 = GeneralPoint{ .point = inputs.Point{ .x = 5.0, .y = 5.0 } };
+    const ap1 = AnchorPartial{ .point = gp1 };
+    const ap2 = AnchorPartial{ .point = gp2 };
+    const of1 = OneArgFunctionPartial{ .anchor = ap1 };
+    const of2 = OneArgFunctionPartial{ .anchor = ap2 };
+    const c = Compose{ .ops = &[2]OneArgFunctionPartial{ of1, of2 } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = c,
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = @sqrt(2.0), .y = 45.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .polar);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    // First anchor pair: (0,0) -> (1,1)
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+    // Second anchor pair: (5,5) -> (6,6)
+    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 0.0001);
+}
+
+test "toExplicitPoint polar - verify xy still works" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // With .xy coordinate type, vector (1,1) should be used as-is
+    const gp1 = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 0.0 } };
+    const gp2 = GeneralPoint{ .point = inputs.Point{ .x = 5.0, .y = 5.0 } };
+    const ap1 = AnchorPartial{ .point = gp1 };
+    const ap2 = AnchorPartial{ .point = gp2 };
+    const of1 = OneArgFunctionPartial{ .anchor = ap1 };
+    const of2 = OneArgFunctionPartial{ .anchor = ap2 };
+    const c = Compose{ .ops = &[2]OneArgFunctionPartial{ of1, of2 } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = c,
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    // First anchor pair: (0,0) -> (1,1)  (xy vector (1,1) applied as-is)
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+    // Second anchor pair: (5,5) -> (6,6)
+    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 0.0001);
 }
