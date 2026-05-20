@@ -339,6 +339,24 @@ test "computeBounds" {
     try testing.expectEqual(@as(f32, 9.0), r5.y[1]);
 }
 
+/// Resolves the coordinate orientation for a given input row from styles and datum mappings.
+/// Looks up the style index via mappings, then extracts coordinateOrientation (default .fixed).
+fn resolveCoordOrientation(styles: anytype, mappings: anytype, row_idx: usize) @TypeOf(.fixed) {
+    var style_idx: usize = 0;
+    for (mappings) |mapping| {
+        if (mapping.from == row_idx) {
+            style_idx = mapping.to;
+            break;
+        }
+    }
+    if (style_idx < styles.len) {
+        if (styles[style_idx].styleValue.coordinateOrientation) |orientation| {
+            return orientation;
+        }
+    }
+    return @as(@TypeOf(.fixed), .fixed);
+}
+
 /// Computes the bounding box (min/max x/y) across all outputs, respecting each
 /// output's coordinate orientation mode.
 ///
@@ -673,10 +691,20 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     try context.fill();
     context.setLineWidth(10.0); // Re-enable for data lines
     context.resetPath(); // Clear path state after fill
-    const bounds = computeBounds(parsed_data.outputs, parsed_data.inputs, parsed_data.coord_orientations);
     const outputs = parsed_data.outputs;
     const input_data = parsed_data.inputs;
-    const coord_orientations = parsed_data.coord_orientations;
+
+    const CoordOrientation = @typeInfo(@TypeOf(parsed_data.styles[0].styleValue.coordinateOrientation)).optional.child;
+    const coord_orientations = try std.heap.page_allocator.alloc(CoordOrientation, outputs.transformationPairs.len);
+    defer std.heap.page_allocator.free(coord_orientations);
+    for (0..outputs.transformationPairs.len) |idx| {
+        coord_orientations[idx] = if (parsed_data.styles.len > idx and parsed_data.styles[idx].styleValue.coordinateOrientation != null)
+            parsed_data.styles[idx].styleValue.coordinateOrientation.?
+        else
+            .fixed;
+    }
+
+    const bounds = computeBounds(outputs, input_data, coord_orientations);
 
     const x_range = bounds.x[1] - bounds.x[0];
     const y_range = bounds.y[1] - bounds.y[0];

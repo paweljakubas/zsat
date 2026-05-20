@@ -18,8 +18,6 @@ pub const ParsedData = struct {
     inputs: Inputs.Inputs,
     datum: Datum.DataElementValidated,
     outputs: Outputs.OutputsValidated,
-    coord_orientations: []const Styles.CoordinateOrientation,
-    plot_steps: []const Styles.PlotSteps,
     panes: []const Panes.Pane,
     frames: Frames.OutputPaneValidated,
 };
@@ -158,20 +156,18 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     const outputsValidated = try Outputs.validateConnection(alloc, numberOfOutputsForValidation, outputsConnection);
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
-    var coord_orientations = try alloc.alloc(Styles.CoordinateOrientation, outputsValidated.transformationPairs.len);
-    var plot_steps = try alloc.alloc(Styles.PlotSteps, outputsValidated.transformationPairs.len);
     var result_pairs = try alloc.alloc(Outputs.OutputTransformationPair, outputsValidated.transformationPairs.len);
 
     for (0..outputsValidated.transformationPairs.len) |idx| {
         const pair = outputsValidated.transformationPairs[idx];
-        coord_orientations[idx] = if (styles.len > idx and styles[idx].styleValue.coordinateOrientation != null) styles[idx].styleValue.coordinateOrientation.? else .fixed;
-        plot_steps[idx] = if (styles.len > idx and styles[idx].styleValue.plotSteps != null) styles[idx].styleValue.plotSteps.? else .last;
+        const coord_orientation = if (styles.len > idx and styles[idx].styleValue.coordinateOrientation != null) styles[idx].styleValue.coordinateOrientation.? else .fixed;
+        const plot_step = if (styles.len > idx and styles[idx].styleValue.plotSteps != null) styles[idx].styleValue.plotSteps.? else .last;
         const coord_type = if (styles.len > idx and styles[idx].styleValue.coordinateSystem != null) styles[idx].styleValue.coordinateSystem.? else .xy;
 
         var single_output: Outputs.OutputsValidated = undefined;
         single_output.transformationPairs = &.{pair};
 
-        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientations[idx], plot_steps[idx], idx, coord_type);
+        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientation, plot_step, idx, coord_type);
         result_pairs[idx] = transformed.transformationPairs[0];
     }
 
@@ -223,8 +219,6 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         .inputs = inputs,
         .datum = datumValidated,
         .outputs = outputsExplicit,
-        .coord_orientations = coord_orientations,
-        .plot_steps = plot_steps,
         .panes = panes,
         .frames = framesValidated,
     };
