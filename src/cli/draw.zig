@@ -27,7 +27,7 @@ const style_flag = zli.Flag{
     .shortcut = "s",
     .description = "Style(s) definition to be used in further steps when constructing the figure.",
     .type = .String,
-    .default_value = .{ .String = "e0:{vec2d xy fixed [lw:10, lc: black, lo: 100, le:none, lj: none, ld: none]}" },
+    .default_value = .{ .String = "e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld: none]}" },
 };
 
 const datum_flag = zli.Flag{
@@ -164,8 +164,10 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         const plot_step = if (styles.len > idx and styles[idx].styleValue.plotSteps != null) styles[idx].styleValue.plotSteps.? else .last;
         const coord_type = if (styles.len > idx and styles[idx].styleValue.coordinateSystem != null) styles[idx].styleValue.coordinateSystem.? else .xy;
 
+        var single_output_pairs = try alloc.alloc(Outputs.OutputTransformationPair, 1);
+        single_output_pairs[0] = pair;
         var single_output: Outputs.OutputsValidated = undefined;
-        single_output.transformationPairs = &.{pair};
+        single_output.transformationPairs = single_output_pairs;
 
         const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, single_output, coord_orientation, plot_step, idx, coord_type);
         result_pairs[idx] = transformed.transformationPairs[0];
@@ -243,7 +245,6 @@ fn rgbaPixelsToBase64(allocator: std.mem.Allocator, pixels: anytype) ![]u8 {
     }
 
     var encoded = try std.ArrayList(u8).initCapacity(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
-    defer encoded.deinit(allocator);
     try encoded.resize(allocator, std.base64.standard.Encoder.calcSize(byte_data.items.len));
     _ = std.base64.standard.Encoder.encode(encoded.items, byte_data.items);
     return encoded.items;
@@ -299,15 +300,18 @@ fn renderToStdout(allocator: std.mem.Allocator, img: Plot.RenderedImage, writer:
     const new_h: u32 = @intFromFloat(scale * img_h);
 
     var pixels = img.pixels;
+    var kitty_w: i32 = original_width;
+    var kitty_h: i32 = original_height;
     if (new_w < original_width or new_h < original_height) {
         const resized = try resizePixels(allocator, pixels, original_width, original_height, new_w, new_h);
-        defer allocator.free(resized);
         pixels = resized;
+        kitty_w = @intCast(new_w);
+        kitty_h = @intCast(new_h);
     }
 
     const encoded = try rgbaPixelsToBase64(allocator, pixels);
     defer allocator.free(encoded);
-    try kittyEncode(writer, img.width, img.height, encoded);
+    try kittyEncode(writer, kitty_w, kitty_h, encoded);
     try writer.flush();
 }
 

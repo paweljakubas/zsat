@@ -1155,10 +1155,12 @@ const connectionParserRawSingle = mecha.combine(.{
     common.skipWhitespace,
     outputTransformationPairParser,
 }).convert(struct {
-    fn toSingle(_: std.mem.Allocator, args: anytype) mecha.ConvertError!Connection {
+    fn toSingle(arena: std.mem.Allocator, args: anytype) mecha.ConvertError!Connection {
+        var arr = try arena.alloc(OutputTransformationPair, 1);
+        arr[0] = args[1];
         return Connection{
             .outputs = args[0],
-            .transformationPairs = &[1]OutputTransformationPair{args[1]},
+            .transformationPairs = arr,
         };
     }
 }.toSingle);
@@ -1194,10 +1196,12 @@ const connectionParserRawIdentity = mecha.combine(.{
     common.skipWhitespace,
     identityTransformationParser,
 }).convert(struct {
-    fn toIdentity(_: std.mem.Allocator, args: anytype) mecha.ConvertError!Connection {
+    fn toIdentity(arena: std.mem.Allocator, args: anytype) mecha.ConvertError!Connection {
+        var arr = try arena.alloc(OutputTransformationPair, 1);
+        arr[0] = args[1];
         return Connection{
             .outputs = args[0],
-            .transformationPairs = &[1]OutputTransformationPair{args[1]},
+            .transformationPairs = arr,
         };
     }
 }.toIdentity);
