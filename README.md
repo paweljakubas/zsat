@@ -134,14 +134,14 @@ zig build
 zig build test --summary all
 ```
 
-## Tutorials
+## In-depth tutorial
 
-Vector plots - coming soon!
+[Go here](../Tutorial.md)
 
 ## Zig packages (outside std) proudly used in the project:
 
 - [**zli**](https://github.com/xcaeser/zli) CLI development support
-- [**macha**](https://github.com/Hejsil/mecha) Parser combinator library
+- [**mecha**](https://github.com/Hejsil/mecha) Parser combinator library
 - [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app
 - [**zigimg**](https://github.com/zigimg/zigimg) Image processing for **kitty graphics protocol** support
 - [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend
