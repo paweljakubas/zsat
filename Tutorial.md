@@ -1,4 +1,4 @@
-### First try and how to explore the tool
+## First try and how to explore the tool
 
 Let's say we have a vector in `xy` coordinate system `[1,1]` and want to plot it.
 We can do it immediately by pasting the following:
@@ -25,6 +25,40 @@ stdin:
 --frames (out) -> out -> p0
 ```
 
-There are many dimensions and it is good to cover each aspect one by one.
+There are many dimensions to master the tool and it is good to cover each aspect one by one.
+
+## Data shape to be plotted
+
+We piped `[1,1]` to the input. But, why we used double bracket in the end? Because `zsat` handles two types of vector structures that
+need to be interpreted separately. And they are worth to be supported and treated differently.
+In general, `zsat` differentiates three cases for further processing and presentation:
+
+(a) multi-segment vector is treated as one structure
+We already saw what `[[1,1]]` means - vector from (0,0) to (1,1).
+`[[1,1], [-1,0]]` represents two-segment vector where `[-1,0]` starts where `[1,1]` ends.
+Hence, enclosing the vectors between `[`and `]` means composing the two vectors in such a way
+that 2-segment from (0,0) through (1,1) to (0,1) is formed.
+Let's see it:
+
+```bash
+λ echo '[[1,1],[-1,0]]' | zsat draw
+```
+
+(b) vectors that are gathered together 
+If we write on the other hand `[[1,1]], [[-1,0]]` we have two vectors starting from (0,0). The frst one ending at (1,1), the second at (-1,0).
+Gathering means all components will share the same style and, if processed, undergo the same transformation.
+
+```bash
+λ echo '[[1,1]],[[-1,0]]' | zsat draw
+```
+
+(c) vectors are independent from each other
+
+Each vector structure is interleaved by '\n' character which means each one constitute separate entity, with potentially different style and processing transformation.
+
+```bash
+λ echo '[[1,1]]\n[[-1,0]]' | zsat draw
+```
+
 
 
