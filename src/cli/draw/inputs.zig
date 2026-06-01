@@ -308,6 +308,11 @@ fn toInputElementRow(_: std.mem.Allocator, str: inputElementRowParserRawP.T) mec
 
 const inputElementRowParser = inputElementRowParserRaw.convert(toInputElementRow);
 
+const sameLineRow = mecha.combine(.{
+    common.skipComma,
+    inputElementRowParser,
+});
+
 const newlineWithRow = mecha.combine(.{
     newlineParser,
     inputElementRowParser,
@@ -316,6 +321,7 @@ const newlineWithRow = mecha.combine(.{
 const inputsParserRaw = mecha.combine(.{
     common.skipWhitespace,
     inputElementRowParser,
+    sameLineRow.many(.{ .collect = true }),
     newlineWithRow.many(.{ .collect = true }),
     common.skipWhitespace,
 });
@@ -323,13 +329,17 @@ const inputsParserRaw = mecha.combine(.{
 const inputsParserRawP = @TypeOf(inputsParserRaw);
 fn toInputs(alloc: std.mem.Allocator, res: inputsParserRawP.T) mecha.ConvertError!Inputs {
     const firstRow = res[0];
-    const moreRows = res[1];
+    const sameLineRows = res[1];
+    const moreRows = res[2];
 
-    const totalRows = moreRows.len + 1;
+    const totalRows = 1 + sameLineRows.len + moreRows.len;
     var rows = try alloc.alloc(InputElementRow, totalRows);
     rows[0] = firstRow;
+    for (sameLineRows, 0..) |row, i| {
+        rows[i + 1] = row;
+    }
     for (moreRows, 0..) |pair, i| {
-        rows[i + 1] = pair[1];
+        rows[1 + sameLineRows.len + i] = pair[1];
     }
     return Inputs{ .input = rows };
 }
@@ -389,6 +399,14 @@ test "inputsParser" {
     const row6c = InputElementRow{ .row = &[2]InputElement{ p6d, p6e } };
     const in6 = Inputs{ .input = &[3]InputElementRow{ row6a, row6b, row6c } };
     try testing.expectEqualDeep(in6, r6.value.ok);
+
+    const r7 = try inputsParser.parse(a, "[[1,1]],[[-1,0]]");
+    const p7a = InputElement{ .vector = Vector{ .x = 1.0, .y = 1.0 } };
+    const p7b = InputElement{ .vector = Vector{ .x = -1.0, .y = 0.0 } };
+    const row7a = InputElementRow{ .row = &[1]InputElement{p7a} };
+    const row7b = InputElementRow{ .row = &[1]InputElement{p7b} };
+    const in7 = Inputs{ .input = &[2]InputElementRow{ row7a, row7b } };
+    try testing.expectEqualDeep(in7, r7.value.ok);
 }
 
 pub const Angle = union(enum) {

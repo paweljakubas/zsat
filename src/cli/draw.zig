@@ -113,6 +113,14 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
             return error.ParseInputsFailed;
         },
     };
+    if (inputs_parse_result.index < stdin_str.len) {
+        const rest = stdin_str[inputs_parse_result.index..];
+        for (rest) |c| {
+            if (c != ' ' and c != '\n' and c != '\r' and c != '\t') {
+                return error.ParseInputsFailed;
+            }
+        }
+    }
 
     const styles_parse_result = try Styles.stylesParser.parse(alloc, styles_str);
     const styles = switch (styles_parse_result.value) {
@@ -125,7 +133,22 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         return error.ParseStylesFailed;
     }
 
-    const datum_parse_result = try Datum.connectionParser.parse(alloc, datum_str);
+    var effective_datum_str = datum_str;
+    if (std.mem.eql(u8, datum_str, "(vec) -> (vec -> e0)") and inputs.input.len > 1) {
+        var buf = std.ArrayList(u8).empty;
+        try buf.appendSlice(alloc, "(vec");
+        for (1..inputs.input.len) |_| {
+            try buf.appendSlice(alloc, ", vec");
+        }
+        try buf.appendSlice(alloc, ") -> (vec -> e0");
+        for (1..inputs.input.len) |_| {
+            try buf.appendSlice(alloc, ", vec -> e0");
+        }
+        try buf.append(alloc, ')');
+        effective_datum_str = try buf.toOwnedSlice(alloc);
+    }
+
+    const datum_parse_result = try Datum.connectionParser.parse(alloc, effective_datum_str);
     const datum = switch (datum_parse_result.value) {
         .ok => |d| d,
         .err => {
@@ -153,7 +176,20 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
 
     const numberOfOutputsForValidation: u8 = @intCast(outputsConnection.outputs.len);
 
-    const outputsValidated = try Outputs.validateConnection(alloc, numberOfOutputsForValidation, outputsConnection);
+    var outputsValidated = try Outputs.validateConnection(alloc, numberOfOutputsForValidation, outputsConnection);
+
+    // If only one output transformation pair is defined but multiple input
+    // rows are present, replicate the pair so each row is drawn independently
+    // using the same output transformation.
+    if (outputsValidated.transformationPairs.len == 1 and inputs.input.len > 1) {
+        const original_pair = outputsValidated.transformationPairs[0];
+        const replicated = try alloc.alloc(Outputs.OutputTransformationPair, inputs.input.len);
+        for (replicated) |*p| {
+            p.* = original_pair;
+        }
+        outputsValidated.transformationPairs = replicated;
+    }
+
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 
     var result_pairs = try alloc.alloc(Outputs.OutputTransformationPair, outputsValidated.transformationPairs.len);
