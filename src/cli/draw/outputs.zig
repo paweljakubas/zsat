@@ -1508,20 +1508,37 @@ fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize, 
     var count: usize = 0;
     if (idx < inp.input.len) {
         for (inp.input[idx].row) |elem| {
-            if (elem == .vector) count += 1;
+            switch (elem) {
+                .vector => count += 1,
+                .vectors => |vs| count += vs.len,
+                .point => {},
+            }
         }
     }
     var vectors = try allocator.alloc(inputs.Vector, count);
     var vidx: usize = 0;
     if (idx < inp.input.len) {
         for (inp.input[idx].row) |elem| {
-            if (elem == .vector) {
-                var v = elem.vector;
-                if (coordinate_type == .polar) {
-                    v = inputs.polarVectorToCartesian(v);
-                }
-                vectors[vidx] = v;
-                vidx += 1;
+            switch (elem) {
+                .vector => |v| {
+                    var vr = v;
+                    if (coordinate_type == .polar) {
+                        vr = inputs.polarVectorToCartesian(v);
+                    }
+                    vectors[vidx] = vr;
+                    vidx += 1;
+                },
+                .vectors => |vs| {
+                    for (vs) |v| {
+                        var vr = v;
+                        if (coordinate_type == .polar) {
+                            vr = inputs.polarVectorToCartesian(v);
+                        }
+                        vectors[vidx] = vr;
+                        vidx += 1;
+                    }
+                },
+                .point => {},
             }
         }
     }
@@ -1658,6 +1675,13 @@ fn sumInputVectors(inp: inputs.Inputs, idx: usize, coordinate_type: CoordinateTy
                     const resolved = if (coordinate_type == .polar) inputs.polarVectorToCartesian(v) else v;
                     input_x += resolved.x;
                     input_y += resolved.y;
+                },
+                .vectors => |vs| {
+                    for (vs) |v| {
+                        const resolved = if (coordinate_type == .polar) inputs.polarVectorToCartesian(v) else v;
+                        input_x += resolved.x;
+                        input_y += resolved.y;
+                    }
                 },
                 .point => {},
             }
@@ -2837,6 +2861,14 @@ fn getExplicitPoint(inp: inputs.Inputs, outputs: OutputsValidated, ref: ElementR
                 end_y = start_y + v.y;
                 start_x = end_x;
                 start_y = end_y;
+            },
+            .vectors => |vs| {
+                for (vs) |v| {
+                    end_x = start_x + v.x;
+                    end_y = start_y + v.y;
+                    start_x = end_x;
+                    start_y = end_y;
+                }
             },
             .point => {},
         }

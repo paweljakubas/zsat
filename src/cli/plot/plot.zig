@@ -99,7 +99,7 @@ const LineStyle = struct {
 };
 
 test "countVectors" {
-    const TestElem = union(enum) { point: struct { x: f32, y: f32 }, vector: struct { x: f32, y: f32 } };
+    const TestElem = union(enum) { point: struct { x: f32, y: f32 }, vector: struct { x: f32, y: f32 }, vectors: []const struct { x: f32, y: f32 } };
     const TestRow = struct { row: []const TestElem };
 
     // Two vectors, one point
@@ -141,7 +141,11 @@ test "countVectors" {
 fn countVectors(row: anytype) usize {
     var count: usize = 0;
     for (row.row) |elem| {
-        if (elem == .vector) count += 1;
+        switch (elem) {
+            .vector => count += 1,
+            .vectors => |vs| count += vs.len,
+            .point => {},
+        }
     }
     return count;
 }
@@ -204,7 +208,7 @@ fn updateBounds(px: f32, py: f32, minX: *f32, maxX: *f32, minY: *f32, maxY: *f32
 }
 
 test "walkInputRowBounds" {
-    const TestElem = union(enum) { point: struct { x: f32, y: f32 }, vector: struct { x: f32, y: f32 } };
+    const TestElem = union(enum) { point: struct { x: f32, y: f32 }, vector: struct { x: f32, y: f32 }, vectors: []const struct { x: f32, y: f32 } };
     const TestRow = struct { row: []const TestElem };
     const TestInputs = struct { input: []const TestRow };
 
@@ -245,19 +249,27 @@ test "walkInputRowBounds" {
 /// walkInputRowBounds(0, 0, &input_data, 0, &minX, &maxX, &minY, &maxY, &initialized);
 /// ```
 fn walkInputRowBounds(start_x: f32, start_y: f32, input_data: anytype, row_idx: usize, minX: *f32, maxX: *f32, minY: *f32, maxY: *f32, initialized: *bool) void {
-    var cur_x: f32 = start_x;
-    var cur_y: f32 = start_y;
-    if (row_idx < input_data.input.len) {
-        const input_row = input_data.input[row_idx];
-        for (input_row.row) |elem| {
-            if (elem == .vector) {
-                cur_x += elem.vector.x;
-                cur_y += elem.vector.y;
-            } else if (elem == .point) {
-                cur_x = elem.point.x;
-                cur_y = elem.point.y;
-            }
-            updateBounds(cur_x, cur_y, minX, maxX, minY, maxY, initialized);
+    if (row_idx >= input_data.input.len) return;
+    const input_row = input_data.input[row_idx];
+    for (input_row.row) |elem| {
+        switch (elem) {
+            .vector => |v| {
+                updateBounds(start_x, start_y, minX, maxX, minY, maxY, initialized);
+                updateBounds(start_x + v.x, start_y + v.y, minX, maxX, minY, maxY, initialized);
+            },
+            .vectors => |vs| {
+                var cur_x = start_x;
+                var cur_y = start_y;
+                updateBounds(cur_x, cur_y, minX, maxX, minY, maxY, initialized);
+                for (vs) |v| {
+                    cur_x += v.x;
+                    cur_y += v.y;
+                    updateBounds(cur_x, cur_y, minX, maxX, minY, maxY, initialized);
+                }
+            },
+            .point => |p| {
+                updateBounds(p.x, p.y, minX, maxX, minY, maxY, initialized);
+            },
         }
     }
 }
@@ -270,7 +282,7 @@ test "computeBounds" {
     const TestOps = struct { ops: []const TestOp };
     const TestPair = struct { operation: TestOps };
 
-    const TestElem = union(enum) { point: struct { x: f32, y: f32 }, vector: struct { x: f32, y: f32 } };
+    const TestElem = union(enum) { point: struct { x: f32, y: f32 }, vector: struct { x: f32, y: f32 }, vectors: []const struct { x: f32, y: f32 } };
     const TestRow = struct { row: []const TestElem };
     const TestInputs = struct { input: []const TestRow };
 
@@ -536,33 +548,57 @@ fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_i
 /// try drawPolylineFromAnchor(&ctx, 0, 0, &input_data, 0, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
 /// ```
 fn drawPolylineFromAnchor(context: *z2d.Context, start_x: f64, start_y: f64, input_data: anytype, row_idx: usize, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
-    var cur_x = start_x;
-    var cur_y = start_y;
-    context.resetPath();
-    var plot_x = origin_x + cur_x * x_scale;
-    var plot_y = origin_y - cur_y * y_scale;
-    if (plot_y < min_y) plot_y = min_y;
-    if (plot_y > max_y) plot_y = max_y;
-    try context.moveTo(plot_x, plot_y);
+    if (row_idx >= input_data.input.len) return;
+    const input_row = input_data.input[row_idx];
 
-    if (row_idx < input_data.input.len) {
-        const input_row = input_data.input[row_idx];
-        for (input_row.row) |elem| {
-            if (elem == .vector) {
-                cur_x += @as(f64, elem.vector.x);
-                cur_y += @as(f64, elem.vector.y);
-            } else if (elem == .point) {
-                cur_x = @as(f64, elem.point.x);
-                cur_y = @as(f64, elem.point.y);
-            }
-            plot_x = origin_x + cur_x * x_scale;
-            plot_y = origin_y - cur_y * y_scale;
-            if (plot_y < min_y) plot_y = min_y;
-            if (plot_y > max_y) plot_y = max_y;
-            try context.lineTo(plot_x, plot_y);
+    for (input_row.row) |elem| {
+        switch (elem) {
+            .vector => |v| {
+                context.resetPath();
+                const bx = origin_x + start_x * x_scale;
+                var by = origin_y - start_y * y_scale;
+                if (by < min_y) by = min_y;
+                if (by > max_y) by = max_y;
+                try context.moveTo(bx, by);
+                const ex = origin_x + (start_x + @as(f64, v.x)) * x_scale;
+                var ey = origin_y - (start_y + @as(f64, v.y)) * y_scale;
+                if (ey < min_y) ey = min_y;
+                if (ey > max_y) ey = max_y;
+                try context.lineTo(ex, ey);
+                try context.stroke();
+            },
+            .vectors => |vs| {
+                context.resetPath();
+                var cur_x = start_x;
+                var cur_y = start_y;
+                var plot_x = origin_x + cur_x * x_scale;
+                var plot_y = origin_y - cur_y * y_scale;
+                if (plot_y < min_y) plot_y = min_y;
+                if (plot_y > max_y) plot_y = max_y;
+                try context.moveTo(plot_x, plot_y);
+                for (vs) |v| {
+                    cur_x += @as(f64, v.x);
+                    cur_y += @as(f64, v.y);
+                    plot_x = origin_x + cur_x * x_scale;
+                    plot_y = origin_y - cur_y * y_scale;
+                    if (plot_y < min_y) plot_y = min_y;
+                    if (plot_y > max_y) plot_y = max_y;
+                    try context.lineTo(plot_x, plot_y);
+                }
+                try context.stroke();
+            },
+            .point => |p| {
+                context.resetPath();
+                const px = origin_x + @as(f64, p.x) * x_scale;
+                var py = origin_y - @as(f64, p.y) * y_scale;
+                if (py < min_y) py = min_y;
+                if (py > max_y) py = max_y;
+                try context.moveTo(px, py);
+                try context.lineTo(px, py);
+                try context.stroke();
+            },
         }
     }
-    try context.stroke();
 }
 
 /// Draws polylines in coord mode, where ops are organized into steps of

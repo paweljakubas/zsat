@@ -158,6 +158,12 @@ pub fn determine_paneBoundsWithAnchors(rows: *const Inputs, anchor_points: anyty
                     curX = curX + v.x;
                     curY = curY + v.y;
                 },
+                .vectors => |vs| {
+                    for (vs) |v| {
+                        curX = curX + v.x;
+                        curY = curY + v.y;
+                    }
+                },
                 .point => |p| {
                     curX = p.x;
                     curY = p.y;

@@ -240,6 +240,7 @@ test "vectorsParser" {
 pub const InputElement = union(enum) {
     point: Point,
     vector: Vector,
+    vectors: []const Vector,
 };
 
 pub const InputElementRow = struct {
@@ -281,37 +282,51 @@ const inputElementRowParserRawPoint = mecha.combine(.{
     common.skipCloseBrace,
 }).asStr();
 
-const inputElementRowParserRaw = mecha.oneOf(.{
+const elementGroupParser = mecha.oneOf(.{
     inputElementRowParserRawVec,
     inputElementRowParserRawPoint,
 });
 
+const inputElementRowParserRaw = mecha.combine(.{
+    elementGroupParser,
+    mecha.combine(.{ common.skipComma, elementGroupParser }).many(.{ .collect = true }),
+});
+
 const inputElementRowParserRawP = @TypeOf(inputElementRowParserRaw);
-fn toInputElementRow(_: std.mem.Allocator, str: inputElementRowParserRawP.T) mecha.ConvertError!InputElementRow {
-    const s = str;
-    if (s[0] == '[') {
-        const result = try vectorsParser.parse(std.heap.page_allocator, s);
-        var elements = try std.heap.page_allocator.alloc(InputElement, result.value.ok.len);
-        for (result.value.ok, 0..) |v, i| {
-            elements[i] = InputElement{ .vector = v };
+fn toInputElementRow(arena: std.mem.Allocator, res: inputElementRowParserRawP.T) mecha.ConvertError!InputElementRow {
+    const firstGroup = res[0];
+    const moreGroups = res[1];
+
+    var elements = std.ArrayList(InputElement).empty;
+    errdefer elements.deinit(arena);
+
+    try processGroup(arena, &elements, firstGroup);
+    for (moreGroups) |pair| {
+        try processGroup(arena, &elements, pair);
+    }
+
+    return InputElementRow{ .row = try elements.toOwnedSlice(arena) };
+}
+
+fn processGroup(arena: std.mem.Allocator, elements: *std.ArrayList(InputElement), group: []const u8) !void {
+    if (group.len >= 2 and group[1] == '[') {
+        const result = try vectorsParser.parse(std.heap.page_allocator, group);
+        const vs = result.value.ok;
+        if (vs.len == 1) {
+            try elements.append(arena, InputElement{ .vector = vs[0] });
+        } else {
+            const copy = try arena.dupe(Vector, vs);
+            try elements.append(arena, InputElement{ .vectors = copy });
         }
-        return InputElementRow{ .row = elements };
-    } else {
-        const result = try pointsParser.parse(std.heap.page_allocator, s);
-        var elements = try std.heap.page_allocator.alloc(InputElement, result.value.ok.len);
-        for (result.value.ok, 0..) |p, i| {
-            elements[i] = InputElement{ .point = p };
+    } else if (group.len >= 2 and group[1] == '(') {
+        const result = try pointsParser.parse(std.heap.page_allocator, group);
+        for (result.value.ok) |p| {
+            try elements.append(arena, InputElement{ .point = p });
         }
-        return InputElementRow{ .row = elements };
     }
 }
 
 const inputElementRowParser = inputElementRowParserRaw.convert(toInputElementRow);
-
-const sameLineRow = mecha.combine(.{
-    common.skipComma,
-    inputElementRowParser,
-});
 
 const newlineWithRow = mecha.combine(.{
     newlineParser,
@@ -321,7 +336,6 @@ const newlineWithRow = mecha.combine(.{
 const inputsParserRaw = mecha.combine(.{
     common.skipWhitespace,
     inputElementRowParser,
-    sameLineRow.many(.{ .collect = true }),
     newlineWithRow.many(.{ .collect = true }),
     common.skipWhitespace,
 });
@@ -329,17 +343,13 @@ const inputsParserRaw = mecha.combine(.{
 const inputsParserRawP = @TypeOf(inputsParserRaw);
 fn toInputs(alloc: std.mem.Allocator, res: inputsParserRawP.T) mecha.ConvertError!Inputs {
     const firstRow = res[0];
-    const sameLineRows = res[1];
-    const moreRows = res[2];
+    const moreRows = res[1];
 
-    const totalRows = 1 + sameLineRows.len + moreRows.len;
+    const totalRows = 1 + moreRows.len;
     var rows = try alloc.alloc(InputElementRow, totalRows);
     rows[0] = firstRow;
-    for (sameLineRows, 0..) |row, i| {
-        rows[i + 1] = row;
-    }
     for (moreRows, 0..) |pair, i| {
-        rows[1 + sameLineRows.len + i] = pair[1];
+        rows[i + 1] = pair[1];
     }
     return Inputs{ .input = rows };
 }
@@ -358,25 +368,21 @@ test "inputsParser" {
     try testing.expectEqualDeep(in1, r1.value.ok);
 
     const r2 = try inputsParser.parse(a, "[[2,1.1], [-2, -1.1]]");
-    const p2a = InputElement{ .vector = Vector{ .x = 2.0, .y = 1.1 } };
-    const p2b = InputElement{ .vector = Vector{ .x = -2.0, .y = -1.1 } };
-    const row2 = InputElementRow{ .row = &[2]InputElement{ p2a, p2b } };
+    const vs2 = try a.dupe(Vector, &[2]Vector{ Vector{ .x = 2.0, .y = 1.1 }, Vector{ .x = -2.0, .y = -1.1 } });
+    const row2 = InputElementRow{ .row = &[1]InputElement{InputElement{ .vectors = vs2 }} };
     const in2 = Inputs{ .input = &[1]InputElementRow{row2} };
     try testing.expectEqualDeep(in2, r2.value.ok);
 
     const r3 = try inputsParser.parse(a, "[[0,1.0], [0,-1.0], [1.0, 0]]");
-    const p3a = InputElement{ .vector = Vector{ .x = 0.0, .y = 1.0 } };
-    const p3b = InputElement{ .vector = Vector{ .x = 0.0, .y = -1.0 } };
-    const p3c = InputElement{ .vector = Vector{ .x = 1.0, .y = 0.0 } };
-    const row3 = InputElementRow{ .row = &[3]InputElement{ p3a, p3b, p3c } };
+    const vs3 = try a.dupe(Vector, &[3]Vector{ Vector{ .x = 0.0, .y = 1.0 }, Vector{ .x = 0.0, .y = -1.0 }, Vector{ .x = 1.0, .y = 0.0 } });
+    const row3 = InputElementRow{ .row = &[1]InputElement{InputElement{ .vectors = vs3 }} };
     const in3 = Inputs{ .input = &[1]InputElementRow{row3} };
     try testing.expectEqualDeep(in3, r3.value.ok);
 
     const r4 = try inputsParser.parse(a, "[[0,1.0], [0,-1.0]] \n [[1.0, 0]]");
-    const p4a = InputElement{ .vector = Vector{ .x = 0.0, .y = 1.0 } };
-    const p4b = InputElement{ .vector = Vector{ .x = 0.0, .y = -1.0 } };
+    const vs4 = try a.dupe(Vector, &[2]Vector{ Vector{ .x = 0.0, .y = 1.0 }, Vector{ .x = 0.0, .y = -1.0 } });
     const p4c = InputElement{ .vector = Vector{ .x = 1.0, .y = 0.0 } };
-    const row4a = InputElementRow{ .row = &[2]InputElement{ p4a, p4b } };
+    const row4a = InputElementRow{ .row = &[1]InputElement{InputElement{ .vectors = vs4 }} };
     const row4b = InputElementRow{ .row = &[1]InputElement{p4c} };
     const in4 = Inputs{ .input = &[2]InputElementRow{ row4a, row4b } };
     try testing.expectEqualDeep(in4, r4.value.ok);
@@ -389,12 +395,11 @@ test "inputsParser" {
     try testing.expectEqualDeep(in5, r5.value.ok);
 
     const r6 = try inputsParser.parse(a, "[[0,1.0], [0,-1.0]] \n [[1.0, 0]]\n {(2,1.1), (-2, -1.1)}");
-    const p6a = InputElement{ .vector = Vector{ .x = 0.0, .y = 1.0 } };
-    const p6b = InputElement{ .vector = Vector{ .x = 0.0, .y = -1.0 } };
+    const vs6 = try a.dupe(Vector, &[2]Vector{ Vector{ .x = 0.0, .y = 1.0 }, Vector{ .x = 0.0, .y = -1.0 } });
     const p6c = InputElement{ .vector = Vector{ .x = 1.0, .y = 0.0 } };
     const p6d = InputElement{ .point = Point{ .x = 2.0, .y = 1.1 } };
     const p6e = InputElement{ .point = Point{ .x = -2.0, .y = -1.1 } };
-    const row6a = InputElementRow{ .row = &[2]InputElement{ p6a, p6b } };
+    const row6a = InputElementRow{ .row = &[1]InputElement{InputElement{ .vectors = vs6 }} };
     const row6b = InputElementRow{ .row = &[1]InputElement{p6c} };
     const row6c = InputElementRow{ .row = &[2]InputElement{ p6d, p6e } };
     const in6 = Inputs{ .input = &[3]InputElementRow{ row6a, row6b, row6c } };
@@ -403,9 +408,8 @@ test "inputsParser" {
     const r7 = try inputsParser.parse(a, "[[1,1]],[[-1,0]]");
     const p7a = InputElement{ .vector = Vector{ .x = 1.0, .y = 1.0 } };
     const p7b = InputElement{ .vector = Vector{ .x = -1.0, .y = 0.0 } };
-    const row7a = InputElementRow{ .row = &[1]InputElement{p7a} };
-    const row7b = InputElementRow{ .row = &[1]InputElement{p7b} };
-    const in7 = Inputs{ .input = &[2]InputElementRow{ row7a, row7b } };
+    const row7 = InputElementRow{ .row = &[2]InputElement{ p7a, p7b } };
+    const in7 = Inputs{ .input = &[1]InputElementRow{row7} };
     try testing.expectEqualDeep(in7, r7.value.ok);
 }
 
