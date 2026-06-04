@@ -7,6 +7,8 @@ We can do it immediately by pasting the following:
 λ echo '[[1,1]]' | zsat draw
 ```
 
+![](fig1.png)
+
 What you should see is a diagonal black line segment spanning whole figure having white-background.
 `zsat` interpreted the input as vector, anchored it at (0,0), chose the line color and how it fits the figure, ie. that it fills
 almost completely the available space.
@@ -24,6 +26,8 @@ stdin:
 --panes p0:{size: 600x600}
 --frames (out) -> out -> p0
 ```
+
+![](fig1.png)
 
 There are many dimensions to master the tool and it is good to cover each aspect one by one.
 
@@ -44,6 +48,8 @@ Let's see it:
 λ echo '[[1,1],[-1,0]]' | zsat draw
 ```
 
+![](fig2.png)
+
 (b) vectors that are gathered together 
 If we write on the other hand `[[1,1]], [[-1,0]]` we have two vectors starting from (0,0). The frst one ending at (1,1), the second at (-1,0).
 Gathering means all components will share the same style and, if processed, undergo the same transformation.
@@ -51,6 +57,8 @@ Gathering means all components will share the same style and, if processed, unde
 ```bash
 λ echo '[[1,1]],[[-1,0]]' | zsat draw
 ```
+
+![](fig3.png)
 
 (c) vectors are independent from each other
 

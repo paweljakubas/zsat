@@ -136,12 +136,12 @@ zig build test --summary all
 
 ## In-depth tutorial
 
-[Go here](../Tutorial.md)
+[Go here](./Tutorials/Tutorial.md)
 
 ## Zig packages (outside std) proudly used in the project:
 
-- [**zli**](https://github.com/xcaeser/zli) CLI development support
-- [**mecha**](https://github.com/Hejsil/mecha) Parser combinator library
-- [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app
-- [**zigimg**](https://github.com/zigimg/zigimg) Image processing for **kitty graphics protocol** support
-- [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend
+- [**zli**](https://github.com/xcaeser/zli) CLI development support (0.16.0 ready)
+- [**mecha**](https://github.com/Hejsil/mecha) Parser combinator library (NOT 0.16.0 ready)
+- [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app (NOT 0.16.0 ready)
+- [**zigimg**](https://github.com/zigimg/zigimg) Image processing for **kitty graphics protocol** support (0.16.0 ready)
+- [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend (0.16.0 ready)
