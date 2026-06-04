@@ -66,7 +66,11 @@ Each vector structure is interleaved by '\n' character which means each one cons
 
 ```bash
 λ echo '[[1,1]]\n[[-1,0]]' | zsat draw
+Error: failed to parse input data. Please check your input format.
 ```
 
+The error stems from the fact that we have two outputs, as each row constitute one output, and we have `--outputs (out) -> (anchor {(0,0)}) out` in the default setting.
+In order to handle that correctly we need to specify two outputs, for example, `--outputs (out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(1,1)}) out2)`.
+More on this later. Here, we are into understanding how input looks like, and what kind of shapes are supported. 
 
 

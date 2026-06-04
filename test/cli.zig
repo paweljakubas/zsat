@@ -39,7 +39,7 @@ test "zsat draw with invalid styles" {
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseStylesFailed"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse styles"));
 }
 
 test "zsat draw with invalid stdin" {
@@ -48,7 +48,7 @@ test "zsat draw with invalid stdin" {
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "invalid" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseInputsFailed"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse input data"));
 }
 
 test "zsat draw with invalid datum" {
@@ -57,7 +57,7 @@ test "zsat draw with invalid datum" {
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseDatumFailed"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse datum mapping"));
 }
 
 test "zsat draw with invalid styles and datum" {
@@ -66,7 +66,7 @@ test "zsat draw with invalid styles and datum" {
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseStylesFailed"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse styles"));
 }
 
 test "zsat draw with style missing vec2d" {
@@ -76,7 +76,7 @@ test "zsat draw with style missing vec2d" {
     defer result.deinit();
 
     try testing.expectEqual(std.process.Child.Term{ .Exited = 1 }, result.term);
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseStylesFailed"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse styles"));
 }
 
 test "zsat draw with two styles" {
@@ -95,7 +95,7 @@ test "zsat draw with wrong number of datum" {
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "WrongNumberOfDatum"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "number of datum mappings does not match"));
 }
 
 test "zsat draw with invalid element in mapping" {
@@ -104,7 +104,7 @@ test "zsat draw with invalid element in mapping" {
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ElementInMappingInvalid"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "invalid element was found"));
 }
 
 test "zsat draw with invalid data in mapping" {
@@ -113,7 +113,7 @@ test "zsat draw with invalid data in mapping" {
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "DataInMappingInvalid"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "invalid data type in the datum mapping"));
 }
 
 test "zsat draw with two panes" {
@@ -132,7 +132,7 @@ test "zsat draw with invalid panes" {
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParsePanesFailed"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse panes"));
 }
 
 test "zsat draw with styles, datum and panes" {
@@ -171,7 +171,7 @@ test "zsat draw with invalid frames" {
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "ParseFramesFailed"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse frames"));
 }
 
 test "zsat draw with invalid pane in frames" {
@@ -180,7 +180,7 @@ test "zsat draw with invalid pane in frames" {
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "PaneInMappingInvalid"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "invalid pane was referenced"));
 }
 
 test "zsat draw with styles, datum, panes and frames" {

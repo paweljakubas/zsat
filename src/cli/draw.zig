@@ -508,11 +508,39 @@ fn getNextOutputFilename(alloc: std.mem.Allocator) ![]u8 {
     }
 }
 
+fn friendlyErrorMessage(err: anyerror) []const u8 {
+    return switch (err) {
+        error.ParseInputsFailed => "Error: failed to parse input data. Please check your input format.",
+        error.ParseStylesFailed => "Error: failed to parse styles. Please check your --styles argument.",
+        error.ParseDatumFailed => "Error: failed to parse datum mapping. Please check your --datum argument.",
+        error.ParseOutputsFailed => "Error: failed to parse outputs. Please check your --outputs argument.",
+        error.ParsePanesFailed => "Error: failed to parse panes. Please check your --panes argument.",
+        error.ParseFramesFailed => "Error: failed to parse frames. Please check your --frames argument.",
+        error.WrongNumberOfDatum => "Error: the number of datum mappings does not match the number of inputs.",
+        error.ElementInMappingInvalid => "Error: an invalid element was found in the datum mapping.",
+        error.DataInMappingInvalid => "Error: invalid data type in the datum mapping.",
+        error.WrongNumberOfOutputs => "Error: the number of outputs does not match the expected count.",
+        error.ArgumentInPairInvalid => "Error: invalid argument in output transformation pair.",
+        error.PaneInMappingInvalid => "Error: an invalid pane was referenced in the frames mapping.",
+        else => "Error: an unexpected error occurred.",
+    };
+}
+
 fn run(ctx: zli.CommandContext) !void {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const alloc = arena.allocator();
 
+    const debug = ctx.flag("debug", bool);
+
+    runInternal(ctx, alloc) catch |err| {
+        if (debug) return err;
+        std.debug.print("{s}\n", .{friendlyErrorMessage(err)});
+        std.process.exit(1);
+    };
+}
+
+fn runInternal(ctx: zli.CommandContext, alloc: std.mem.Allocator) !void {
     const parsed_data = try parse(ctx, alloc);
 
     const out_filename = ctx.flag("out", []const u8);
