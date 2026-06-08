@@ -504,11 +504,23 @@ fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_i
             if (attrs.lineDashing) |ld| {
                 var dashes = try std.heap.page_allocator.alloc(f64, ld.onOff.len);
                 for (ld.onOff, 0..) |val, i| {
-                    dashes[i] = @floatFromInt(val);
+                    const v: f64 = @floatFromInt(val);
+                    dashes[i] = switch (ld.reference) {
+                        .normalized => v * @as(f64, @floatFromInt(height)) / 1000.0,
+                        .global => v / 10.0,
+                        .output => v,
+                        .local => v / 10.0,
+                    };
                 }
                 context.setDashes(dashes);
-                const offset_px: f64 = @floatFromInt(ld.offset);
-                context.setDashOffset(offset_px);
+                const offset_v: f64 = @floatFromInt(ld.offset);
+                const offset_px = switch (ld.reference) {
+                    .normalized => offset_v * @as(f64, @floatFromInt(height)) / 1000.0,
+                    .global => offset_v / 10.0,
+                    .output => offset_v,
+                    .local => offset_v / 10.0,
+                };
+                context.setDashOffset(-offset_px);
             } else {
                 context.setDashes(&.{});
                 context.setDashOffset(0);

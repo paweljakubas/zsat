@@ -143,7 +143,7 @@ pub const LineJoinType = struct {
 pub const LineDashingType = struct {
     reference: ReferenceFrame,
     onOff: []const u16, // dash segments: pixels for output, 0.1%/10 for local/global (10=1%), 0.1%/1000 for normalized (10=1%)
-    offset: u16, // dash offset from path origin: pixels for output, same units as onOff for others
+    offset: i16, // dash offset from path origin: pixels for output, same units as onOff for others
 
     pub fn defaultLineDashingType() LineDashingType {
         return LineDashingType{
@@ -666,7 +666,7 @@ test "LineJoinTypeParserTyped" {
 
 //LineDashing parser
 const lineDashingTypeParserRaw =
-    mecha.combine(.{ mecha.oneOf(.{ mecha.string("ldL"), mecha.string("ldG"), mecha.string("ldN"), mecha.string("ldO"), mecha.string("ld") }), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.string("[").discard(), common.skipWhitespace, mecha.int(u16, .{}).many(.{ .collect = true, .min = 2, .separator = mecha.combine(.{ common.skipWhitespace, mecha.string(","), common.skipWhitespace }).discard() }), common.skipWhitespace, mecha.string("]").discard(), common.skipWhitespace, mecha.opt(mecha.int(u16, .{})) });
+    mecha.combine(.{ mecha.oneOf(.{ mecha.string("ldL"), mecha.string("ldG"), mecha.string("ldN"), mecha.string("ldO"), mecha.string("ld") }), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.string("[").discard(), common.skipWhitespace, mecha.int(u16, .{}).many(.{ .collect = true, .min = 2, .separator = mecha.combine(.{ common.skipWhitespace, mecha.string(","), common.skipWhitespace }).discard() }), common.skipWhitespace, mecha.string("]").discard(), common.skipWhitespace, mecha.opt(mecha.int(i16, .{})) });
 const lineDashingTypeParserRawP = @TypeOf(lineDashingTypeParserRaw);
 const LineDashingT = enum {
     ld,
