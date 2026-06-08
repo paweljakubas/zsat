@@ -114,3 +114,15 @@ Another example below.
 λ echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, lo: 20]}'
 ```
 ![](fig5.png)
+
+Now, two examples for dashing to see how it is defined.
+
+```bash
+echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [10,10] 0]}'
+```
+![](fig6.png)
+
+```bash
+echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [40,10] 0]}'
+```
+![](fig7.png)
