@@ -160,7 +160,7 @@ const paneValueParser = mecha.oneOf(.{
 });
 
 const paneParser =
-    mecha.combine(.{ paneNumberParser, common.skipOpenBraceColon, paneValueParser, common.skipCloseBrace }).map(mecha.toStruct(Pane));
+    mecha.combine(.{ paneNumberParser, common.skipOpenBraceColonOrJustBrace, paneValueParser, common.skipCloseBrace }).map(mecha.toStruct(Pane));
 
 test "paneParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);

@@ -484,6 +484,10 @@ pub const skipCloseBrace =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('}').discard(), skipWhitespace });
 pub const skipOpenBraceColon =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char(':').discard(), skipWhitespace, mecha.ascii.char('{').discard() });
+pub const skipOpenBraceColonOrJustBrace = mecha.oneOf(.{
+    skipOpenBraceColon,
+    skipOpenBrace,
+});
 pub const skipOpenSquare =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('[').discard(), skipWhitespace });
 pub const skipCloseSquare =

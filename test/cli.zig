@@ -75,8 +75,7 @@ test "zsat draw with style missing vec2d" {
     var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
-    try testing.expectEqual(std.process.Child.Term{ .Exited = 1 }, result.term);
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse styles"));
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
 }
 
 test "zsat draw with two styles" {

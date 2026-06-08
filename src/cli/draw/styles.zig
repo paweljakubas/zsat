@@ -958,20 +958,13 @@ const styleValueUnionParser = mecha.oneOf(.{
 const many_styleValueUnionParser = mecha.many(styleValueUnionParser, .{ .separator = common.skipWhitespace });
 fn manyToStyleValue(arena: std.mem.Allocator, fields: []StyleValueUnion) mecha.ConvertError!StyleValue {
     var res = StyleValue{};
-    var hasStyleType = false;
     for (fields) |field| switch (field) {
-        .styleType => |f| {
-            res.styleType = f;
-            hasStyleType = true;
-        },
+        .styleType => |f| res.styleType = f,
         .coordinateSystem => |f| res.coordinateSystem = f,
         .coordinateOrientation => |f| res.coordinateOrientation = f,
         .plotSteps => |f| res.plotSteps = f,
         .attributes => |f| res.attributes = f,
     };
-    if (!hasStyleType) {
-        return error.ConversionFailed;
-    }
 
     arena.free(fields);
     return res;
@@ -1057,7 +1050,7 @@ test "styleValueParser" {
 }
 
 pub const styleParser =
-    mecha.combine(.{ styleNumberParserRaw, common.skipOpenBraceColon, styleValueParser, common.skipCloseBrace }).map(mecha.toStruct(Style));
+    mecha.combine(.{ styleNumberParserRaw, common.skipOpenBraceColonOrJustBrace, styleValueParser, common.skipCloseBrace }).map(mecha.toStruct(Style));
 
 test "styleParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
@@ -1195,6 +1188,37 @@ test "styleParser" {
         .styleValue = exp_value5,
     };
     try testing.expectEqual(exp_element5, r5.value.ok);
+
+    // Test partial style without vec2d (should use defaults)
+    const r6 = try styleParser.parse(a, "e0:{[lw:15, lc: red]}");
+    const styles6 = Vec2dAttributes{
+        .lineWidth = LineWidthType{ .reference = .normalized, .value = 15 },
+        .lineColor = LineColorType{ .value = .red },
+        .lineOpacity = .defaultLineOpacityType(),
+        .lineCap = .defaultLineCapType(),
+        .lineJoin = .defaultLineJoinType(),
+        .lineDashing = null,
+    };
+    const exp_value6 = StyleValue{
+        .styleType = .vec2d,
+        .coordinateSystem = .xy,
+        .coordinateOrientation = .fixed,
+        .plotSteps = .last,
+        .attributes = styles6,
+    };
+    const exp_element6 = Style{
+        .styleNumber = 0,
+        .styleValue = exp_value6,
+    };
+    try testing.expectEqual(exp_element6, r6.value.ok);
+
+    // Test partial style without colon
+    const r7 = try styleParser.parse(a, "e0{[lw:15, lc: red]}");
+    const exp_element7 = Style{
+        .styleNumber = 0,
+        .styleValue = exp_value6,
+    };
+    try testing.expectEqual(exp_element7, r7.value.ok);
 }
 
 const styleSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
