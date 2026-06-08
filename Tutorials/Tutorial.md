@@ -101,3 +101,16 @@ in which values are defined based on the previous segment, if present. More on t
 `ld` stands for `line dashing` that is switched off by default, meaning continuous line is to be used. In case one wants to use it several things needs to be explicitely provided: first when the first dash is to be started (by pixel number), succeded by providing pattern `[dash1, off1, dash2, off2,..]` which means the width of the first dash, `dash1`, then empty space, `off1`, and so on. Everything expressed in pixels. If the overall length of dashes and empty spaces between `[..]` is less than the vector to be covered, after covering the whole length of `[..]` the next dashing pattern is overlapped, and so on. We will see examples, soon.
 
 Let's start with vector styles and jump immediately to the example.
+
+```bash
+λ echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua]}'
+```
+![](fig4.png)
+
+We reused `e0` style definition from default and change line width to `15` and line color to `aqua`.
+Another example below.
+
+```bash
+λ echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, lo: 20]}'
+```
+![](fig5.png)

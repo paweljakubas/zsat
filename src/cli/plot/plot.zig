@@ -466,36 +466,40 @@ fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_i
     if (style_idx < styles.len) {
         const style = styles[style_idx];
         if (style.styleValue.attributes) |attrs| {
-            const lw = attrs.lineWidth;
-            switch (lw.reference) {
-                .normalized => {
-                    const h2: f64 = @floatFromInt(height);
-                    const v: f64 = @floatFromInt(lw.value);
-                    ls.width = v * h2 / 1000.0;
-                },
-                .global => {
-                    const v: f64 = @floatFromInt(lw.value);
-                    ls.width = v / 10.0;
-                },
-                .output => {
-                    const v: f64 = @floatFromInt(lw.value);
-                    ls.width = v;
-                },
-                .local => {
-                    const v: f64 = @floatFromInt(lw.value);
-                    ls.width = v / 10.0;
-                },
+            if (attrs.lineWidth) |lw| {
+                switch (lw.reference) {
+                    .normalized => {
+                        const h2: f64 = @floatFromInt(height);
+                        const v: f64 = @floatFromInt(lw.value);
+                        ls.width = v * h2 / 1000.0;
+                    },
+                    .global => {
+                        const v: f64 = @floatFromInt(lw.value);
+                        ls.width = v / 10.0;
+                    },
+                    .output => {
+                        const v: f64 = @floatFromInt(lw.value);
+                        ls.width = v;
+                    },
+                    .local => {
+                        const v: f64 = @floatFromInt(lw.value);
+                        ls.width = v / 10.0;
+                    },
+                }
             }
-            const lc = attrs.lineColor;
-            const rgb = colorNameToRGB(lc.value);
-            ls.r = rgb.r;
-            ls.g = rgb.g;
-            ls.b = rgb.b;
-            const alpha: u16 = @intCast(@as(u16, attrs.lineOpacity.value) * 255 / 100);
-            ls.r = @intCast(@as(u16, ls.r) * alpha / 255);
-            ls.g = @intCast(@as(u16, ls.g) * alpha / 255);
-            ls.b = @intCast(@as(u16, ls.b) * alpha / 255);
-            ls.a = @intCast(alpha);
+            if (attrs.lineColor) |lc| {
+                const rgb = colorNameToRGB(lc.value);
+                ls.r = rgb.r;
+                ls.g = rgb.g;
+                ls.b = rgb.b;
+            }
+            if (attrs.lineOpacity) |lo| {
+                const alpha: u16 = @intCast(@as(u16, lo.value) * 255 / 100);
+                ls.r = @intCast(@as(u16, ls.r) * alpha / 255);
+                ls.g = @intCast(@as(u16, ls.g) * alpha / 255);
+                ls.b = @intCast(@as(u16, ls.b) * alpha / 255);
+                ls.a = @intCast(alpha);
+            }
 
             if (attrs.lineDashing) |ld| {
                 var dashes = try std.heap.page_allocator.alloc(f64, ld.onOff.len);
@@ -510,21 +514,23 @@ fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_i
                 context.setDashOffset(0);
             }
 
-            const cap = attrs.lineCap.value;
-            ls.cap_mode = switch (cap) {
-                .none => .butt,
-                .butt => .butt,
-                .round => .round,
-                .square => .square,
-            };
+            if (attrs.lineCap) |cap| {
+                ls.cap_mode = switch (cap.value) {
+                    .none => .butt,
+                    .butt => .butt,
+                    .round => .round,
+                    .square => .square,
+                };
+            }
 
-            const join = attrs.lineJoin.value;
-            ls.join_mode = switch (join) {
-                .none => .miter,
-                .mitter => .miter,
-                .round => .round,
-                .bevel => .bevel,
-            };
+            if (attrs.lineJoin) |join| {
+                ls.join_mode = switch (join.value) {
+                    .none => .miter,
+                    .mitter => .miter,
+                    .round => .round,
+                    .bevel => .bevel,
+                };
+            }
         }
     }
 

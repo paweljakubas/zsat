@@ -51,11 +51,12 @@ pub const Style = struct {
 };
 
 pub const StyleValue = struct {
-    styleType: StyleType = .defaultStyleType(),
-    coordinateSystem: ?CoordinateType = .defaultCoordinateType(),
-    coordinateOrientation: ?CoordinateOrientation = .defaultCoordinateOrientation(),
-    plotSteps: ?PlotSteps = .defaultPlotSteps(),
-    attributes: ?Vec2dAttributes = Vec2dAttributes{},
+    styleType: ?StyleType = null,
+    coordinateSystem: ?CoordinateType = null,
+    coordinateOrientation: ?CoordinateOrientation = null,
+    plotSteps: ?PlotSteps = null,
+    attributes: ?Vec2dAttributes = null,
+    baseStyle: ?u8 = null,
 };
 
 const StyleValueUnion = union(enum) {
@@ -154,11 +155,11 @@ pub const LineDashingType = struct {
 };
 
 pub const Vec2dAttributes = struct {
-    lineWidth: LineWidthType = .defaultLineWidthType(),
-    lineColor: LineColorType = .defaultLineColorType(),
-    lineOpacity: LineOpacityType = .defaultLineOpacityType(),
-    lineCap: LineCapType = .defaultLineCapType(),
-    lineJoin: LineJoinType = .defaultLineJoinType(),
+    lineWidth: ?LineWidthType = null,
+    lineColor: ?LineColorType = null,
+    lineOpacity: ?LineOpacityType = null,
+    lineCap: ?LineCapType = null,
+    lineJoin: ?LineJoinType = null,
     lineDashing: ?LineDashingType = null,
 };
 
@@ -179,6 +180,7 @@ const skipCloseRecBracket =
 
 const styleNumberParserRaw =
     mecha.combine(.{ common.skipWhitespace, mecha.ascii.char('e').discard(), mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 2 }).asStr().convert(mecha.toInt(u8, 10)) });
+const styleNumberParserRawP = @TypeOf(styleNumberParserRaw);
 
 test "styleNumber" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
@@ -874,10 +876,10 @@ test "vec2dAttributesParser" {
     const r1 = try vec2dAttributesParser.parse(a, "lw:10");
     const styles1 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
-        .lineOpacity = .defaultLineOpacityType(),
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineColor = null,
+        .lineOpacity = null,
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = null,
     };
     try testing.expectEqual(styles1, r1.value.ok);
@@ -885,10 +887,10 @@ test "vec2dAttributesParser" {
     const r2 = try vec2dAttributesParser.parse(a, "lw:10, lo  :  6");
     const styles2 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
+        .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = null,
     };
     try testing.expectEqual(styles2, r2.value.ok);
@@ -896,10 +898,10 @@ test "vec2dAttributesParser" {
     const r3 = try vec2dAttributesParser.parse(a, "ldG  :  [ 2,3,10] 0,lw:10, lo  :  6");
     const styles3 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
+        .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
     };
     try testing.expectEqualDeep(styles3, r3.value.ok);
@@ -913,10 +915,10 @@ test "vec2dAttributesParserUnion" {
     const r1 = try vec2dAttributesParserBracketedUnion.parse(a, "[lw:10]");
     const styles1 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
-        .lineOpacity = .defaultLineOpacityType(),
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineColor = null,
+        .lineOpacity = null,
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = null,
     };
     const exp_value1 = StyleValueUnion{ .attributes = styles1 };
@@ -925,10 +927,10 @@ test "vec2dAttributesParserUnion" {
     const r2 = try vec2dAttributesParserBracketedUnion.parse(a, "[lw:10, lo  :  6]");
     const styles2 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
+        .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = null,
     };
     const exp_value2 = StyleValueUnion{ .attributes = styles2 };
@@ -937,10 +939,10 @@ test "vec2dAttributesParserUnion" {
     const r3 = try vec2dAttributesParserBracketedUnion.parse(a, "[ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]");
     const styles3 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
+        .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
     };
     const exp_value3 = StyleValueUnion{ .attributes = styles3 };
@@ -977,37 +979,23 @@ test "styleValueParser" {
     const a = arena.allocator();
 
     const r0 = try styleValueParser.parse(a, "vec2d polar");
-    const styles0 = Vec2dAttributes{
-        .lineWidth = .defaultLineWidthType(),
-        .lineColor = .defaultLineColorType(),
-        .lineOpacity = .defaultLineOpacityType(),
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
-        .lineDashing = null,
-    };
     const exp_value0 = StyleValue{
         .styleType = .vec2d,
         .coordinateSystem = .polar,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
-        .attributes = styles0,
     };
     try testing.expectEqual(exp_value0, r0.value.ok);
 
     const r1 = try styleValueParser.parse(a, "vec2d [lw:10, lo  :  6]");
     const styles1 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
+        .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = null,
     };
     const exp_value1 = StyleValue{
         .styleType = .vec2d,
-        .coordinateSystem = .xy,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
         .attributes = styles1,
     };
     try testing.expectEqual(exp_value1, r1.value.ok);
@@ -1015,17 +1003,14 @@ test "styleValueParser" {
     const r2 = try styleValueParser.parse(a, "vec2d  [lw:10, lo  :  6]");
     const styles2 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
+        .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = null,
     };
     const exp_value2 = StyleValue{
         .styleType = .vec2d,
-        .coordinateSystem = .xy,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
         .attributes = styles2,
     };
     try testing.expectEqual(exp_value2, r2.value.ok);
@@ -1033,24 +1018,51 @@ test "styleValueParser" {
     const r3 = try styleValueParser.parse(a, "vec2d polar [ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]");
     const styles3 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
+        .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
     };
     const exp_value3 = StyleValue{
         .styleType = .vec2d,
         .coordinateSystem = .polar,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
         .attributes = styles3,
     };
     try testing.expectEqualDeep(exp_value3, r3.value.ok);
 }
 
-pub const styleParser =
-    mecha.combine(.{ styleNumberParserRaw, common.skipOpenBraceColonOrJustBrace, styleValueParser, common.skipCloseBrace }).map(mecha.toStruct(Style));
+const bodyParser = mecha.combine(.{ common.skipOpenBrace, many_styleValueUnionParser, common.skipCloseBrace });
+const styleParserRaw = mecha.combine(.{
+    styleNumberParserRaw,
+    mecha.opt(mecha.ascii.char(':').discard()),
+    common.skipWhitespace,
+    mecha.opt(styleNumberParserRaw),
+    common.skipWhitespace,
+    mecha.opt(bodyParser),
+});
+const styleParserRawP = @TypeOf(styleParserRaw);
+fn toStyle(_: std.mem.Allocator, res: styleParserRawP.T) mecha.ConvertError!Style {
+    const styleNumber = res[0];
+    const baseStyle = res[2];
+    const body = res[3];
+
+    var styleValue = StyleValue{};
+    if (baseStyle) |bs| {
+        styleValue.baseStyle = bs;
+    }
+    if (body) |b| {
+        for (b) |field| switch (field) {
+            .styleType => |f| styleValue.styleType = f,
+            .coordinateSystem => |f| styleValue.coordinateSystem = f,
+            .coordinateOrientation => |f| styleValue.coordinateOrientation = f,
+            .plotSteps => |f| styleValue.plotSteps = f,
+            .attributes => |f| styleValue.attributes = f,
+        };
+    }
+    return Style{ .styleNumber = styleNumber, .styleValue = styleValue };
+}
+pub const styleParser = styleParserRaw.convert(toStyle);
 
 test "styleParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
@@ -1058,20 +1070,9 @@ test "styleParser" {
     const a = arena.allocator();
 
     const r0 = try styleParser.parse(a, "e0:{vec2d polar}");
-    const styles0 = Vec2dAttributes{
-        .lineWidth = .defaultLineWidthType(),
-        .lineColor = .defaultLineColorType(),
-        .lineOpacity = .defaultLineOpacityType(),
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
-        .lineDashing = null,
-    };
     const exp_value0 = StyleValue{
         .styleType = .vec2d,
         .coordinateSystem = .polar,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
-        .attributes = styles0,
     };
     const exp_element0 = Style{
         .styleNumber = 0,
@@ -1082,17 +1083,14 @@ test "styleParser" {
     const r1 = try styleParser.parse(a, "e8: {vec2d [lw:10]}");
     const styles1 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
-        .lineOpacity = .defaultLineOpacityType(),
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineColor = null,
+        .lineOpacity = null,
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = null,
     };
     const exp_value1 = StyleValue{
         .styleType = .vec2d,
-        .coordinateSystem = .xy,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
         .attributes = styles1,
     };
     const exp_element1 = Style{
@@ -1104,17 +1102,14 @@ test "styleParser" {
     const r2 = try styleParser.parse(a, " e8: {  vec2d  [lw:10, lo  :  6]}");
     const styles2 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
+        .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = null,
     };
     const exp_value2 = StyleValue{
         .styleType = .vec2d,
-        .coordinateSystem = .xy,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
         .attributes = styles2,
     };
     const exp_element2 = Style{
@@ -1126,17 +1121,15 @@ test "styleParser" {
     const r3 = try styleParser.parse(a, "e11: { vec2d polar [ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]}");
     const styles3 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
+        .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
     };
     const exp_value3 = StyleValue{
         .styleType = .vec2d,
         .coordinateSystem = .polar,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
         .attributes = styles3,
     };
     const exp_element3 = Style{
@@ -1146,20 +1139,8 @@ test "styleParser" {
     try testing.expectEqualDeep(exp_element3, r3.value.ok);
 
     const r4 = try styleParser.parse(a, "e1: {vec2d }");
-    const styles4 = Vec2dAttributes{
-        .lineWidth = .defaultLineWidthType(),
-        .lineColor = .defaultLineColorType(),
-        .lineOpacity = .defaultLineOpacityType(),
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
-        .lineDashing = null,
-    };
     const exp_value4 = StyleValue{
         .styleType = .vec2d,
-        .coordinateSystem = .xy,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
-        .attributes = styles4,
     };
     const exp_element4 = Style{
         .styleNumber = 1,
@@ -1168,20 +1149,10 @@ test "styleParser" {
     try testing.expectEqualDeep(exp_element4, r4.value.ok);
 
     const r5 = try styleParser.parse(a, "e0:{vec2d polar all}");
-    const styles5 = Vec2dAttributes{
-        .lineWidth = .defaultLineWidthType(),
-        .lineColor = .defaultLineColorType(),
-        .lineOpacity = .defaultLineOpacityType(),
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
-        .lineDashing = null,
-    };
     const exp_value5 = StyleValue{
         .styleType = .vec2d,
         .coordinateSystem = .polar,
-        .coordinateOrientation = .fixed,
         .plotSteps = .all,
-        .attributes = styles5,
     };
     const exp_element5 = Style{
         .styleNumber = 0,
@@ -1194,16 +1165,12 @@ test "styleParser" {
     const styles6 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 15 },
         .lineColor = LineColorType{ .value = .red },
-        .lineOpacity = .defaultLineOpacityType(),
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineOpacity = null,
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = null,
     };
     const exp_value6 = StyleValue{
-        .styleType = .vec2d,
-        .coordinateSystem = .xy,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
         .attributes = styles6,
     };
     const exp_element6 = Style{
@@ -1219,11 +1186,89 @@ test "styleParser" {
         .styleValue = exp_value6,
     };
     try testing.expectEqual(exp_element7, r7.value.ok);
+
+    // Test reference style with base
+    const r8 = try styleParser.parse(a, "e0: e0{[lw:15, lc: red]}");
+    const exp_value8 = StyleValue{
+        .baseStyle = 0,
+        .attributes = styles6,
+    };
+    const exp_element8 = Style{
+        .styleNumber = 0,
+        .styleValue = exp_value8,
+    };
+    try testing.expectEqual(exp_element8, r8.value.ok);
+
+    // Test copy style
+    const r9 = try styleParser.parse(a, "e1: e0");
+    const exp_value9 = StyleValue{
+        .baseStyle = 0,
+    };
+    const exp_element9 = Style{
+        .styleNumber = 1,
+        .styleValue = exp_value9,
+    };
+    try testing.expectEqual(exp_element9, r9.value.ok);
 }
 
 const styleSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
 const stylesParserRaw = mecha.many(styleParser, .{ .collect = true, .separator = styleSeparatorParser });
 const stylesParserRawP = @TypeOf(stylesParserRaw);
+
+pub const defaultStyleValue = StyleValue{
+    .styleType = .vec2d,
+    .coordinateSystem = .xy,
+    .coordinateOrientation = .fixed,
+    .plotSteps = .last,
+    .attributes = Vec2dAttributes{
+        .lineWidth = null,
+        .lineColor = null,
+        .lineOpacity = null,
+        .lineCap = null,
+        .lineJoin = null,
+        .lineDashing = null,
+    },
+};
+
+pub fn resolveStyles(arena: std.mem.Allocator, styles: []const Style) ![]Style {
+    var map = std.AutoHashMap(u8, StyleValue).init(arena);
+    defer map.deinit();
+
+    try map.put(0, defaultStyleValue);
+
+    var result = try arena.alloc(Style, styles.len);
+    for (styles, 0..) |style, i| {
+        result[i] = style;
+        if (style.styleValue.baseStyle) |base| {
+            const base_value = map.get(base) orelse defaultStyleValue;
+            var resolved = base_value;
+            resolved.baseStyle = null;
+
+            if (style.styleValue.attributes) |override_attrs| {
+                var resolved_attrs = resolved.attributes orelse Vec2dAttributes{};
+                if (override_attrs.lineWidth) |lw| resolved_attrs.lineWidth = lw;
+                if (override_attrs.lineColor) |lc| resolved_attrs.lineColor = lc;
+                if (override_attrs.lineOpacity) |lo| resolved_attrs.lineOpacity = lo;
+                if (override_attrs.lineCap) |le| resolved_attrs.lineCap = le;
+                if (override_attrs.lineJoin) |lj| resolved_attrs.lineJoin = lj;
+                if (override_attrs.lineDashing) |ld| resolved_attrs.lineDashing = ld;
+                resolved.attributes = resolved_attrs;
+            }
+
+            if (style.styleValue.styleType) |st| resolved.styleType = st;
+            if (style.styleValue.coordinateSystem) |cs| resolved.coordinateSystem = cs;
+            if (style.styleValue.coordinateOrientation) |co| resolved.coordinateOrientation = co;
+            if (style.styleValue.plotSteps) |ps| resolved.plotSteps = ps;
+
+            result[i].styleValue = resolved;
+        }
+
+        try map.put(result[i].styleNumber, result[i].styleValue);
+    }
+
+    return result;
+}
+
 fn toStylesSlice(arena: std.mem.Allocator, raw: stylesParserRawP.T) mecha.ConvertError![]Style {
     const result = try arena.alloc(Style, raw.len);
     @memcpy(result, raw);
@@ -1238,20 +1283,9 @@ test "stylesParser" {
     const a = arena.allocator();
 
     const r0 = try stylesParser.parse(a, "e0:{vec2d polar}, e8:{vec2d [lw:10]}");
-    const styles0 = Vec2dAttributes{
-        .lineWidth = .defaultLineWidthType(),
-        .lineColor = .defaultLineColorType(),
-        .lineOpacity = .defaultLineOpacityType(),
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
-        .lineDashing = null,
-    };
     const exp_value0 = StyleValue{
         .styleType = .vec2d,
         .coordinateSystem = .polar,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
-        .attributes = styles0,
     };
     const exp_element0 = Style{
         .styleNumber = 0,
@@ -1260,17 +1294,14 @@ test "stylesParser" {
 
     const styles1 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
-        .lineOpacity = .defaultLineOpacityType(),
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineColor = null,
+        .lineOpacity = null,
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = null,
     };
     const exp_value1 = StyleValue{
         .styleType = .vec2d,
-        .coordinateSystem = .xy,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
         .attributes = styles1,
     };
     const exp_element1 = Style{
@@ -1283,17 +1314,14 @@ test "stylesParser" {
     const r1 = try stylesParser.parse(a, " e8: {  vec2d  [lw:10, lo  :  6]}, e11: { vec2d polar [ldG  :  [ 2,3,10] 0,lw:10, lo  :  6]}");
     const styles2 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
+        .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = null,
     };
     const exp_value2 = StyleValue{
         .styleType = .vec2d,
-        .coordinateSystem = .xy,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
         .attributes = styles2,
     };
     const exp_element2 = Style{
@@ -1303,17 +1331,15 @@ test "stylesParser" {
 
     const styles3 = Vec2dAttributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
-        .lineColor = .defaultLineColorType(),
+        .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
-        .lineCap = .defaultLineCapType(),
-        .lineJoin = .defaultLineJoinType(),
+        .lineCap = null,
+        .lineJoin = null,
         .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
     };
     const exp_value3 = StyleValue{
         .styleType = .vec2d,
         .coordinateSystem = .polar,
-        .coordinateOrientation = .fixed,
-        .plotSteps = .last,
         .attributes = styles3,
     };
     const exp_element3 = Style{

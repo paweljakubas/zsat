@@ -123,15 +123,16 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     }
 
     const styles_parse_result = try Styles.stylesParser.parse(alloc, styles_str);
-    const styles = switch (styles_parse_result.value) {
+    const raw_styles = switch (styles_parse_result.value) {
         .ok => |s| s,
         .err => {
             return error.ParseStylesFailed;
         },
     };
-    if (styles.len == 0) {
+    if (raw_styles.len == 0) {
         return error.ParseStylesFailed;
     }
+    const styles = try Styles.resolveStyles(alloc, raw_styles);
 
     var effective_datum_str = datum_str;
     if (std.mem.eql(u8, datum_str, "(vec) -> (vec -> e0)") and inputs.input.len > 1) {

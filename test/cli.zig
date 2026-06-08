@@ -78,6 +78,24 @@ test "zsat draw with style missing vec2d" {
     try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
 }
 
+test "zsat draw with style reference" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0: e0{[lw:15, lc: red]}", "--datum", "(vec) -> (vec -> e0)" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
+}
+
+test "zsat draw with style copy" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e1: e0", "--datum", "(vec) -> (vec -> e1)" };
+    var result = try cmdtest.run(.{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .Exited = 0 }, result.term);
+}
+
 test "zsat draw with two styles" {
     defer cleanupOutputFiles();
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{vec2d}, e8:{vec2d polar}", "--datum", "(vec) -> (vec -> e0)" };
