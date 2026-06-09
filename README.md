@@ -94,38 +94,11 @@ With custom size:
 echo '[[1,1], [2,2]]' | zsat draw -p 'p0:{size: 1200x800}'
 ```
 
-Multiple input streams - each line is a separate series starting from origin:
-```bash
-printf '[[1,0]]\n[[0,1]]' | zsat draw -d "(vec, vec) -> (vec -> e0)" -f "(out, out) -> out -> p0" -p 'p0:{size: 100x100}'
-```
-
-Multiple styles with different colors, line widths, and opacities:
-```bash
-echo -e '[[0,1]]\n[[1,1], [2,2]]\n[[-1,0], [-2,0]]' | zsat draw \
-  -s 'e0:{vec2d xy fixed [lw:5, lc: red, lo: 100]}, e1:{vec2d xy fixed [lw:20, lc: green, lo: 50]}, e2:{vec2d xy fixed [lw:30, lc: blue, lo: 75]}' \
-  -d '(vec1, vec2, vec3) -> (vec1 -> e0, vec2 -> e1, vec3 -> e2)' \
-  -f '(out1, out2, out3) -> (out1 -> p0, out2 -> p0, out3 -> p0)'
-```
-
-Display in terminal (requires kitty graphics protocol support - Kitty, WezTerm, Ghostty):
-```bash
-printf '[[3,1], [-3,1]]\n[[2,-1]]' | zsat draw --datum "(vec, vec) -> (vec -> e0)" --frames "(out, out) -> out -> p0"
-```
-
-Note: When using multiple input streams, you must update `--datum` to match the number of inputs:
-- `--datum "(vec, vec) -> (vec -> e0)"` for 2 inputs using the same style
-- `--datum "(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)"` for 2 inputs using different styles
-
-Using anchor points to set explicit start positions for vector segments:
-```bash
-# out1 starts at (1,2), out2 starts at (0,0) - both must have explicit transformation
-echo -e '[[0,1]]\n[[1,1], [2,2]]' | zsat draw \
-  -s 'e0:{vec2d xy fixed [lw:5, lc: red, lo: 100]}, e1:{vec2d xy fixed [lw:20, lc: green, lo: 50]}' \
-  -d '(vec1, vec2) -> (vec1 -> e0, vec2 -> e1)' \
-  -o '(out1, out2) -> ((a {(1,2)}) out1, (a {(0,0)}) out2)'
-```
-
 Tip: Use `echo -e` instead of `echo` to ensure newlines are properly interpreted in the input data.
+
+## In-depth tutorial
+
+[New to zsat -> go here](./Tutorials/FirstTutorial.md)
 
 ## Development
 
@@ -134,14 +107,10 @@ zig build
 zig build test --summary all
 ```
 
-## In-depth tutorial
-
-[Go here](./Tutorials/Tutorial.md)
-
 ## Zig packages (outside std) proudly used in the project:
 
 - [**zli**](https://github.com/xcaeser/zli) CLI development support (0.16.0 ready)
-- [**mecha**](https://github.com/Hejsil/mecha) Parser combinator library (NOT 0.16.0 ready)
+- [**mecha**](https://github.com/Hejsil/mecha) Parser combinator library (0.16.0 ready)
 - [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app (NOT 0.16.0 ready)
 - [**zigimg**](https://github.com/zigimg/zigimg) Image processing for **kitty graphics protocol** support (0.16.0 ready)
 - [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend (0.16.0 ready)

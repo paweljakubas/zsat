@@ -2779,15 +2779,15 @@ test "getExplicitPoint" {
     try testing.expectEqual(@as(f32, 1.0), r3.x);
     try testing.expectEqual(@as(f32, 1.5), r3.y);
 
-    // Fraction 50% of out2: factor = 1 + 50/100 = 1.5, (2,3)*1.5 = (3, 4.5)
+    // Fraction 50% of out2: factor = 50/100 = 0.5, (2,3)*0.5 = (1, 1.5)
     const r4 = try getExplicitPoint(inp, validated, .{ .other = "out2" }, 0, .{ .fraction = .{ .fromStart = 50, .element = .self } }, .fixed);
-    try testing.expectEqual(@as(f32, 3.0), r4.x);
-    try testing.expectEqual(@as(f32, 4.5), r4.y);
+    try testing.expectEqual(@as(f32, 1.0), r4.x);
+    try testing.expectEqual(@as(f32, 1.5), r4.y);
 
-    // Fraction -50% of out2: factor = 1 - 50/100 = 0.5, (2,3)*0.5 = (1, 1.5)
+    // Fraction -50% of out2: factor = -50/100 = -0.5, (2,3)*-0.5 = (-1, -1.5)
     const r5 = try getExplicitPoint(inp, validated, .{ .other = "out2" }, 0, .{ .fraction = .{ .fromStart = -50, .element = .self } }, .fixed);
-    try testing.expectEqual(@as(f32, 1.0), r5.x);
-    try testing.expectEqual(@as(f32, 1.5), r5.y);
+    try testing.expectEqual(@as(f32, -1.0), r5.x);
+    try testing.expectEqual(@as(f32, -1.5), r5.y);
 
     // Self reference -> error (can't resolve self here, only .other)
     try testing.expectError(ToExplicitPointError.CannotDetermineExplicitPoint, getExplicitPoint(inp, validated, .self, 0, .{ .end = .self }, .fixed));
@@ -2811,7 +2811,7 @@ test "getExplicitPoint" {
 ///   - .beginning → (0, 0)
 ///   - .end → (sum_x, sum_y)
 ///   - .middle → (sum_x/2, sum_y/2)
-///   - .fraction → (sum_x * (1 + fromStart/100), sum_y * (1 + fromStart/100))
+///   - .fraction → (sum_x * (fromStart/100), sum_y * (fromStart/100))
 ///
 /// Example:
 /// ```
@@ -2883,8 +2883,8 @@ fn getExplicitPoint(inp: inputs.Inputs, outputs: OutputsValidated, ref: ElementR
             if (end_x == 0.0 and end_y == 0.0) {
                 return ToExplicitPointError.CannotDetermineExplicitPoint;
             }
-            // fraction: point beyond the reference point by percentage
-            const factor = 1.0 + @as(f32, @floatFromInt(frac.fromStart)) / 100.0;
+            // fraction: point at given percentage from the beginning (0%) to the end (100%)
+            const factor = @as(f32, @floatFromInt(frac.fromStart)) / 100.0;
             const x = end_x * factor;
             const y = end_y * factor;
             return .{ .x = x, .y = y };
@@ -2965,7 +2965,7 @@ test "toExplicitPoint" {
     const row3b = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v3b} };
     const input3 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row3a, row3b } };
 
-    const pt3c = inputs.Point{ .x = 1.5, .y = 1.5 };
+    const pt3c = inputs.Point{ .x = 0.5, .y = 0.5 };
     const gpa3c = GeneralPoint{ .point = pt3c };
     const ap3c = AnchorPartial{ .point = gpa3c };
     const of3c = OneArgFunctionPartial{ .anchor = ap3c };
@@ -3040,7 +3040,7 @@ test "toExplicitPoint" {
     const row5b = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v5b} };
     const input5 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row5a, row5b } };
 
-    const pt5c = inputs.Point{ .x = 0.5, .y = 0.5 };
+    const pt5c = inputs.Point{ .x = -0.5, .y = -0.5 };
     const gpa5c = GeneralPoint{ .point = pt5c };
     const ap5c = AnchorPartial{ .point = gpa5c };
     const of5c = OneArgFunctionPartial{ .anchor = ap5c };
@@ -3086,7 +3086,7 @@ test "toExplicitPoint" {
     const row6b = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v6c} };
     const input6 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row6a, row6b } };
 
-    const pt6c = inputs.Point{ .x = 1.3, .y = 1.3 };
+    const pt6c = inputs.Point{ .x = 0.3, .y = 0.3 };
     const gpa6c = GeneralPoint{ .point = pt6c };
     const ap6c = AnchorPartial{ .point = gpa6c };
     const of6c = OneArgFunctionPartial{ .anchor = ap6c };

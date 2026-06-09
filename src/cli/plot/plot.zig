@@ -775,7 +775,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
         const y_scale = rY;
 
         const origin_x = margin - @as(f64, bounds.x[0]) * x_scale;
-        const origin_y = @as(f64, @floatFromInt(height)) - margin;
+        const origin_y = @as(f64, @floatFromInt(height)) - margin + @as(f64, bounds.y[0]) * y_scale;
         const min_y = margin;
         const max_y = @as(f64, @floatFromInt(height)) - margin;
 
