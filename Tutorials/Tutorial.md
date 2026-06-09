@@ -98,7 +98,7 @@ in which values are defined based on the previous segment, if present. More on t
 
 `[..]` is vector styling setting, `lw` meaning `line width` expressed in pixels, `lc` meaning `line color`, `lo` meaning `line opacity` where 0 is totally transparent, 100 is totally opaque,
 `le` meaning `line ending` where besides default 'none' we can choose: `butt`, `round` or `square`. `lj` stands for `line join` and is relevant for n-segment vectors and describes how two segments are attached to each other. With default `none` user has also choices: `mitter`, `round` and `bevel`.
-`ld` stands for `line dashing` that is switched off by default, meaning continuous line is to be used. In case one wants to use it, the pattern is specified as `[dash1, off1, dash2, off2,..]` which means the width of the first dash, `dash1`, then empty space, `off1`, and so on. After the pattern, the offset (in pixels) is provided: it tells how many pixels of empty space should appear before the first dash starts. Everything expressed in pixels. If the overall length of dashes and empty spaces between `[..]` is less than the vector to be covered, after covering the whole length of `[..]` the next dashing pattern is overlapped, and so on. We will see examples, soon.
+`ld` stands for `line dashing` that is switched off by default, meaning continuous line is to be used. In case one wants to use it, the pattern is specified as `[dash1, off1, dash2, off2,..]` which means the width of the first dash, `dash1`, then empty space, `off1`, and so on. After the pattern, the offset (in pixels) is provided: it tells how far from the start of the dashing pattern we should begin to plot. Everything expressed in pixels. If the overall length of dashes and empty spaces between `[..]` is less than the vector to be covered, after covering the whole length of `[..]` the dashing pattern is continued until the whole length of vector is covered. We will see examples, soon.
 
 Let's start with vector styles and jump immediately to the example.
 
@@ -127,14 +127,23 @@ echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [40,10] 0]}'
 ```
 ![](fig7.png)
 
-The last value in the dashing definition is the `offset` (or `start_off`). It controls how many pixels of empty space should appear before the first dash begins. The offset is applied before the pattern starts, so a value of `10` means the first dash starts 10 pixels after the beginning of the vector.
+The last value in the dashing definition is the `offset`. It controls from which point of the dashing pattern we want to begin. 
 
 ```bash
-echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [10,10] 10]}'
+echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [100,30] 0]}'
 ```
 ![](fig8.png)
 
 ```bash
-echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [40,10] 10]}'
+echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [100,30] 65]}'
 ```
 ![](fig9.png)
+
+```bash
+echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [100,30] 130]}'
+```
+![](fig10.png)
+
+In the first figure we start with `0` offset meaning we start from the beggining of the pattern. In the middle figure we start exactly in the middle of the pattern
+as the pattern is `100+30=130` pixels. Then in the third figure we wrap up, and start from the pattern's beginning. This means that specifying `ld: [100,30] 0` and
+`ld: [100,30] 130` is equivalent.
