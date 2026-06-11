@@ -158,7 +158,7 @@ As we mentioned in the section about data, objects that are to be treated differ
 > --datum '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > --outputs '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0,0)}) out2)'
 ```
-<img src="fig11.png" width="50%" style="border: 2px solid #808080;" />
+<img src="fig11.png" width="332" style="border: 2px solid grey;">
 
 By separating vectors with `\n` we decided that they are to be treated as separate data entities. We also defined two styles: `s1` and `s2` both basing on default style `e0` and setting only the fields we want to overwrite with new values. We could also use `e1` to define `e2`, 'e1: e0{[lw:15, lc: aqua]}, e2: e1{[ld: [30,30] 5]}'. Here, we would have `e2` having line width `15`, `aqua` color and being dashed in constrast to `e1` that would be continuous.
 So we defined two styles, now in `--datum` we are supposed to map those styles to data objects. `(vec1, vec2)` are handles (one could name them as they want) for data objects as they are delivered in stdin. Using tuple also conveys order so `vec1` is the handle for `[[1,1]]` and `vec2` for `[[0,1]]`.  `vec1 -> e1` means data object captured by `vec1` will have `e1` style attached to it.
@@ -171,7 +171,7 @@ Finally, we need to relate the object to the space of the panes. Vectors are abs
 > -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0.5,0.5)}) out2)'
 ```
-<img src="fig12.png" width="50%" style="border: 2px solid #808080;" />
+<img src="fig12.png" width="332" style="border: 2px solid grey;">
 
 ```bash
 λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | ./zig-out/bin/zsat draw \
@@ -179,7 +179,7 @@ Finally, we need to relate the object to the space of the panes. Vectors are abs
 > -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (middle out1)) out2)'
 ```
-<img src="fig13.png" width="50%" style="border: 2px solid #808080;" />
+<img src="fig13.png" width="332" style="border: 2px solid grey;">
 
 ```bash
 λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | ./zig-out/bin/zsat draw \
@@ -187,7 +187,7 @@ Finally, we need to relate the object to the space of the panes. Vectors are abs
 > -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (25% out1)) out2)'
 ```
-<img src="fig14.png" width="50%" style="border: 2px solid #808080;" />
+<img src="fig14.png" width="332" style="border: 2px solid grey;">
 
 ```bash
 λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | ./zig-out/bin/zsat draw \
@@ -195,7 +195,7 @@ Finally, we need to relate the object to the space of the panes. Vectors are abs
 > -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (-25% out1)) out2)'
 ```
-<img src="fig15.png" width="50%" style="border: 2px solid #808080;" />
+<img src="fig15.png" width="332" style="border: 2px solid grey;">
 
 ```bash
 λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | ./zig-out/bin/zsat draw \
@@ -203,6 +203,6 @@ Finally, we need to relate the object to the space of the panes. Vectors are abs
 > -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (125% out1)) out2)'
 ```
-<img src="fig16.png" width="50%" style="border: 2px solid #808080;" />
+<img src="fig16.png" width="332" style="border: 2px solid grey;">
 
 We can have substitute point explicite, `{(x,y)}`, but also implicite by refering it to some object, and here we can use `beg`, `mid`, `end` or `NUM%` which will establish point counting from the beginning of the object where whole lenght is 100%.
