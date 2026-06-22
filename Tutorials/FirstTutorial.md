@@ -153,7 +153,7 @@ as the pattern is `100+30=130` pixels. Then in the third figure we wrap up, and 
 As we mentioned in the section about data, objects that are to be treated differently need to be delivered in separate lines.
 
 ```bash
-λ printf '[[1,1]]\n[[0,1]]' | ./zig-out/bin/zsat draw \
+λ printf '[[1,1]]\n[[0,1]]' | zsat draw \
 > --styles 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
 > --datum '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > --outputs '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0,0)}) out2)'
@@ -166,7 +166,7 @@ You do not have to use all styles: it is perfectly ok to define 5 styles but nly
 Finally, we need to relate the object to the space of the panes. Vectors are abstract entities and in order to relate them to concrete space we need to pin them there. This is done via usage of `anchor POINT`. Let's see other capabilities of **POINT** in examples.
 
 ```bash
-λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | ./zig-out/bin/zsat draw \
+λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 > -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
 > -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0.5,0.5)}) out2)'
@@ -174,7 +174,7 @@ Finally, we need to relate the object to the space of the panes. Vectors are abs
 <img src="fig12.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | ./zig-out/bin/zsat draw \
+λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 > -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
 > -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (middle out1)) out2)'
@@ -182,7 +182,7 @@ Finally, we need to relate the object to the space of the panes. Vectors are abs
 <img src="fig13.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | ./zig-out/bin/zsat draw \
+λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 > -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
 > -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (25% out1)) out2)'
@@ -190,7 +190,7 @@ Finally, we need to relate the object to the space of the panes. Vectors are abs
 <img src="fig14.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | ./zig-out/bin/zsat draw \
+λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 > -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
 > -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (-25% out1)) out2)'
@@ -198,7 +198,7 @@ Finally, we need to relate the object to the space of the panes. Vectors are abs
 <img src="fig15.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | ./zig-out/bin/zsat draw \
+λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 > -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
 > -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 > -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (125% out1)) out2)'
@@ -206,3 +206,12 @@ Finally, we need to relate the object to the space of the panes. Vectors are abs
 <img src="fig16.png" width="332" style="border: 2px solid grey;">
 
 We can have substitute point explicite, `{(x,y)}`, but also implicite by refering it to some object, and here we can use `beg`, `mid`, `end` or `NUM%` which will establish point counting from the beginning of the object where whole lenght is 100%.
+See below for the proof - we have moved the anchor of the red segments even further away, and the framing adjusted.
+
+```bash
+λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
+> -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+> -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
+> -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (300% out1)) out2)'
+```
+<img src="fig17.png" width="332" style="border: 2px solid grey;">
