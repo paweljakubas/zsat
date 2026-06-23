@@ -2486,7 +2486,15 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     poly_count += 1;
                 }
 
-                result_pairs[idx] = try flattenPolylinesToOps(allocator, polylines, poly_count, pair.outputName);
+                if (plot_steps == .last and poly_count > 1) {
+                    for (0..poly_count - 1) |j| {
+                        allocator.free(polylines[j]);
+                    }
+                    polylines[0] = polylines[poly_count - 1];
+                    result_pairs[idx] = try flattenPolylinesToOps(allocator, polylines, 1, pair.outputName);
+                } else {
+                    result_pairs[idx] = try flattenPolylinesToOps(allocator, polylines, poly_count, pair.outputName);
+                }
             }
 
             return OutputsValidated{ .transformationPairs = result_pairs };
@@ -4705,4 +4713,86 @@ test "toExplicitPoint polar - verify xy still works" {
     try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0001);
     try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0001);
     try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 0.0001);
+}
+test "toExplicitPoint fixed mode - rotate & anchor with plot_steps last" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (rotate [90 a (0% self)] & anchor {(0,0)}) with input [[1,1]]
+    // plot_steps == .last should only emit the final polyline after rotation,
+    // not the intermediate polyline after the anchor.
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = &[1]RotateArg{RotateArg{ .phi = 90.0, .point = GeneralPoint{ .fraction = ElementFraction{ .fromStart = 0, .element = .self } } }} } },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 0.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    // With plot_steps == .last, only the final rotated polyline should be emitted.
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    // Should be exactly 2 ops: begin and end of the final rotated polyline
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    // Rotation of (0,0)->(1,1) by 90 degrees around (0,0) gives (0,0)->(-1,1)
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, -1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+}
+
+test "toExplicitPoint fixed mode - rotate & anchor with plot_steps all" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (rotate [90 a (0% self)] & anchor {(0,0)}) with input [[1,1]]
+    // plot_steps == .all should emit both intermediate and final polylines.
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = &[1]RotateArg{RotateArg{ .phi = 90.0, .point = GeneralPoint{ .fraction = ElementFraction{ .fromStart = 0, .element = .self } } }} } },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 0.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    // With plot_steps == .all, both the intermediate and final polylines should be emitted.
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .all, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    // Should be 4 ops: begin+end of intermediate, then begin+end of final
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // Intermediate polyline: (0,0) -> (1,1)
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+
+    // Final rotated polyline: (0,0) -> (-1,1)
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, -1.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 0.0001);
 }

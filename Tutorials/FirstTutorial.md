@@ -215,3 +215,25 @@ See below for the proof - we have moved the anchor of the red segments even furt
 > -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (300% out1)) out2)'
 ```
 <img src="fig17.png" width="332" style="border: 2px solid grey;">
+
+## Datum transformation with straightforward composing
+
+Now let's focus what can be done with data after raw ingestion from stdin. As we see above we deal with vectors, and because of that we need always to pin them in the space (through `anchor` operation).
+We are performing that as part of `--output` where we first take all the handles of the data in the tuple `(out1, ...)` and then use each handle. When it comes to vectors anchoring is mandatory and the minimal
+operation to be present. We can have another operation(s) performing on top of pinning, like rotation, scaling or mirroring. Let's look at them now.
+We start with vector that starts from {(0,0)} and points to {(1,1)} along with `-debug` option to flash out all defaulted options used. 
+
+```bash
+λ printf '[[1,1]]' | ./zig-out/bin/zsat draw -o '(out) -> (anchor {(0,0)}) out' --debug
+stdin:
+[[1,1]]
+
+--styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld: none]}
+--datum (vec) -> (vec -> e0)
+--outputs (out) -> (anchor {(0,0)}) out
+--panes p0:{size: 600x600}
+--frames (out) -> out -> p0
+```
+<img src="fig18.png" width="332" style="border: 2px solid grey;">
+
+
