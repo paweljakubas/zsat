@@ -282,3 +282,16 @@ stdin:
 --frames (out) -> out -> p0
 ```
 <img src="fig20.png" width="332" style="border: 2px solid grey;">
+
+```bash
+λ printf '[[1,1]]' | ./zig-out/bin/zsat draw -s 'e0:{vec2d all}' -o '(out) -> ((r [-90 a (mid self)]) & (rotate [90 a (0% self)]) & (anchor {(0,0)})) out' --debug
+stdin:
+[[1,1]]
+
+--styles e0:{vec2d all}
+--datum (vec) -> (vec -> e0)
+--outputs (out) -> ((r [-90 a (mid self)]) & (rotate [90 a (0% self)]) & (anchor {(0,0)})) out
+--panes p0:{size: 600x600}
+--frames (out) -> out -> p0
+```
+<img src="fig21.png" width="332" style="border: 2px solid grey;">
