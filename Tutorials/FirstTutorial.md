@@ -220,8 +220,9 @@ See below for the proof - we have moved the anchor of the red segments even furt
 
 Now let's focus what can be done with data after raw ingestion from stdin. As we see above we deal with vectors, and because of that we need always to pin them in the space (through `anchor` operation).
 We are performing that as part of `--output` where we first take all the handles of the data in the tuple `(out1, ...)` and then use each handle. When it comes to vectors anchoring is mandatory and the minimal
-operation to be present. We can have another operation(s) performing on top of pinning, like rotation, scaling or mirroring that could be composed using `&`. Let's look at them now.
-We start with vector that starts from {(0,0)} and points to {(1,1)} along with `-debug` option to flash out all defaulted options used. 
+operation to be present. We can have another operation(s) performing on top of pinning, like rotation, scaling or mirroring that could be composed using `&`.
+Composing here means just plain successive application (think `.` in Haskell or `&` (aka `ampv`) in J). So `(op2 & op1) out` is equivalent to `op2 (op1 out)`.
+Let's look at the available transformations now. For the sake of simplicity we start with vector that starts from {(0,0)} and points to {(1,1)} along with `-debug` option to flash out all default options used. 
 
 ```bash
 λ printf '[[1,1]]' | ./zig-out/bin/zsat draw -o '(out) -> (anchor {(0,0)}) out' --debug
@@ -295,3 +296,17 @@ stdin:
 --frames (out) -> out -> p0
 ```
 <img src="fig21.png" width="332" style="border: 2px solid grey;">
+
+**Note on point definition**
+
+Point definition is used inside `rotate` transformation. One can realize it by being explicit, for example, `{(1,2)}` or by refering to other objects.
+Here, one can use `self` when refering to itself or other refs. To be well-defined we need also to specify which part of the referenced object we want to point to.
+Hence, `beg`, `mid` and `end`. If this is not enough one can use percentage instead. `0%` would be equivalent to the beginning, and `100%` to the end.
+It is worth mentioning one can also use negative values.
+
+**Note on angles**
+
+Angle definition could be expressed either by degrees or radians. In the former case we formulate angle in degrees. In the latter in radians which we specify using `p`.
+For example, `180` degrees is equivalent to `p`, `45` degrees to `1r4p`. Here, `r` is used for ratio - appreciate here the advantage of using `1r3p` instead of `0.3333p`.
+
+
