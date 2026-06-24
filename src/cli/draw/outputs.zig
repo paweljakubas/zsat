@@ -2164,86 +2164,53 @@ test "processMirrorOp" {
     const a = arena.allocator();
 
     // Polyline (1,1)->(2,1), mirror over y=x (a=1,b=1,c=0)
+    // (1,1) is on the line, so it stays fixed; (2,1) reflects to (1,2)
     const prev = [_]inputs.Point{ .{ .x = 1.0, .y = 1.0 }, .{ .x = 2.0, .y = 1.0 } };
     const line = inputs.Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
 
     const poly = try processMirrorOp(a, &prev, line, .fixed);
     defer a.free(poly);
     try testing.expectEqual(@as(usize, 2), poly.len);
-    // First point stays fixed
     try testing.expectEqual(@as(f32, 1.0), poly[0].x);
     try testing.expectEqual(@as(f32, 1.0), poly[0].y);
-    // Displacement (1,0) mirrored over y=x -> (0,1), so poly[1] = (1,1)+(0,1) = (1,2)
     try testing.expectEqual(@as(f32, 1.0), poly[1].x);
     try testing.expectEqual(@as(f32, 2.0), poly[1].y);
 
-    // Same in coord mode (single-segment polyline, x-axis = (1,0), perp = (0,1))
-    const poly2 = try processMirrorOp(a, &prev, line, .coord);
+    // Polyline (0,0)->(1,1), mirror over vertical line x=0.5
+    // Both points move: (0,0)->(1,0) and (1,1)->(0,1)
+    const prev2 = [_]inputs.Point{ .{ .x = 0.0, .y = 0.0 }, .{ .x = 1.0, .y = 1.0 } };
+    const line2 = inputs.Line{ .a = 0.0, .b = 1.0, .c = -0.5 };
+    const poly2 = try processMirrorOp(a, &prev2, line2, .fixed);
     defer a.free(poly2);
     try testing.expectEqual(@as(usize, 2), poly2.len);
     try testing.expectEqual(@as(f32, 1.0), poly2[0].x);
-    try testing.expectEqual(@as(f32, 1.0), poly2[0].y);
-    // Mirror in coord should be same as fixed for identity-like frame
-    try testing.expectEqual(@as(f32, 1.0), poly2[1].x);
-    try testing.expectEqual(@as(f32, 2.0), poly2[1].y);
+    try testing.expectEqual(@as(f32, 0.0), poly2[0].y);
+    try testing.expectEqual(@as(f32, 0.0), poly2[1].x);
+    try testing.expectEqual(@as(f32, 1.0), poly2[1].y);
+
+    // Same in coord mode (single-segment polyline, x-axis = (1,0), perp = (0,1))
+    const poly3 = try processMirrorOp(a, &prev, line, .coord);
+    defer a.free(poly3);
+    try testing.expectEqual(@as(usize, 2), poly3.len);
+    try testing.expectEqual(@as(f32, 1.0), poly3[0].x);
+    try testing.expectEqual(@as(f32, 1.0), poly3[0].y);
+    try testing.expectEqual(@as(f32, 1.0), poly3[1].x);
+    try testing.expectEqual(@as(f32, 2.0), poly3[1].y);
 }
 
-/// Mirrors a polyline over a given line. The first point stays fixed; subsequent
-/// point displacements are mirrored.
-///
-/// Steps by mode:
-/// - coord: compute local frame from polyline direction (x-axis along first-to-last
-///   vector, y-axis perpendicular). Convert each displacement to local (a, b),
-///   mirror over the line, convert back to global coordinates.
-/// - non-coord (fixed/origin): displacements are mirrored directly in global space
-///   (dx = p.x - start.x, dy = p.y - start.y) using geometry.mirrorPointOverLine.
+/// Mirrors a polyline over a given line. Every point is reflected geometrically
+/// across the line using geometry.mirrorPointOverLine.
 ///
 /// Example:
 /// ```
 /// const poly = try processMirrorOp(a, &.{.{1,1},{2,1}}, line, .fixed);
-/// // poly[0]=(1,1), poly[1]=(1,2) — (1,0) displacement mirrored over y=x
+/// // poly[0]=(1,1), poly[1]=(1,2) — both points reflected over y=x
 /// ```
 fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, line: inputs.Line, orientation: CoordinateOrientation) ![]inputs.Point {
+    _ = orientation;
     var poly = try allocator.alloc(inputs.Point, prev_poly.len);
-    const start = prev_poly[0];
-    poly[0] = start;
-    if (orientation == .coord) {
-        const dx = prev_poly[prev_poly.len - 1].x - start.x;
-        const dy = prev_poly[prev_poly.len - 1].y - start.y;
-        const len = @sqrt(@as(f64, dx) * @as(f64, dx) + @as(f64, dy) * @as(f64, dy));
-        var x_axis_x: f64 = 1.0;
-        var x_axis_y: f64 = 0.0;
-        var perp_x: f64 = 0.0;
-        var perp_y: f64 = 1.0;
-        if (len > 1e-10) {
-            x_axis_x = @as(f64, dx) / len;
-            x_axis_y = @as(f64, dy) / len;
-            perp_x = -x_axis_y;
-            perp_y = x_axis_x;
-        }
-        for (prev_poly[1..], 0..) |p, j| {
-            const gdx = @as(f64, p.x - start.x);
-            const gdy = @as(f64, p.y - start.y);
-            const local_a = gdx * x_axis_x + gdy * x_axis_y;
-            const local_b = gdx * perp_x + gdy * perp_y;
-            const mirrored = geometry.mirrorPointOverLine(.{ .x = @floatCast(local_a), .y = @floatCast(local_b) }, line, null);
-            const mdx = @as(f64, mirrored.x) * x_axis_x + @as(f64, mirrored.y) * perp_x;
-            const mdy = @as(f64, mirrored.x) * x_axis_y + @as(f64, mirrored.y) * perp_y;
-            poly[j + 1] = inputs.Point{
-                .x = start.x + @as(f32, @floatCast(mdx)),
-                .y = start.y + @as(f32, @floatCast(mdy)),
-            };
-        }
-    } else {
-        for (prev_poly[1..], 0..) |p, j| {
-            const dx = p.x - start.x;
-            const dy = p.y - start.y;
-            const mirrored = geometry.mirrorPointOverLine(.{ .x = dx, .y = dy }, line, null);
-            poly[j + 1] = inputs.Point{
-                .x = start.x + mirrored.x,
-                .y = start.y + mirrored.y,
-            };
-        }
+    for (prev_poly, 0..) |p, j| {
+        poly[j] = geometry.mirrorPointOverLine(p, line, null);
     }
     return poly;
 }

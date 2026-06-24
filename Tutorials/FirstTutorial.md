@@ -225,7 +225,7 @@ Composing here means just plain successive application (think `.` in Haskell or 
 Let's look at the available transformations now. For the sake of simplicity we start with vector that starts from {(0,0)} and points to {(1,1)} along with `-debug` option to flash out all default options used. 
 
 ```bash
-λ printf '[[1,1]]' | ./zig-out/bin/zsat draw -o '(out) -> (anchor {(0,0)}) out' --debug
+λ printf '[[1,1]]' | zsat draw -o '(out) -> (anchor {(0,0)}) out' --debug
 stdin:
 [[1,1]]
 
@@ -240,7 +240,7 @@ stdin:
 Now, let's transform the input vector by rotating that around the beginning by 90 counter-clockwise.
 
 ```bash
-printf '[[1,1]]' | ./zig-out/bin/zsat draw -o '(out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out' --debug
+printf '[[1,1]]' | zsat draw -o '(out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out' --debug
 stdin:
 [[1,1]]
 
@@ -270,7 +270,7 @@ then we will have the following three intermediary results
 See the examples building on top of the above one:
 
 ```bash
-λ printf '[[1,1]]' | ./zig-out/bin/zsat draw \
+λ printf '[[1,1]]' | zsat draw \
 > -s 'e0:{vec2d all}' \
 > -o '(out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out' --debug
 stdin:
@@ -285,7 +285,7 @@ stdin:
 <img src="fig20.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]' | ./zig-out/bin/zsat draw -s 'e0:{vec2d all}' -o '(out) -> ((r [-90 a (mid self)]) & (rotate [90 a (0% self)]) & (anchor {(0,0)})) out' --debug
+λ printf '[[1,1]]' | zsat draw -s 'e0:{vec2d all}' -o '(out) -> ((r [-90 a (mid self)]) & (rotate [90 a (0% self)]) & (anchor {(0,0)})) out' --debug
 stdin:
 [[1,1]]
 
@@ -308,5 +308,32 @@ It is worth mentioning one can also use negative values.
 
 Angle definition could be expressed either by degrees or radians. In the former case we formulate angle in degrees. In the latter in radians which we specify using `p`.
 For example, `180` degrees is equivalent to `p`, `45` degrees to `1r4p`. Here, `r` is used for ratio - appreciate here the advantage of using `1r3p` instead of `0.3333p`.
+
+Now, let's use `scale` transformation, abbreviated by `s`, which scales both components according to the argument specified.
+
+```bash
+λ printf '[[1,1]]' | zsat draw -s 'e0:{vec2d all}' -o '(out) -> ((s [[1,3]]) & (a {(0,0)})) out'
+```
+<img src="fig22.png" width="332" style="border: 2px solid grey;">
+
+```bash
+λ printf '[[1,1]]' | zsat draw -s 'e0:{vec2d all}' -o '(out) -> ((s [[-1,3]]) & (a {(0,0)})) out'
+```
+<img src="fig23.png" width="332" style="border: 2px solid grey;">
+
+As we see negative value argument in `scale` makes the resultant component direction opposite. Value less than 1 performes shrinking, value greater than 1 enforces elongation.
+
+`mirror` transformation, abbreviated by `m`, requires line argument in the form of `ay=bx+c` against which the vector is to be reflected.
+Let's try `[1,1]` vector mirrored against first `x=0.5` and then `y=1` lines.
+
+```bash
+λ printf '[[1,1]]' | ./zig-out/bin/zsat draw -s 'e0:{vec2d all}' -o '(out) -> (m (x=0.5) & a {(0,0)}) out'
+```
+<img src="fig24.png" width="332" style="border: 2px solid grey;">
+
+```bash
+λ printf '[[1,1]]' | ./zig-out/bin/zsat draw -s 'e0:{vec2d all}' -o '(out) -> (m (y=1) & m (x=0.5) & a {(0,0)}) out'
+```
+<img src="fig25.png" width="332" style="border: 2px solid grey;">
 
 
