@@ -360,8 +360,23 @@ Until now we used, implicitely as it is a default setting, **fixed** coordinatio
 So  `{(0,0)}` is constant coordinate origin and axis stay still. If one uses **origin** we are still demanding the same orientation of the axis, but the origin is __MOVED__ to the end of the vector of the last step (in case this is the first step we start from `{(0,0)}`).
 
 ```bash
-printf '[[1,0]]' | zsat draw \
--s 'e0:{vec2d all}' \
--o '(out) -> (m (y=x) & a {(1,0)}) out'
+printf '[[1,0]]\n[[2,2]]' | zsat draw \
+-s 'e0:{vec2d all}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
+-o '(out0, out1) -> ((m (y=x) & a {(1,0)}) out0, (a {(0,0)}) out1)'
 ```
 <img src="fig26.png" width="332" style="border: 2px solid grey;">
+
+Dashed line is here used to illustrate where mirror line `y=x` is located for a chosen coordinate system.
+
+
+```bash
+printf '[[1,0]]\n[[2,2]]' | zsat draw \
+-s 'e0:{vec2d all origin}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
+-o '(out0, out1) -> ((m (y=x) & a {(1,0)}) out0, (a {(1,0)}) out1)'
+```
+<img src="fig27.png" width="332" style="border: 2px solid grey;">
+
+In `origin` (but also 'coord' mode in this context) after the first transformation the origin of the coordinate system moves to point (1,0), so `y=x` is constructed there.
+This means the vector being the result of mirror is adjacent to the vector after first step.   

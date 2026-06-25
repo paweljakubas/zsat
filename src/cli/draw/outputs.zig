@@ -1638,12 +1638,12 @@ test "sumInputVectors" {
     const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
-    const sum = sumInputVectors(inp, 0);
+    const sum = sumInputVectors(inp, 0, .xy);
     try testing.expectEqual(@as(f32, 4.0), sum.x);
     try testing.expectEqual(@as(f32, 6.0), sum.y);
 
     // idx out of range -> (0,0)
-    const sum2 = sumInputVectors(inp, 5);
+    const sum2 = sumInputVectors(inp, 5, .xy);
     try testing.expectEqual(@as(f32, 0.0), sum2.x);
     try testing.expectEqual(@as(f32, 0.0), sum2.y);
 
@@ -1652,7 +1652,7 @@ test "sumInputVectors" {
     const v3 = inputs.InputElement{ .vector = .{ .x = -1.0, .y = 1.0 } };
     const row2 = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ p, v3 } };
     const inp2 = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row2} };
-    const sum3 = sumInputVectors(inp2, 0);
+    const sum3 = sumInputVectors(inp2, 0, .xy);
     try testing.expectEqual(@as(f32, -1.0), sum3.x);
     try testing.expectEqual(@as(f32, 1.0), sum3.y);
 }
@@ -2168,7 +2168,7 @@ test "processMirrorOp" {
     const prev = [_]inputs.Point{ .{ .x = 1.0, .y = 1.0 }, .{ .x = 2.0, .y = 1.0 } };
     const line = inputs.Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
 
-    const poly = try processMirrorOp(a, &prev, line, .fixed);
+    const poly = try processMirrorOp(a, &prev, line, .fixed, null);
     defer a.free(poly);
     try testing.expectEqual(@as(usize, 2), poly.len);
     try testing.expectEqual(@as(f32, 1.0), poly[0].x);
@@ -2180,7 +2180,7 @@ test "processMirrorOp" {
     // Both points move: (0,0)->(1,0) and (1,1)->(0,1)
     const prev2 = [_]inputs.Point{ .{ .x = 0.0, .y = 0.0 }, .{ .x = 1.0, .y = 1.0 } };
     const line2 = inputs.Line{ .a = 0.0, .b = 1.0, .c = -0.5 };
-    const poly2 = try processMirrorOp(a, &prev2, line2, .fixed);
+    const poly2 = try processMirrorOp(a, &prev2, line2, .fixed, null);
     defer a.free(poly2);
     try testing.expectEqual(@as(usize, 2), poly2.len);
     try testing.expectEqual(@as(f32, 1.0), poly2[0].x);
@@ -2189,28 +2189,81 @@ test "processMirrorOp" {
     try testing.expectEqual(@as(f32, 1.0), poly2[1].y);
 
     // Same in coord mode (single-segment polyline, x-axis = (1,0), perp = (0,1))
-    const poly3 = try processMirrorOp(a, &prev, line, .coord);
+    const poly3 = try processMirrorOp(a, &prev, line, .coord, null);
     defer a.free(poly3);
     try testing.expectEqual(@as(usize, 2), poly3.len);
     try testing.expectEqual(@as(f32, 1.0), poly3[0].x);
     try testing.expectEqual(@as(f32, 1.0), poly3[0].y);
     try testing.expectEqual(@as(f32, 1.0), poly3[1].x);
     try testing.expectEqual(@as(f32, 2.0), poly3[1].y);
+
+    // Origin mode: polyline (1,0)->(2,0), mirror over y=x with origin at (1,0)
+    // Local: (0,0)->(1,0), mirror over y=x -> (0,0)->(0,1), global -> (1,0)->(1,1)
+    const prev3 = [_]inputs.Point{ .{ .x = 1.0, .y = 0.0 }, .{ .x = 2.0, .y = 0.0 } };
+    const poly4 = try processMirrorOp(a, &prev3, line, .origin, inputs.Point{ .x = 1.0, .y = 0.0 });
+    defer a.free(poly4);
+    try testing.expectEqual(@as(usize, 2), poly4.len);
+    try testing.expectEqual(@as(f32, 1.0), poly4[0].x);
+    try testing.expectEqual(@as(f32, 0.0), poly4[0].y);
+    try testing.expectEqual(@as(f32, 1.0), poly4[1].x);
+    try testing.expectEqual(@as(f32, 1.0), poly4[1].y);
 }
 
 /// Mirrors a polyline over a given line. Every point is reflected geometrically
 /// across the line using geometry.mirrorPointOverLine.
 ///
+/// By mode:
+/// - fixed: mirror is applied in global coordinates directly.
+/// - origin: points are translated by -ctx_begin, mirrored, then translated back.
+///   This makes the mirror line pass through the local origin (ctx_begin).
+/// - coord: points are transformed to a local frame (origin at poly[0], x-axis along
+///   the polyline direction), mirrored in local coordinates, then transformed back.
+///
 /// Example:
 /// ```
-/// const poly = try processMirrorOp(a, &.{.{1,1},{2,1}}, line, .fixed);
+/// const poly = try processMirrorOp(a, &.{.{1,1},{2,1}}, line, .fixed, null);
 /// // poly[0]=(1,1), poly[1]=(1,2) — both points reflected over y=x
 /// ```
-fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, line: inputs.Line, orientation: CoordinateOrientation) ![]inputs.Point {
-    _ = orientation;
+fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, line: inputs.Line, orientation: CoordinateOrientation, ctx_begin: ?inputs.Point) ![]inputs.Point {
     var poly = try allocator.alloc(inputs.Point, prev_poly.len);
-    for (prev_poly, 0..) |p, j| {
-        poly[j] = geometry.mirrorPointOverLine(p, line, null);
+    if (orientation == .fixed) {
+        for (prev_poly, 0..) |p, j| {
+            poly[j] = geometry.mirrorPointOverLine(p, line, null);
+        }
+    } else if (orientation == .origin) {
+        const origin = ctx_begin orelse inputs.Point{ .x = 0, .y = 0 };
+        for (prev_poly, 0..) |p, j| {
+            const p_local = inputs.Point{ .x = p.x - origin.x, .y = p.y - origin.y };
+            const p_mirror = geometry.mirrorPointOverLine(p_local, line, null);
+            poly[j] = inputs.Point{ .x = p_mirror.x + origin.x, .y = p_mirror.y + origin.y };
+        }
+    } else { // .coord
+        const dx = prev_poly[prev_poly.len - 1].x - prev_poly[0].x;
+        const dy = prev_poly[prev_poly.len - 1].y - prev_poly[0].y;
+        const len = @sqrt(@as(f64, dx) * @as(f64, dx) + @as(f64, dy) * @as(f64, dy));
+        var x_axis_x: f64 = 1.0;
+        var x_axis_y: f64 = 0.0;
+        if (len > 1e-10) {
+            x_axis_x = @as(f64, dx) / len;
+            x_axis_y = @as(f64, dy) / len;
+        }
+        const perp_x = -x_axis_y;
+        const perp_y = x_axis_x;
+        const origin = prev_poly[0];
+
+        for (prev_poly, 0..) |p, j| {
+            const rdx = @as(f64, p.x) - @as(f64, origin.x);
+            const rdy = @as(f64, p.y) - @as(f64, origin.y);
+            const local_x = rdx * x_axis_x + rdy * x_axis_y;
+            const local_y = rdx * perp_x + rdy * perp_y;
+
+            const p_local = inputs.Point{ .x = @floatCast(local_x), .y = @floatCast(local_y) };
+            const p_mirror = geometry.mirrorPointOverLine(p_local, line, null);
+
+            const gx = @as(f64, p_mirror.x) * x_axis_x + @as(f64, p_mirror.y) * perp_x;
+            const gy = @as(f64, p_mirror.x) * x_axis_y + @as(f64, p_mirror.y) * perp_y;
+            poly[j] = inputs.Point{ .x = @floatCast(@as(f64, origin.x) + gx), .y = @floatCast(@as(f64, origin.y) + gy) };
+        }
     }
     return poly;
 }
@@ -2233,7 +2286,7 @@ test "processOriginFixed" {
     const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
 
     // Fixed mode: anchors [(1,1), (2,2)] -> begin=(1,1), end=(2,2); begin=(2,2), end=(3,3)
-    const res = try processOriginFixed(a, validated, inp, .fixed);
+    const res = try processOriginFixed(a, validated, inp, .fixed, .xy);
     try testing.expectEqual(@as(usize, 1), res.transformationPairs.len);
     try testing.expectEqual(@as(usize, 4), res.transformationPairs[0].operation.ops.len);
     try testing.expectEqual(@as(f32, 1.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x);
@@ -2242,7 +2295,7 @@ test "processOriginFixed" {
     try testing.expectEqual(@as(f32, 3.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.x);
 
     // Origin mode: begin=(1,1), end=(2,2); origin=(1,1), begin=(1+2,1+2)=(3,3), end=(4,4)
-    const res2 = try processOriginFixed(a, validated, inp, .origin);
+    const res2 = try processOriginFixed(a, validated, inp, .origin, .xy);
     try testing.expectEqual(@as(usize, 4), res2.transformationPairs[0].operation.ops.len);
     try testing.expectEqual(@as(f32, 1.0), res2.transformationPairs[0].operation.ops[0].anchor.point.point.x);
     try testing.expectEqual(@as(f32, 2.0), res2.transformationPairs[0].operation.ops[1].anchor.point.point.x);
@@ -2445,7 +2498,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                         poly = try processScaleOp(allocator, prev_poly, arg, vectors, orientation, ctx_begin);
                     } else if (op == .mirror) {
                         const prev_poly = polylines[poly_count - 1];
-                        poly = try processMirrorOp(allocator, prev_poly, op.mirror.line, orientation);
+                        poly = try processMirrorOp(allocator, prev_poly, op.mirror.line, orientation, ctx_begin);
                     } else continue;
                     polylines[poly_count] = poly;
                     ctx_begin = poly[0];
@@ -3798,21 +3851,14 @@ test "toExplicitPoint - compose with anchor and rotation" {
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // i=0: begin (1,1), end (2,2)
+    // Final polyline after rotation: begin (1,1), end (1,1+sqrt(2))
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // i=1: begin (1,1), end (1,1+sqrt(2))
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.0);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.414, 0.01);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 1.0);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.414, 0.01);
 }
 
 test "toExplicitPoint - compose with anchor and rotation multi-segment" {
@@ -3846,28 +3892,18 @@ test "toExplicitPoint - compose with anchor and rotation multi-segment" {
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
 
-    // Anchor polyline: (1,1) -> (2,2) -> (3,1)
+    // Final polyline after rotation: each anchor point rotated around (1,1) by 45°
+    // (1,1) -> (1, 2.414) -> (2.414, 2.414)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.414, 0.01);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 3.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
-
-    // Rotate polyline: each anchor point rotated around (1,1) by 45°
-    // (1,1) -> (1, 2.414) -> (2.414, 2.414)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0);
-
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].anchor.point.point.x, 1.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].anchor.point.point.y, 2.414, 0.01);
-
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.x, 2.414, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.y, 2.414, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 2.414, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 2.414, 0.01);
 }
 
 test "toExplicitPoint - compose with anchor and rotation 360 multi-segment" {
@@ -3898,27 +3934,18 @@ test "toExplicitPoint - compose with anchor and rotation 360 multi-segment" {
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
 
-    // Anchor polyline: (1,1) -> (2,2) -> (3,1)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+    // Final polyline after rotation: 360° is identity, same as anchor
+    // (1,1) -> (2,2) -> (3,1)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0, 0.01);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0, 0.01);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 3.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
-
-    // Rotate polyline: 360° is identity, same as anchor
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0, 0.01);
-
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].anchor.point.point.x, 2.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].anchor.point.point.y, 2.0, 0.01);
-
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.x, 3.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.y, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 3.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0, 0.01);
 }
 
 test "toExplicitPoint - compose with anchor and rotation around end self" {
@@ -3953,21 +3980,14 @@ test "toExplicitPoint - compose with anchor and rotation around end self" {
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+    // Final polyline after rotation: (2,2) -> (2, 2-√2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 2.0);
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // Rotate polyline: (2,2) -> (2, 2-√2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 2.0);
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 2.0);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.0 - std.math.sqrt2, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0 - std.math.sqrt2, 0.01);
 }
 
 test "toExplicitPoint - compose with anchor and rotation around end self multi-segment" {
@@ -4003,27 +4023,17 @@ test "toExplicitPoint - compose with anchor and rotation around end self multi-s
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
 
-    // Anchor polyline: (1,1) -> (2,2) -> (3,1)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    // Final polyline after rotation: (3,1) -> rotated (1,1) -> rotated (2,2)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 3.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 3.0 - std.math.sqrt2, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.0 - std.math.sqrt2, 0.01);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 3.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
-
-    // Rotate polyline: (3,1) -> rotated (1,1) -> rotated (2,2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 3.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0);
-
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].anchor.point.point.x, 3.0 - std.math.sqrt2, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[4].anchor.point.point.y, 1.0 - std.math.sqrt2, 0.01);
-
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.x, 3.0 - std.math.sqrt2, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[5].anchor.point.point.y, 1.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 3.0 - std.math.sqrt2, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0, 0.01);
 }
 
 test "toExplicitPoint - compose with anchor and rotation around mid self" {
@@ -4057,21 +4067,14 @@ test "toExplicitPoint - compose with anchor and rotation around mid self" {
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+    // Final polyline after rotation: both points rotated (mid self not a vertex)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.5 - std.math.sqrt2 / 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.5, 0.01);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // Rotate polyline: both points rotated (mid self not a vertex)
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.5 - std.math.sqrt2 / 2.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.5, 0.01);
-
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.5 + std.math.sqrt2 / 2.0, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.5, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 1.5 + std.math.sqrt2 / 2.0, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.5, 0.01);
 }
 
 test "toExplicitPoint fixed - compose with anchor and scale 1" {
@@ -4105,21 +4108,14 @@ test "toExplicitPoint fixed - compose with anchor and scale 1" {
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,2)
+    // Final polyline after scale: (1,1) -> (2, 2)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // Rotate polyline: (1,1) -> (2, 2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.0);
 }
 
 test "toExplicitPoint fixed - compose with anchor and scale 2" {
@@ -4153,21 +4149,14 @@ test "toExplicitPoint fixed - compose with anchor and scale 2" {
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,2)
+    // Final polyline after scale: (1,1) -> (4, 4)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // Rotate polyline: (1,1) -> (4, 4)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 4.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 4.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 4.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 4.0);
 }
 
 test "toExplicitPoint fixed - compose with anchor and scale 3" {
@@ -4201,21 +4190,14 @@ test "toExplicitPoint fixed - compose with anchor and scale 3" {
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,2)
+    // Final polyline after scale: (1,1) -> (3, 4)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // Rotate polyline: (1,1) -> (3, 4)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 3.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 4.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 4.0);
 }
 
 test "toExplicitPoint origin - compose with anchor and scale 1" {
@@ -4249,21 +4231,14 @@ test "toExplicitPoint origin - compose with anchor and scale 1" {
     const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+    // Final polyline after scale: (2,2) -> (3, 3)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 2.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // Rotate polyline: (2,2) -> (3, 3)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 2.0);
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 3.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 3.0);
 }
 
 test "toExplicitPoint origin - compose with anchor and scale 2" {
@@ -4297,21 +4272,14 @@ test "toExplicitPoint origin - compose with anchor and scale 2" {
     const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+    // Final polyline after scale: (2,2) -> (5, 5)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 2.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // Rotate polyline: (2,2) -> (5, 5)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 2.0);
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 5.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 5.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 5.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 5.0);
 }
 
 test "toExplicitPoint origin - compose with anchor and scale 3" {
@@ -4345,21 +4313,14 @@ test "toExplicitPoint origin - compose with anchor and scale 3" {
     const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+    // Final polyline after scale: (2,2) -> (4, 5)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 2.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // Rotate polyline: (2,2) -> (4, 5)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 2.0);
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 4.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 5.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 4.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 5.0);
 }
 
 test "toExplicitPoint coord - compose with anchor and scale 1" {
@@ -4393,20 +4354,13 @@ test "toExplicitPoint coord - compose with anchor and scale 1" {
     const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,2)
+    // Final polyline after scale: (1, 1+ sqrt(2)) -> (1, 1 + 2srqt(2))
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0 + std.math.sqrt(2.0));
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // Rotate polyline: (1, 1+ sqrt(2)) -> (1, 1 + 2srqt(2))
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0 + std.math.sqrt(2.0));
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0 + 2.0 * std.math.sqrt(2.0));
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.0 + 2.0 * std.math.sqrt(2.0));
 }
 
 test "toExplicitPoint coord - compose with anchor and scale 2" {
@@ -4440,20 +4394,13 @@ test "toExplicitPoint coord - compose with anchor and scale 2" {
     const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,2)
+    // Final polyline after scale: (1, 1+ sqrt(2)) -> (1, 1 + 4srqt(2))
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0 + std.math.sqrt(2.0));
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // Rotate polyline: (1, 1+ sqrt(2)) -> (1, 1 + 4srqt(2))
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0 + std.math.sqrt(2.0));
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0 + 4.0 * std.math.sqrt(2.0));
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.0 + 4.0 * std.math.sqrt(2.0));
 }
 
 test "toExplicitPoint fixed - compose with anchor and mirror 1" {
@@ -4487,21 +4434,14 @@ test "toExplicitPoint fixed - compose with anchor and mirror 1" {
     const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,1)
+    // Final polyline after mirror: (1, 1) -> (1, 2)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.0);
-
-    // Mirror polyline: (1, 1) -> (1, 2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
 }
 
 test "toExplicitPoint origin - compose with anchor and mirror 1" {
@@ -4535,21 +4475,14 @@ test "toExplicitPoint origin - compose with anchor and mirror 1" {
     const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,0) -> (2,0)
+    // Final polyline after mirror: (1, 0) -> (1, 1)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0);
-
-    // Mirror polyline: (1, 0) -> (1, 1)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0);
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.0);
 }
 
 test "toExplicitPoint coord - compose with anchor and mirror 1" {
@@ -4583,21 +4516,14 @@ test "toExplicitPoint coord - compose with anchor and mirror 1" {
     const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
 
     try testing.expectEqual(res.transformationPairs.len, 1);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Anchor polyline: (1,1) -> (2,2)
+    // Final polyline after mirror: (1, 1) -> (0, 2)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
 
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0, 0.0001);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
-
-    // Mirror polyline: (1, 1) -> (0, 2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
-
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 2.0);
 }
 
 test "toExplicitPoint fixed - polar coordinates" {
@@ -4630,16 +4556,17 @@ test "toExplicitPoint fixed - polar coordinates" {
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
-    // First anchor pair: (0,0) -> (1,1)
-    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
-    // Second anchor pair: (5,5) -> (6,6)
-    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 0.0001);
+    // Anchors are collected in reverse order: (5,5) first, then (0,0)
+    // First anchor pair (reversed): (5,5) -> (6,6)
+    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+    // Second anchor pair (reversed): (0,0) -> (1,1)
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 0.0001);
 }
 
 test "toExplicitPoint polar - verify xy still works" {
@@ -4670,16 +4597,17 @@ test "toExplicitPoint polar - verify xy still works" {
 
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
-    // First anchor pair: (0,0) -> (1,1)  (xy vector (1,1) applied as-is)
-    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
-    // Second anchor pair: (5,5) -> (6,6)
-    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0001);
-    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 0.0001);
+    // Anchors are collected in reverse order: (5,5) first, then (0,0)
+    // First anchor pair (reversed): (5,5) -> (6,6)
+    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 5.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 6.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+    // Second anchor pair (reversed): (0,0) -> (1,1)  (xy vector (1,1) applied as-is)
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 0.0001);
 }
 test "toExplicitPoint fixed mode - rotate & anchor with plot_steps last" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);

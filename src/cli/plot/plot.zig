@@ -150,6 +150,45 @@ fn countVectors(row: anytype) usize {
     return count;
 }
 
+/// Checks whether ops are begin/end pairs produced by processOriginFixed.
+/// Each pair must have a delta equal to the sum of input vectors.
+fn isBeginEndPairs(ops: anytype, input_data: anytype, row_idx: usize) bool {
+    if (ops.len % 2 != 0 or row_idx >= input_data.input.len) return false;
+    const input_row = input_data.input[row_idx];
+    var sum_x: f32 = 0;
+    var sum_y: f32 = 0;
+    for (input_row.row) |elem| {
+        switch (elem) {
+            .vector => |v| {
+                sum_x += v.x;
+                sum_y += v.y;
+            },
+            .vectors => |vs| {
+                for (vs) |v| {
+                    sum_x += v.x;
+                    sum_y += v.y;
+                }
+            },
+            .point => {},
+        }
+    }
+    for (0..ops.len / 2) |i| {
+        const begin_op = ops[i * 2];
+        const end_op = ops[i * 2 + 1];
+        if (begin_op != .anchor or begin_op.anchor.point != .point or
+            end_op != .anchor or end_op.anchor.point != .point)
+        {
+            return false;
+        }
+        const dx = end_op.anchor.point.point.x - begin_op.anchor.point.point.x;
+        const dy = end_op.anchor.point.point.y - begin_op.anchor.point.point.y;
+        if (@abs(dx - sum_x) > 0.001 or @abs(dy - sum_y) > 0.001) {
+            return false;
+        }
+    }
+    return true;
+}
+
 test "updateBounds" {
     var minX: f32 = 0;
     var maxX: f32 = 0;
@@ -313,17 +352,17 @@ test "computeBounds" {
     try testing.expectEqual(@as(f32, 1.0), r2.y[0]);
     try testing.expectEqual(@as(f32, 3.0), r2.y[1]);
 
-    // Origin mode: last anchor's begin + input walk
+    // Origin mode: begin/end pair (100,100)->(103,104)
     const row = TestRow{ .row = &[1]TestElem{.{ .vector = .{ .x = 3.0, .y = 4.0 } }} };
     const test_inputs = TestInputs{ .input = &[1]TestRow{row} };
     const op_origin = [_]TestOp{
         .{ .anchor = .{ .point = .{ .point = .{ .x = 100.0, .y = 100.0 } } } },
-        .{ .anchor = .{ .point = .{ .point = .{ .x = 10.0, .y = 20.0 } } } },
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 103.0, .y = 104.0 } } } },
     };
     const pair_origin = TestPair{ .operation = .{ .ops = &op_origin } };
     const outputs_origin = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_origin} };
     const r3 = computeBounds(&outputs_origin, &test_inputs, &[1]enum { coord, origin, fixed }{.origin});
-    // start=(100,100) [ops.len-2=0], vector=(3,4) -> end=(103,104), bounds cover (100,100) and (103,104)
+    // begin=(100,100), end=(103,104), bounds cover (100,100) and (103,104)
     try testing.expectEqual(@as(f32, 100.0), r3.x[0]);
     try testing.expectEqual(@as(f32, 103.0), r3.x[1]);
     try testing.expectEqual(@as(f32, 100.0), r3.y[0]);
@@ -411,8 +450,36 @@ fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anyt
                     updateBounds(end_op.anchor.point.point.x, end_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
                 }
             }
-        } else if (ops.len >= 2 and orientation == .origin or ops.len == 1) {
-            const start_op = if (ops.len == 1) ops[0] else ops[ops.len - 2];
+        } else if (ops.len >= 2 and orientation == .origin) {
+            const vector_count = if (row_idx < input_data.input.len) countVectors(input_data.input[row_idx]) else 0;
+            if (isBeginEndPairs(ops, input_data, row_idx)) {
+                for (0..ops.len / 2) |i| {
+                    const begin_op = ops[i * 2];
+                    const end_op = ops[i * 2 + 1];
+                    if (begin_op == .anchor and begin_op.anchor.point == .point) {
+                        updateBounds(begin_op.anchor.point.point.x, begin_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                    }
+                    if (end_op == .anchor and end_op.anchor.point == .point) {
+                        updateBounds(end_op.anchor.point.point.x, end_op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                    }
+                }
+            } else if (vector_count > 0 and ops.len % (vector_count + 1) == 0) {
+                for (ops) |op| {
+                    if (op == .anchor and op.anchor.point == .point) {
+                        updateBounds(op.anchor.point.point.x, op.anchor.point.point.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                    }
+                }
+            } else {
+                const start_op = ops[ops.len - 2];
+                if (start_op == .anchor and start_op.anchor.point == .point) {
+                    const sx = start_op.anchor.point.point.x;
+                    const sy = start_op.anchor.point.point.y;
+                    walkInputRowBounds(sx, sy, input_data, row_idx, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                    updateBounds(sx, sy, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                }
+            }
+        } else if (ops.len == 1) {
+            const start_op = ops[0];
             if (start_op == .anchor and start_op.anchor.point == .point) {
                 const sx = start_op.anchor.point.point.x;
                 const sy = start_op.anchor.point.point.y;
@@ -795,12 +862,24 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
                 if (ops.len >= 2) {
                     if (orientation == .coord) {
                         try drawCoordPolylines(&context, ops, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
-                    } else if (orientation != .origin) {
+                    } else if (orientation == .origin) {
+                        const vector_count = if (row_idx < input_data.input.len) countVectors(input_data.input[row_idx]) else 0;
+                        if (isBeginEndPairs(ops, input_data, row_idx)) {
+                            try drawFixedPairs(&context, ops, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
+                        } else if (vector_count > 0 and ops.len % (vector_count + 1) == 0) {
+                            try drawCoordPolylines(&context, ops, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
+                        } else {
+                            const start_op = ops[ops.len - 2];
+                            if (start_op == .anchor and start_op.anchor.point == .point) {
+                                try drawPolylineFromAnchor(&context, @as(f64, start_op.anchor.point.point.x), @as(f64, start_op.anchor.point.point.y), input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
+                            }
+                        }
+                    } else {
                         try drawFixedPairs(&context, ops, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
                     }
                 }
-                if ((ops.len >= 2 and orientation == .origin) or ops.len == 1) {
-                    const start_op = if (ops.len == 1) ops[0] else ops[ops.len - 2];
+                if (ops.len == 1) {
+                    const start_op = ops[0];
                     if (start_op == .anchor and start_op.anchor.point == .point) {
                         try drawPolylineFromAnchor(&context, @as(f64, start_op.anchor.point.point.x), @as(f64, start_op.anchor.point.point.y), input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
                     }

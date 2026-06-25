@@ -21,6 +21,7 @@ pub fn build(b: *std.Build) void {
         .root_source_file = b.path("src/cli/draw/outputs.zig"),
     });
     outputs_mod.addImport("cli", inputs_mod);
+    outputs_mod.addImport("mecha", mecha_dep.module("mecha"));
     styles_mod.addImport("outputs", outputs_mod);
     inputs_mod.addImport("styles", styles_mod);
 
@@ -113,22 +114,22 @@ pub fn build(b: *std.Build) void {
             test_step.dependOn(&run_unit_tests.step);
         }
 
-        // Test outputs.zig and geometry.zig using a runner at src/ level
-        // to allow cross-directory relative imports
+        // Test outputs.zig and geometry.zig using a common root in src/cli/
+        // so that cross-directory relative imports (e.g. ../transform/geometry.zig)
+        // are resolved within the same module tree and all nested tests are included.
         {
-            const exports_mod = b.createModule(.{
-                .root_source_file = b.path("src/exports.zig"),
+            const cli_test_mod = b.createModule(.{
+                .root_source_file = b.path("src/cli/test_all.zig"),
                 .optimize = optimize,
                 .target = target,
             });
-            const exports_tests = b.addTest(.{
-                .root_module = exports_mod,
+            cli_test_mod.addImport("mecha", mecha_dep.module("mecha"));
+            cli_test_mod.addImport("cli", inputs_mod);
+            const cli_tests = b.addTest(.{
+                .root_module = cli_test_mod,
             });
-            exports_mod.addImport("zli", zli_dep.module("zli"));
-            exports_mod.addImport("mecha", mecha_dep.module("mecha"));
-            exports_mod.addImport("cli", inputs_mod);
-            const run_exports_tests = b.addRunArtifact(exports_tests);
-            test_step.dependOn(&run_exports_tests.step);
+            const run_cli_tests = b.addRunArtifact(cli_tests);
+            test_step.dependOn(&run_cli_tests.step);
         }
 
         // Test plot.zig separately - doesn't include panes dependency
