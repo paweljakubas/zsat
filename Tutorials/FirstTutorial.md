@@ -4,7 +4,7 @@ Let's say we have a vector in the `xy` coordinate system, `[1,1]`, and want to p
 We can do it immediately by pasting the following:
 
 ```bash
-λ echo '[[1,1]]' | zsat draw
+echo '[[1,1]]' | zsat draw
 ```
 ![](fig1.png)
 
@@ -14,7 +14,7 @@ As `zsat` aims to be powerful and expressive, the aspiring user might want a way
 And this is exactly what the `--debug` optional argument offers — a peek at what the tool sets exactly during the call.
 
 ```bash
-λ echo '[[1,1]]' | zsat draw --debug
+echo '[[1,1]]' | zsat draw --debug
 stdin:
 [[1,1]]
 
@@ -41,7 +41,7 @@ that a 2-segment from (0,0) through (1,1) to (0,1) is formed.
 Let's see it:
 
 ```bash
-λ echo '[[1,1],[-1,0]]' | zsat draw
+echo '[[1,1],[-1,0]]' | zsat draw
 ```
 ![](fig2.png)
 
@@ -50,7 +50,7 @@ If we write, on the other hand, `[[1,1]], [[-1,0]]` we have two vectors starting
 Gathering means all components will share the same style and, if processed, undergo the same transformation.
 
 ```bash
-λ echo '[[1,1]],[[-1,0]]' | zsat draw
+echo '[[1,1]],[[-1,0]]' | zsat draw
 ```
 ![](fig3.png)
 
@@ -59,7 +59,7 @@ Gathering means all components will share the same style and, if processed, unde
 Each vector structure is separated by a '\n' character, which means each one constitutes a separate entity, with potentially different style and processing transformation.
 
 ```bash
-λ echo '[[1,1]]\n[[-1,0]]' | zsat draw
+echo '[[1,1]]\n[[-1,0]]' | zsat draw
 Error: failed to parse input data. Please check your input format.
 ```
 
@@ -101,7 +101,8 @@ in which values are defined based on the previous segment, if present. More on t
 Let's start with vector styles and jump immediately to the example.
 
 ```bash
-λ echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua]}'
+echo '[[1,1]]' | zsat draw \
+--styles 'e0{[lw:15, lc: aqua]}'
 ```
 ![](fig4.png)
 
@@ -109,36 +110,42 @@ We reused the `e0` style definition from default and changed the line width to `
 Another example below.
 
 ```bash
-λ echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, lo: 20]}'
+echo '[[1,1]]' | zsat draw \
+--styles 'e0{[lw:15, lc: aqua, lo: 20]}'
 ```
 ![](fig5.png)
 
 Now, two examples for dashing to see how it is defined.
 
 ```bash
-echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [10,10] 0]}'
+echo '[[1,1]]' | zsat draw \
+--styles 'e0{[lw:15, lc: aqua, ld: [10,10] 0]}'
 ```
 ![](fig6.png)
 
 ```bash
-echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [40,10] 0]}'
+echo '[[1,1]]' | zsat draw \
+--styles 'e0{[lw:15, lc: aqua, ld: [40,10] 0]}'
 ```
 ![](fig7.png)
 
 The last value in the dashing definition is the `offset`. It controls from which point of the dashing pattern we want to begin. 
 
 ```bash
-echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [100,30] 0]}'
+echo '[[1,1]]' | zsat draw --styles \
+'e0{[lw:15, lc: aqua, ld: [100,30] 0]}'
 ```
 ![](fig8.png)
 
 ```bash
-echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [100,30] 65]}'
+echo '[[1,1]]' | zsat draw \
+--styles 'e0{[lw:15, lc: aqua, ld: [100,30] 65]}'
 ```
 ![](fig9.png)
 
 ```bash
-echo '[[1,1]]' | zsat draw --styles 'e0{[lw:15, lc: aqua, ld: [100,30] 130]}'
+echo '[[1,1]]' | zsat draw \
+--styles 'e0{[lw:15, lc: aqua, ld: [100,30] 130]}'
 ```
 ![](fig10.png)
 
@@ -151,10 +158,10 @@ as the pattern is `100+30=130` pixels. Then in the third figure we wrap up and s
 As we mentioned in the section about data, objects that are to be treated differently need to be delivered in separate lines.
 
 ```bash
-λ printf '[[1,1]]\n[[0,1]]' | zsat draw \
-> --styles 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
-> --datum '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
-> --outputs '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0,0)}) out2)'
+printf '[[1,1]]\n[[0,1]]' | zsat draw \
+--styles 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+--datum '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
+--outputs '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0,0)}) out2)'
 ```
 <img src="fig11.png" width="332" style="border: 2px solid grey;">
 
@@ -164,42 +171,42 @@ You do not have to use all styles: it is perfectly okay to define 5 styles but o
 Finally, we need to relate each object to the space of the panes. Vectors are abstract entities, and in order to relate them to concrete space we need to pin them there. This is done via usage of `anchor POINT`. Let's see other capabilities of **POINT** in examples.
 
 ```bash
-λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
-> -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
-> -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
-> -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0.5,0.5)}) out2)'
+printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
+-s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
+-o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0.5,0.5)}) out2)'
 ```
 <img src="fig12.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
-> -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
-> -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
-> -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (middle out1)) out2)'
+printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
+-s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
+-o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (middle out1)) out2)'
 ```
 <img src="fig13.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
-> -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
-> -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
-> -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (25% out1)) out2)'
+printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
+-s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
+-o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (25% out1)) out2)'
 ```
 <img src="fig14.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
-> -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
-> -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
-> -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (-25% out1)) out2)'
+printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
+-s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
+-o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (-25% out1)) out2)'
 ```
 <img src="fig15.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
-> -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
-> -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
-> -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (125% out1)) out2)'
+printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
+-s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
+-o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (125% out1)) out2)'
 ```
 <img src="fig16.png" width="332" style="border: 2px solid grey;">
 
@@ -207,10 +214,10 @@ We can specify a point explicitly, `{(x,y)}`, or implicitly by referring it to s
 See below for the proof — we have moved the anchor of the red segments even further away, and the framing adjusted.
 
 ```bash
-λ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
-> -s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
-> -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
-> -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (300% out1)) out2)'
+printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
+-s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
+-o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (300% out1)) out2)'
 ```
 <img src="fig17.png" width="332" style="border: 2px solid grey;">
 
@@ -222,7 +229,8 @@ Composing here means just plain successive application (think `.` in Haskell or 
 Let's look at the available transformations now. For the sake of simplicity, we start with a vector from {(0,0)} to {(1,1)} along with the `-debug` option to reveal all default options used. 
 
 ```bash
-λ printf '[[1,1]]' | zsat draw -o '(out) -> (anchor {(0,0)}) out' --debug
+printf '[[1,1]]' | zsat draw --debug \
+-o '(out) -> (anchor {(0,0)}) out' 
 stdin:
 [[1,1]]
 
@@ -237,7 +245,8 @@ stdin:
 Now, let's transform the input vector by rotating it around its beginning by 90 degrees counter-clockwise.
 
 ```bash
-printf '[[1,1]]' | zsat draw -o '(out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out' --debug
+printf '[[1,1]]' | zsat draw --debug \
+-o '(out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out' 
 stdin:
 [[1,1]]
 
@@ -267,9 +276,9 @@ then we will have the following three intermediary results
 See the examples building on top of the one above:
 
 ```bash
-λ printf '[[1,1]]' | zsat draw \
-> -s 'e0:{vec2d all}' \
-> -o '(out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out' --debug
+printf '[[1,1]]' | zsat draw --debug \
+-s 'e0:{vec2d all}' \
+-o '(out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out'
 stdin:
 [[1,1]]
 
@@ -282,7 +291,9 @@ stdin:
 <img src="fig20.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]' | zsat draw -s 'e0:{vec2d all}' -o '(out) -> ((r [-90 a (mid self)]) & (rotate [90 a (0% self)]) & (anchor {(0,0)})) out' --debug
+printf '[[1,1]]' | zsat draw --debug \
+-s 'e0:{vec2d all}' \
+-o '(out) -> ((r [-90 a (mid self)]) & (rotate [90 a (0% self)]) & (anchor {(0,0)})) out'
 stdin:
 [[1,1]]
 
@@ -309,12 +320,16 @@ For example, `180` degrees is equivalent to `p`, `45` degrees to `1r4p`. Here, `
 Now, let's use the `scale` transformation, abbreviated by `s`, which scales both components according to the argument specified.
 
 ```bash
-λ printf '[[1,1]]' | zsat draw -s 'e0:{vec2d all}' -o '(out) -> ((s [[1,3]]) & (a {(0,0)})) out'
+printf '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d all}' \
+-o '(out) -> ((s [[1,3]]) & (a {(0,0)})) out'
 ```
 <img src="fig22.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]' | zsat draw -s 'e0:{vec2d all}' -o '(out) -> ((s [[-1,3]]) & (a {(0,0)})) out'
+printf '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d all}' \
+-o '(out) -> ((s [[-1,3]]) & (a {(0,0)})) out'
 ```
 <img src="fig23.png" width="332" style="border: 2px solid grey;">
 
@@ -324,14 +339,29 @@ The `mirror` transformation, abbreviated by `m`, requires a line argument in the
 Let's try the `[1,1]` vector mirrored against first `x=0.5` and then `y=1` lines.
 
 ```bash
-λ printf '[[1,1]]' | ./zig-out/bin/zsat draw -s 'e0:{vec2d all}' -o '(out) -> (m (x=0.5) & a {(0,0)}) out'
+printf '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d all}' \
+-o '(out) -> (m (x=0.5) & a {(0,0)}) out'
 ```
 <img src="fig24.png" width="332" style="border: 2px solid grey;">
 
 ```bash
-λ printf '[[1,1]]' | ./zig-out/bin/zsat draw -s 'e0:{vec2d all}' -o '(out) -> (m (y=1) & m (x=0.5) & a {(0,0)}) out'
+printf '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d all}' \
+-o '(out) -> (m (y=1) & m (x=0.5) & a {(0,0)}) out'
 ```
 <img src="fig25.png" width="332" style="border: 2px solid grey;">
 
 TODO (**orto** and **project**)
 
+**Note on coordinate systems**
+
+Until now we used, implicitely as it is a default setting, **fixed** coordination system. It basically means upon application of transformations we want to work with the global coordinate system.
+So  `{(0,0)}` is constant coordinate origin and axis stay still. If one uses **origin** we are still demanding the same orientation of the axis, but the origin is __MOVED__ to the end of the vector of the last step (in case this is the first step we start from `{(0,0)}`).
+
+```bash
+printf '[[1,0]]' | zsat draw \
+-s 'e0:{vec2d all}' \
+-o '(out) -> (m (y=x) & a {(1,0)}) out'
+```
+<img src="fig26.png" width="332" style="border: 2px solid grey;">

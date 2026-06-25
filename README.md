@@ -111,6 +111,6 @@ zig build test --summary all
 
 - [**zli**](https://github.com/xcaeser/zli) CLI development support (0.16.0 ready)
 - [**mecha**](https://github.com/Hejsil/mecha) Parser combinator library (0.16.0 ready)
-- [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app (NOT 0.16.0 ready)
+- [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app (0.16.0 ready)
 - [**zigimg**](https://github.com/zigimg/zigimg) Image processing for **kitty graphics protocol** support (0.16.0 ready)
 - [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend (0.16.0 ready)

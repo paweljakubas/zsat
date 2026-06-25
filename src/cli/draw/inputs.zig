@@ -571,7 +571,20 @@ const yLineWithoutXParser = mecha.combine(.{
 
 const yLineWithoutX = yLineWithoutXParser.convert(toYLineType);
 
-const yLineParser = mecha.oneOf(.{ yLineWithX, yLineWithoutX });
+const yLineXOnlyParser = mecha.combine(.{
+    mecha.utf8.char('y'),
+    common.skipWhitespace,
+    mecha.utf8.char('=').discard(),
+    common.skipWhitespace,
+    mecha.utf8.char('x').discard(),
+    common.skipWhitespace,
+}).convert(struct {
+    fn conv(_: std.mem.Allocator, _: anytype) mecha.ConvertError!Line {
+        return Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    }
+}.conv);
+
+const yLineParser = mecha.oneOf(.{ yLineWithX, yLineWithoutX, yLineXOnlyParser });
 
 pub const lineParser = mecha.oneOf(.{ xLineParserVal, yLineParser });
 
@@ -607,4 +620,8 @@ test "lineParser" {
     const r7 = try lineParser.parse(a, "x =0");
     const l7 = Line{ .a = 0.0, .b = 1.0, .c = 0.0 };
     try testing.expectEqualDeep(l7, r7.value.ok);
+
+    const r8 = try lineParser.parse(a, "y=x");
+    const l8 = Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    try testing.expectEqualDeep(l8, r8.value.ok);
 }
