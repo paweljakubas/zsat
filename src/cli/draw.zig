@@ -76,8 +76,8 @@ const out_flag = zli.Flag{
     .default_value = .{ .String = "" },
 };
 
-pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) !*zli.Command {
-    const cmd = try zli.Command.init(writer, reader, allocator, .{
+pub fn register(init_opts: zli.InitOptions) !*zli.Command {
+    const cmd = try zli.Command.init(init_opts, .{
         .name = "draw",
         .shortcut = "d",
         .description = "Construct figure for stdin data using styles, datum, outputs, panes and frames",
@@ -103,7 +103,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     const frames_str = ctx.flag("frames", []const u8);
     const output_str = ctx.flag("outputs", []const u8);
 
-    const stdin_str = try std.fs.File.stdin().readToEndAlloc(alloc, 1024 * 1024);
+    const stdin_str = try ctx.reader.allocRemaining(alloc, .limited(1024 * 1024));
     defer alloc.free(stdin_str);
 
     const inputs_parse_result = try Inputs.inputsParser.parse(alloc, stdin_str);
@@ -194,8 +194,6 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         outputsValidated.transformationPairs = replicated;
     }
 
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-
     var result_pairs = try alloc.alloc(Outputs.OutputTransformationPair, outputsValidated.transformationPairs.len);
 
     for (0..outputsValidated.transformationPairs.len) |idx| {
@@ -203,7 +201,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         const plot_step = if (styles.len > idx and styles[idx].styleValue.plotSteps != null) styles[idx].styleValue.plotSteps.? else .last;
         const coord_type = if (styles.len > idx and styles[idx].styleValue.coordinateSystem != null) styles[idx].styleValue.coordinateSystem.? else .xy;
 
-        const transformed = try Outputs.toExplicitPoint(gpa.allocator(), inputs, outputsValidated, coord_orientation, plot_step, idx, coord_type);
+        const transformed = try Outputs.toExplicitPoint(alloc, inputs, outputsValidated, coord_orientation, plot_step, idx, coord_type);
         result_pairs[idx] = transformed.transformationPairs[idx];
     }
 
@@ -260,8 +258,8 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     };
 }
 
-fn checkTerminalSupportsKitty() bool {
-    const term = std.posix.getenv("TERM") orelse return false;
+fn checkTerminalSupportsKitty(environ: std.process.Environ) bool {
+    const term = environ.getPosix("TERM") orelse return false;
     if (!std.mem.containsAtLeast(u8, term, 1, "xterm") and
         !std.mem.containsAtLeast(u8, term, 1, "kitty") and
         !std.mem.containsAtLeast(u8, term, 1, "ghostty")) return false;
@@ -301,16 +299,17 @@ fn kittyEncode(writer: anytype, width: i32, height: i32, encoded: []const u8) !v
     try writer.writeAll("\n\n");
 }
 
-fn renderToStdout(allocator: std.mem.Allocator, img: Plot.RenderedImage, writer: anytype) !void {
+fn renderToStdout(allocator: std.mem.Allocator, img: Plot.RenderedImage, writer: anytype, io: std.Io) !void {
     const original_width = img.width;
     const original_height = img.height;
 
     var term_cols: u16 = 80;
     var term_rows: u16 = 24;
 
-    if (std.posix.isatty(std.posix.STDOUT_FILENO)) {
+    const stdout_file = std.Io.File.stdout();
+    if (try stdout_file.isTty(io)) {
         var winsize: std.posix.winsize = undefined;
-        if (std.posix.system.ioctl(1, std.posix.T.IOCGWINSZ, @intFromPtr(&winsize)) == 0 and
+        if (std.posix.system.ioctl(stdout_file.handle, std.posix.T.IOCGWINSZ, @intFromPtr(&winsize)) == 0 and
             winsize.col > 0 and winsize.col < 1000 and winsize.row > 0 and winsize.row < 1000)
         {
             term_cols = winsize.col;
@@ -396,49 +395,6 @@ fn resizePixels(
     return new_pixels;
 }
 
-fn renderImageToStdout(allocator: std.mem.Allocator, file: *std.fs.File, writer: anytype) !void {
-    var read_buf: [65536]u8 = undefined;
-    var img = try zigimg.Image.fromFile(allocator, file.*, &read_buf);
-    defer img.deinit(allocator);
-
-    const original_width = img.width;
-    const original_height = img.height;
-
-    var term_cols: u16 = 80;
-    var term_rows: u16 = 24;
-    var winsize: std.posix.winsize = undefined;
-    if (std.posix.system.ioctl(1, std.posix.system.T.IOCGWINSZ, @intFromPtr(&winsize)) == 0) {
-        term_cols = winsize.col;
-        term_rows = winsize.row;
-    }
-
-    const CELL_WIDTH: f32 = 8.0;
-    const CELL_HEIGHT: f32 = 16.0;
-
-    const max_pixel_w: f32 = @as(f32, @floatFromInt(term_cols)) * CELL_WIDTH;
-    const max_pixel_h: f32 = @as(f32, @floatFromInt(term_rows)) * CELL_HEIGHT;
-
-    const img_w: f32 = @floatFromInt(original_width);
-    const img_h: f32 = @floatFromInt(original_height);
-    const scale_x: f32 = max_pixel_w / img_w;
-    const scale_y: f32 = max_pixel_h / img_h;
-    const scale: f32 = @min(scale_x, scale_y);
-
-    const new_w: u32 = @intFromFloat(scale * img_w);
-    const new_h: u32 = @intFromFloat(scale * img_h);
-
-    try img.convert(allocator, .rgba32);
-
-    if (new_w < original_width or new_h < original_height) {
-        try resizeImage(allocator, &img, new_w, new_h);
-    }
-
-    const encoded = try rgbaPixelsToBase64(allocator, img.pixels.rgba32);
-    defer allocator.free(encoded);
-    try kittyEncode(writer, @intCast(img.width), @intCast(img.height), encoded);
-    try writer.flush();
-}
-
 fn resizeImage(alloc: std.mem.Allocator, img: *zigimg.Image, new_w: u32, new_h: u32) !void {
     if (img.pixelFormat() != .rgba32) {
         try img.convert(alloc, .rgba32);
@@ -488,21 +444,21 @@ fn resizeImage(alloc: std.mem.Allocator, img: *zigimg.Image, new_w: u32, new_h: 
     img.height = new_h;
 }
 
-fn getSystemTmpDir(alloc: std.mem.Allocator) ![]u8 {
-    const tmp_env = std.posix.getenv("TMPDIR") orelse "/tmp";
+fn getSystemTmpDir(alloc: std.mem.Allocator, environ: std.process.Environ) ![]u8 {
+    const tmp_env = environ.getPosix("TMPDIR") orelse "/tmp";
     const tmp_dir_path = if (tmp_env.len > 0) tmp_env else "/tmp";
     return try alloc.dupe(u8, tmp_dir_path);
 }
 
-fn getNextOutputFilename(alloc: std.mem.Allocator) ![]u8 {
+fn getNextOutputFilename(alloc: std.mem.Allocator, io: std.Io) ![]u8 {
     var n: u32 = 0;
     while (true) : (n += 1) {
         const filename = try std.fmt.allocPrint(alloc, "output{d}.png", .{n});
         errdefer alloc.free(filename);
-        const file = std.fs.cwd().openFile(filename, .{}) catch {
+        const file = std.Io.Dir.cwd().openFile(io, filename, .{}) catch {
             return filename;
         };
-        file.close();
+        file.close(io);
     }
 }
 
@@ -531,19 +487,21 @@ fn run(ctx: zli.CommandContext) !void {
 
     const debug = ctx.flag("debug", bool);
 
-    runInternal(ctx, alloc) catch |err| {
+    const environ: *std.process.Environ = @ptrCast(@alignCast(ctx.data.?));
+
+    runInternal(ctx, alloc, environ.*) catch |err| {
         if (debug) return err;
         std.debug.print("{s}\n", .{friendlyErrorMessage(err)});
         std.process.exit(1);
     };
 }
 
-fn runInternal(ctx: zli.CommandContext, alloc: std.mem.Allocator) !void {
+fn runInternal(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process.Environ) !void {
     const parsed_data = try parse(ctx, alloc);
 
     const out_filename = ctx.flag("out", []const u8);
     const force_file = out_filename.len > 0;
-    const term_supports = checkTerminalSupportsKitty();
+    const term_supports = checkTerminalSupportsKitty(environ);
     const should_display = !force_file and term_supports;
 
     if (std.mem.eql(u8, out_filename, "/dev/null")) {
@@ -556,17 +514,17 @@ fn runInternal(ctx: zli.CommandContext, alloc: std.mem.Allocator) !void {
     if (force_file) {
         output_path = try alloc.dupe(u8, out_filename);
     } else if (!should_display) {
-        output_path = try getNextOutputFilename(alloc);
+        output_path = try getNextOutputFilename(alloc, ctx.io);
     }
 
-    const rendered = try Plot.plot_via_z2d(parsed_data, output_path);
+    const rendered = try Plot.plot_via_z2d(ctx.io, parsed_data, output_path);
     defer rendered.allocator.free(rendered.pixels);
 
     if (force_file) {
         std.debug.print("Saved to {s}\n", .{out_filename});
     } else if (should_display) {
-        var stdout_writer = std.fs.File.stdout().writerStreaming(&.{});
-        try renderToStdout(alloc, rendered, &stdout_writer.interface);
+        var stdout_fw = std.Io.File.stdout().writerStreaming(ctx.io, &.{});
+        try renderToStdout(alloc, rendered, &stdout_fw.interface, ctx.io);
     } else {
         const filename = output_path.?;
         std.debug.print("Saved to {s}\n", .{filename});

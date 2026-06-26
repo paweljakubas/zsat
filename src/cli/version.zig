@@ -1,11 +1,9 @@
 const std = @import("std");
-const Writer = std.Io.Writer;
-const Reader = std.Io.Reader;
 const zli = @import("zli");
 const commit = @import("commit");
 
-pub fn register(writer: *Writer, reader: *Reader, allocator: std.mem.Allocator) !*zli.Command {
-    return zli.Command.init(writer, reader, allocator, .{
+pub fn register(init_opts: zli.InitOptions) !*zli.Command {
+    return zli.Command.init(init_opts, .{
         .name = "version",
         .shortcut = "v",
         .description = "Show zsat version",

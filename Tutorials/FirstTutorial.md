@@ -394,7 +394,7 @@ printf '[[1,1]]\n[[2,2]]' | zsat draw \
 <img src="fig28.png" width="332" style="border: 2px solid grey;">
 
 In the second transformation if `coord` is on we have the vector of the first transformation becoming the direction of the x axis of the next coordinate system.
-Also the new coordinate system is shofted to global (1,0). And here `y=x` is the vertical line passing the origin and the line mirror works against.
+Also the new coordinate system is shifted to global (1,0). And here `y=x` is the vertical line passing the origin and the line mirror works against.
 
 ```bash
 printf '[[1,1]]\n[[0,2]]' | ./zig-out/bin/zsat draw \
@@ -403,3 +403,8 @@ printf '[[1,1]]\n[[0,2]]' | ./zig-out/bin/zsat draw \
   -o '(out0, out1) -> ((m (y=x) & a {(1,0)}) out0, (a {(1,0)}) out1)'
 ```
 <img src="fig29.png" width="332" style="border: 2px solid grey;">
+
+**Note on coordinate types**
+
+Until now we used the default `xy` coordinate type that stands for Euclidean coordinate system. One can also use `polar` type where we use `(r, phi)` to determine position.
+`phi` is the angle argument we already covered before.

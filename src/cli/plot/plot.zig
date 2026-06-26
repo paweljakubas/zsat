@@ -785,7 +785,7 @@ fn drawFixedPairs(context: *z2d.Context, ops: anytype, origin_x: f64, origin_y: 
 ///       - fixed: drawFixedPairs ((begin, end) segments)
 ///       - single anchor: drawPolylineFromAnchor (input polyline from anchor)
 /// 5. Output: write PNG or return RenderedImage with pixel data
-pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedImage {
+pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) !RenderedImage {
     if (parsed_data.panes.len == 0) {
         return error.NoPanes;
     }
@@ -800,7 +800,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     var surface = try z2d.Surface.init(.image_surface_rgba, std.heap.page_allocator, width, height);
     defer surface.deinit(std.heap.page_allocator);
 
-    var context = z2d.Context.init(std.heap.page_allocator, &surface);
+    var context = z2d.Context.init(io, std.heap.page_allocator, &surface);
 
     context.setSourceToPixel(.{ .rgba = .{ .r = 255, .g = 255, .b = 255, .a = 255 } });
     context.setLineWidth(0.0); // Disable stroke during fill
@@ -889,7 +889,7 @@ pub fn plot_via_z2d(parsed_data: anytype, output_path: ?[]const u8) !RenderedIma
     }
 
     if (output_path) |filename| {
-        try z2d.png_exporter.writeToPNGFile(surface, filename, .{});
+        try z2d.png_exporter.writeToPNGFile(io, surface, filename, .{});
     }
 
     const pixels = switch (surface) {
