@@ -174,6 +174,9 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
             return error.ParseOutputsFailed;
         },
     };
+    if (outputs_parse_result.index != output_str.len) {
+        return error.ParseOutputsFailed;
+    }
 
     const numberOfOutputsForValidation: u8 = @intCast(outputsConnection.outputs.len);
 

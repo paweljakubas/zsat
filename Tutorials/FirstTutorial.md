@@ -335,6 +335,8 @@ printf '[[1,1]]' | zsat draw \
 
 As we see, a negative value in `scale` makes the resultant component direction opposite. Values less than 1 perform shrinking, while values greater than 1 enforce elongation.
 
+**Continuing transformation**
+
 The `mirror` transformation, abbreviated by `m`, requires a line argument in the form of `ay=bx+c` against which the vector is to be reflected.
 Let's try the `[1,1]` vector mirrored against first `x=0.5` and then `y=1` lines.
 
@@ -379,4 +381,25 @@ printf '[[1,0]]\n[[2,2]]' | zsat draw \
 <img src="fig27.png" width="332" style="border: 2px solid grey;">
 
 In `origin` (but also 'coord' mode in this context) after the first transformation the origin of the coordinate system moves to point (1,0), so `y=x` is constructed there.
-This means the vector being the result of mirror is adjacent to the vector after first step.   
+This means the vector being the result of mirror is adjacent to the vector after the first step.
+`coord` mode moves also the coordinate origin, like in the case of `origin`, but also reorient axis in such way that the x axis is in line with the last step's vector direction.
+Let's look immediately at the example and discuss it to underline this mode.
+
+```bash
+printf '[[1,1]]\n[[2,2]]' | zsat draw \
+-s 'e0:{vec2d all coord}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
+-o '(out0, out1) -> ((a {(1,0)}) out0, (a {(0,0)}) out1)'
+```
+<img src="fig28.png" width="332" style="border: 2px solid grey;">
+
+In the second transformation if `coord` is on we have the vector of the first transformation becoming the direction of the x axis of the next coordinate system.
+Also the new coordinate system is shofted to global (1,0). And here `y=x` is the vertical line passing the origin and the line mirror works against.
+
+```bash
+printf '[[1,1]]\n[[0,2]]' | ./zig-out/bin/zsat draw \
+  -s 'e0:{vec2d all coord}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+  -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
+  -o '(out0, out1) -> ((m (y=x) & a {(1,0)}) out0, (a {(1,0)}) out1)'
+```
+<img src="fig29.png" width="332" style="border: 2px solid grey;">
