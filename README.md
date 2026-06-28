@@ -1,6 +1,6 @@
 **Z**ig-based **S**cience plotting and **A**nimation command line **T**ool
 
-[![Zig Version](https://img.shields.io/badge/Zig_Version-0.15.2-orange.svg?logo=zig)](README.md)
+[![Zig Version](https://img.shields.io/badge/Zig_Version-0.16.0-orange.svg?logo=zig)](README.md)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](LICENSE)
 [![Built by paweljakubas](https://img.shields.io/badge/Built%20by-@paweljakubas-blue)](https://github.com/paweljakubas)
 
@@ -109,8 +109,8 @@ zig build test --summary all
 
 ## Zig packages (outside std) proudly used in the project:
 
-- [**zli**](https://github.com/xcaeser/zli) CLI development support (0.16.0 ready)
-- [**mecha**](https://github.com/Hejsil/mecha) Parser combinator library (0.16.0 ready)
-- [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app (0.16.0 ready)
-- [**zigimg**](https://github.com/zigimg/zigimg) Image processing for **kitty graphics protocol** support (0.16.0 ready)
-- [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend (0.16.0 ready)
+- [**zli**](https://github.com/xcaeser/zli) CLI development support 
+- [**mecha**](https://github.com/Hejsil/mecha) Parser combinator library 
+- [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app 
+- [**zigimg**](https://github.com/zigimg/zigimg) Image processing for **kitty graphics protocol** support 
+- [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend 
