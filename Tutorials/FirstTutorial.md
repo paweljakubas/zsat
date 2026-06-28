@@ -397,7 +397,7 @@ In the second transformation if `coord` is on we have the vector of the first tr
 Also the new coordinate system is shifted to global (1,0). And here `y=x` is the vertical line passing the origin and the line mirror works against.
 
 ```bash
-printf '[[1,1]]\n[[0,2]]' | ./zig-out/bin/zsat draw \
+printf '[[1,1]]\n[[0,2]]' | zsat draw \
   -s 'e0:{vec2d all coord}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
   -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
   -o '(out0, out1) -> ((m (y=x) & a {(1,0)}) out0, (a {(1,0)}) out1)'
@@ -408,3 +408,20 @@ printf '[[1,1]]\n[[0,2]]' | ./zig-out/bin/zsat draw \
 
 Until now we used the default `xy` coordinate type that stands for Euclidean coordinate system. One can also use `polar` type where we use `(r, phi)` to determine position.
 `phi` is the angle argument we already covered before.
+
+```bash
+printf '[[1,45]]' | zsat draw \
+  -s 'e0:{vec2d polar all coord}' \
+  -o '(out) -> (r [45 a (end self)] & a {(0,0)}) out'
+```
+
+<img src="fig30.png" width="332" style="border: 2px solid grey;">
+
+Data input from stdin is setting `(r, phi) = (1, 45 deg)` and the next step rotate around the end of the result of the first step another 45 degrees counter-clockwise.
+
+``bash
+printf '[[1,45]]' | zsat draw \
+  -s 'e0:{vec2d polar all}' \
+  -o '(out) -> (r [-1r6p a (beg self)] & r [45 a (end self)] & a {(0,0)}) out'
+```
+<img src="fig31.png" width="332" style="border: 2px solid grey;">

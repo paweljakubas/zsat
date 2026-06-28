@@ -509,7 +509,7 @@ pub const integer = mecha.combine(.{
     mecha.oneOf(.{ onenine, zeronine }),
     zeronine.many(.{ .collect = false, .min = 1, .max = 8 }).opt(),
 });
-const integerWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), integer });
+pub const integerWithSign = mecha.combine(.{ mecha.utf8.char('-').opt(), integer });
 const floatWithDecimal = mecha.combine(.{
     integerWithSign,
     mecha.utf8.char('.').opt(),

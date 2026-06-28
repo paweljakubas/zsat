@@ -430,9 +430,9 @@ fn parsePiSuffix(_: std.mem.Allocator, _: angleParserPiSuffixP.T) mecha.ConvertE
 }
 
 const angleParserWithRatio = mecha.combine(.{
-    common.integer,
+    common.integerWithSign,
     mecha.utf8.char('r'),
-    common.integer,
+    common.integerWithSign,
     mecha.utf8.char('p'),
 }).asStr();
 
@@ -448,7 +448,7 @@ fn parseWithRatio(_: std.mem.Allocator, res: angleParserWithRatioP.T) mecha.Conv
 }
 
 const angleParserWithInt = mecha.combine(.{
-    common.integer,
+    common.integerWithSign,
     mecha.utf8.char('p'),
 }).asStr();
 
@@ -515,6 +515,19 @@ test "angleParser" {
     const r7 = try angleParser.parse(a, "4p");
     const a7 = Angle{ .radians = 4 * pi };
     try testing.expectEqualDeep(a7, r7.value.ok);
+
+    // Negative radian notations
+    const r8 = try angleParser.parse(a, "-1r4p");
+    const a8 = Angle{ .radians = -0.25 * pi };
+    try testing.expectEqualDeep(a8, r8.value.ok);
+
+    const r9 = try angleParser.parse(a, "-1r6p");
+    const a9 = Angle{ .radians = -pi / 6.0 };
+    try testing.expectApproxEqAbs(a9.radians, r9.value.ok.radians, 0.0001);
+
+    const r10 = try angleParser.parse(a, "-4p");
+    const a10 = Angle{ .radians = -4 * pi };
+    try testing.expectEqualDeep(a10, r10.value.ok);
 }
 
 //ay=bx+c

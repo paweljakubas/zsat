@@ -433,7 +433,7 @@ test "generalPointParser" {
 }
 
 const rotationArgParser = mecha.combine(.{
-    common.floatFromDecimal,
+    inputs.angleParser,
     common.skipWhitespace,
     mecha.oneOf(.{
         mecha.string("around"),
@@ -443,7 +443,12 @@ const rotationArgParser = mecha.combine(.{
     generalPointParser,
 }).convert(struct {
     fn toRotateArg(_: std.mem.Allocator, a: anytype) mecha.ConvertError!RotateArg {
-        return RotateArg{ .phi = a[0], .point = a[1] };
+        const angle = a[0];
+        const phi_degrees = switch (angle) {
+            .degrees => |d| d,
+            .radians => |r| std.math.radiansToDegrees(r),
+        };
+        return RotateArg{ .phi = phi_degrees, .point = a[1] };
     }
 }.toRotateArg);
 
@@ -482,6 +487,42 @@ test "rotationArgParser" {
     const gp6 = GeneralPoint{ .point = p6 };
     const o6 = RotateArg{ .phi = -1234.9, .point = gp6 };
     try testing.expectEqualDeep(o6, r6.value.ok);
+
+    // Radian notation: 1r4p = pi/4 = 45 degrees
+    const r7 = try rotationArgParser.parse(fa, "1r4p around (0% self)");
+    const o7 = RotateArg{ .phi = 45.0, .point = p1 };
+    try testing.expectApproxEqAbs(@as(f32, o7.phi), r7.value.ok.phi, 0.0001);
+    try testing.expectEqualDeep(o7.point, r7.value.ok.point);
+
+    // Radian notation: p = pi = 180 degrees
+    const r8 = try rotationArgParser.parse(fa, "p a (0% self)");
+    const o8 = RotateArg{ .phi = 180.0, .point = p1 };
+    try testing.expectApproxEqAbs(@as(f32, o8.phi), r8.value.ok.phi, 0.0001);
+    try testing.expectEqualDeep(o8.point, r8.value.ok.point);
+
+    // Radian notation: 2p = 2*pi = 360 degrees
+    const r9 = try rotationArgParser.parse(fa, "2p around (0% self)");
+    const o9 = RotateArg{ .phi = 360.0, .point = p1 };
+    try testing.expectApproxEqAbs(@as(f32, o9.phi), r9.value.ok.phi, 0.0001);
+    try testing.expectEqualDeep(o9.point, r9.value.ok.point);
+
+    // Negative radian notation: -1r4p = -pi/4 = -45 degrees
+    const r10 = try rotationArgParser.parse(fa, "-1r4p around (0% self)");
+    const o10 = RotateArg{ .phi = -45.0, .point = p1 };
+    try testing.expectApproxEqAbs(@as(f32, o10.phi), r10.value.ok.phi, 0.0001);
+    try testing.expectEqualDeep(o10.point, r10.value.ok.point);
+
+    // Negative radian notation: -1r6p = -pi/6 = -30 degrees
+    const r11 = try rotationArgParser.parse(fa, "-1r6p a (0% self)");
+    const o11 = RotateArg{ .phi = -30.0, .point = p1 };
+    try testing.expectApproxEqAbs(@as(f32, o11.phi), r11.value.ok.phi, 0.0001);
+    try testing.expectEqualDeep(o11.point, r11.value.ok.point);
+
+    // Negative radian notation: -4p = -4*pi = -720 degrees
+    const r12 = try rotationArgParser.parse(fa, "-4p around (0% self)");
+    const o12 = RotateArg{ .phi = -720.0, .point = p1 };
+    try testing.expectApproxEqAbs(@as(f32, o12.phi), r12.value.ok.phi, 0.0001);
+    try testing.expectEqualDeep(o12.point, r12.value.ok.point);
 }
 
 const rotatePartialParserRawInner = mecha.combine(.{
@@ -2053,11 +2094,13 @@ fn processRotateOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
     }
     var poly = try allocator.alloc(inputs.Point, prev_poly.len);
     if (rot_pt_in_poly) {
-        poly[0] = rot_pt;
-        var out_idx: usize = 1;
+        var out_idx: usize = 0;
         for (prev_poly) |p| {
-            if (p.x == rot_pt.x and p.y == rot_pt.y) continue;
-            poly[out_idx] = geometry.rotateByAngleAroundPoint(.{ .degrees = arg.phi }, rot_pt, p, null);
+            if (p.x == rot_pt.x and p.y == rot_pt.y) {
+                poly[out_idx] = rot_pt;
+            } else {
+                poly[out_idx] = geometry.rotateByAngleAroundPoint(.{ .degrees = arg.phi }, rot_pt, p, null);
+            }
             out_idx += 1;
         }
     } else {
@@ -3957,9 +4000,9 @@ test "toExplicitPoint - compose with anchor and rotation around end self" {
     // & applies in reverse: first anchor (1,1), then rotate around end of self
     // (a) anchor at (1,1) with vector [1,1]: polyline from (1,1) to (2,2)
     // (b) rotate around end of itself, i.e. (2,2), by 45°:
-    //     polyline starts at rotation point (2,2),
-    //     then remaining non-rotation point (1,1) rotated around (2,2)
+    //     remaining non-rotation point (1,1) rotated around (2,2)
     //     → rotate (1,1) around (2,2) by 45°: (2, 2-√2)
+    //     polyline preserves original order: (2, 2-√2) -> (2,2)
     const tp = OutputTransformationPair{
         .outputName = "out",
         .operation = Compose{
@@ -3982,12 +4025,12 @@ test "toExplicitPoint - compose with anchor and rotation around end self" {
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
 
-    // Final polyline after rotation: (2,2) -> (2, 2-√2)
+    // Final polyline after rotation preserves order: (2, 2-√2) -> (2,2)
     try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 2.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 2.0);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 2.0 - std.math.sqrt2, 0.01);
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0 - std.math.sqrt2, 0.01);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 2.0);
 }
 
 test "toExplicitPoint - compose with anchor and rotation around end self multi-segment" {
@@ -3999,9 +4042,9 @@ test "toExplicitPoint - compose with anchor and rotation around end self multi-s
     // & applies in reverse: first anchor (1,1), then rotate around end of self
     // (a) anchor at (1,1) with vectors [1,1],[1,-1]: polyline (1,1)->(2,2)->(3,1)
     // (b) rotate around end of itself, i.e. (3,1), by 45°:
-    //     polyline starts at rotation point (3,1),
-    //     then remaining non-rotation points rotated around (3,1)
+    //     remaining non-rotation points rotated around (3,1)
     //     (1,1)→(1.586, -0.414), (2,2)→(1.586, 1.0)
+    //     polyline preserves original order: (1.586, -0.414) -> (1.586, 1.0) -> (3,1)
     const tp = OutputTransformationPair{
         .outputName = "out",
         .operation = Compose{
@@ -4025,15 +4068,15 @@ test "toExplicitPoint - compose with anchor and rotation around end self multi-s
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
 
-    // Final polyline after rotation: (3,1) -> rotated (1,1) -> rotated (2,2)
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 3.0);
-    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+    // Final polyline after rotation preserves order: rotated (1,1) -> rotated (2,2) -> (3,1)
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 3.0 - std.math.sqrt2, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0 - std.math.sqrt2, 0.01);
 
     try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 3.0 - std.math.sqrt2, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.0 - std.math.sqrt2, 0.01);
+    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.0, 0.01);
 
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 3.0 - std.math.sqrt2, 0.01);
-    try testing.expectApproxEqAbs(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0, 0.01);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 1.0);
 }
 
 test "toExplicitPoint - compose with anchor and rotation around mid self" {
