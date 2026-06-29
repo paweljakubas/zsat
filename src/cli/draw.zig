@@ -94,6 +94,13 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
     try cmd.addFlag(out_flag);
 
     // Documentation subcommands
+    const objects_cmd = try zli.Command.init(init_opts, .{
+        .name = "objects",
+        .description = "Overview of objects and concepts you can explore",
+        .help = draw_help.objects_help,
+    }, draw_help.printHelpExec);
+    try cmd.addCommand(objects_cmd);
+
     const vec2d_cmd = try zli.Command.init(init_opts, .{
         .name = "vec2d",
         .description = "2D vector data format and concepts",

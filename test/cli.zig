@@ -252,6 +252,7 @@ test "zsat draw -h cleaned output" {
     try testing.expectEqual(@as(u8, 0), result.code);
 
     // Should list available doc subcommands
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "objects"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "vec2d"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "point"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "line"));
@@ -358,4 +359,18 @@ test "zsat draw color --help" {
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "lc:"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "black"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "aqua"));
+}
+
+test "zsat draw objects --help" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "objects", "--help" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "vec2d"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "point"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "line"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "color"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "zsat draw vec2d --help"));
 }

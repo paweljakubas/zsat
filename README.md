@@ -67,14 +67,33 @@ Construct figure for stdin data using styles, datum, outputs, panes and frames
 
 Usage: zsat draw [options]
 
+Available commands:
+   color           Available color names for line color
+   line            How to define lines for the mirror transformation
+   objects         Overview of objects and concepts you can explore
+   point           How to define points: explicit coordinates or references
+   vec2d           2D vector data format and concepts
+
 Flags:
-   -d, --datum      Mapping data streams to the defined styles. [String] (default: "(vec) -> (vec -> e0)")
-   -s, --styles     Style(s) definition to be used in further steps when constructing the figure. [String] (default: "e0:{vec2d xy fixed [lw:20, lc: black, lo: 100, le:none, lj: none, ld: none]}")
-   --debug          Dump the drawing representation for a command invoked. [Bool] (default: false)
-   -f, --frames     Frame(s) definition of the figure. [String] (default: "(out) -> out -> p0")
-   -p, --panes      Pane(s) definition to be used in frame construction of the figure. [String] (default: "p0:{size: 600x600}")
-   --out            Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal. [String]
-   -h, --help       Shows the help for a command [Bool] (default: false)
+   --out            Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal.
+   -d, --datum      Mapping data streams to the defined styles.
+                    Default: "(vec) -> (vec -> e0)"
+   -s, --styles     Style(s) definition to be used in further steps when constructing the figure.
+                    Default: "e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld: none]}"
+   --debug          Dump the drawing representation for a command invoked.
+   -o, --outputs    Input(s) transformation definition of the outputs.
+                    Default: "(out) -> (anchor {(0,0)}) out"
+   -f, --frames     Frame(s) definition of the figure.
+                    Default: "(out) -> out -> p0"
+   -p, --panes      Pane(s) definition to be used in frame construction of the figure.
+                    Default: "p0:{size: 600x600}"
+   -h, --help       Shows the help for a command
+```
+
+To explore available concepts and objects, run:
+
+```bash
+zsat draw objects --help
 ```
 
 ### Examples
