@@ -12,6 +12,7 @@ const Frames = @import("draw/frames.zig");
 const Panes = @import("draw/panes.zig");
 
 const Plot = @import("plot");
+const draw_help = @import("draw_help.zig");
 
 pub const ParsedData = struct {
     styles: []const Styles.Style,
@@ -91,6 +92,50 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
 
     try cmd.addFlag(debug_flag);
     try cmd.addFlag(out_flag);
+
+    // Documentation subcommands
+    const vec2d_cmd = try zli.Command.init(init_opts, .{
+        .name = "vec2d",
+        .description = "2D vector data format and concepts",
+        .help = draw_help.vec2d_help,
+    }, draw_help.printHelpExec);
+
+    const vec2d_style_cmd = try zli.Command.init(init_opts, .{
+        .name = "style",
+        .description = "Style attributes: coordinate system, orientation, steps, line properties",
+        .help = draw_help.vec2d_style_help,
+    }, draw_help.printHelpExec);
+
+    const vec2d_output_cmd = try zli.Command.init(init_opts, .{
+        .name = "output",
+        .description = "Output transformations: anchor, rotate, scale, mirror",
+        .help = draw_help.vec2d_output_help,
+    }, draw_help.printHelpExec);
+
+    try vec2d_cmd.addCommand(vec2d_style_cmd);
+    try vec2d_cmd.addCommand(vec2d_output_cmd);
+    try cmd.addCommand(vec2d_cmd);
+
+    const point_cmd = try zli.Command.init(init_opts, .{
+        .name = "point",
+        .description = "How to define points: explicit coordinates or references",
+        .help = draw_help.point_help,
+    }, draw_help.printHelpExec);
+    try cmd.addCommand(point_cmd);
+
+    const line_cmd = try zli.Command.init(init_opts, .{
+        .name = "line",
+        .description = "How to define lines for the mirror transformation",
+        .help = draw_help.line_help,
+    }, draw_help.printHelpExec);
+    try cmd.addCommand(line_cmd);
+
+    const color_cmd = try zli.Command.init(init_opts, .{
+        .name = "color",
+        .description = "Available color names for line color",
+        .help = draw_help.color_help,
+    }, draw_help.printHelpExec);
+    try cmd.addCommand(color_cmd);
 
     return cmd;
 }
