@@ -1221,11 +1221,11 @@ pub const defaultStyleValue = StyleValue{
     .coordinateOrientation = .fixed,
     .plotSteps = .last,
     .attributes = Vec2dAttributes{
-        .lineWidth = null,
-        .lineColor = null,
-        .lineOpacity = null,
-        .lineCap = null,
-        .lineJoin = null,
+        .lineWidth = LineWidthType{ .reference = .output, .value = 10 },
+        .lineColor = LineColorType{ .value = .black },
+        .lineOpacity = LineOpacityType{ .value = 100 },
+        .lineCap = LineCapType{ .value = .none },
+        .lineJoin = LineJoinType{ .value = .none },
         .lineDashing = null,
     },
 };
@@ -1239,30 +1239,34 @@ pub fn resolveStyles(arena: std.mem.Allocator, styles: []const Style) ![]Style {
     var result = try arena.alloc(Style, styles.len);
     for (styles, 0..) |style, i| {
         result[i] = style;
-        if (style.styleValue.baseStyle) |base| {
+        var resolved = if (style.styleValue.baseStyle) |base| blk: {
             const base_value = map.get(base) orelse defaultStyleValue;
-            var resolved = base_value;
-            resolved.baseStyle = null;
+            var r = base_value;
+            r.baseStyle = null;
+            break :blk r;
+        } else blk: {
+            var r = defaultStyleValue;
+            r.baseStyle = null;
+            break :blk r;
+        };
 
-            if (style.styleValue.attributes) |override_attrs| {
-                var resolved_attrs = resolved.attributes orelse Vec2dAttributes{};
-                if (override_attrs.lineWidth) |lw| resolved_attrs.lineWidth = lw;
-                if (override_attrs.lineColor) |lc| resolved_attrs.lineColor = lc;
-                if (override_attrs.lineOpacity) |lo| resolved_attrs.lineOpacity = lo;
-                if (override_attrs.lineCap) |le| resolved_attrs.lineCap = le;
-                if (override_attrs.lineJoin) |lj| resolved_attrs.lineJoin = lj;
-                if (override_attrs.lineDashing) |ld| resolved_attrs.lineDashing = ld;
-                resolved.attributes = resolved_attrs;
-            }
-
-            if (style.styleValue.styleType) |st| resolved.styleType = st;
-            if (style.styleValue.coordinateSystem) |cs| resolved.coordinateSystem = cs;
-            if (style.styleValue.coordinateOrientation) |co| resolved.coordinateOrientation = co;
-            if (style.styleValue.plotSteps) |ps| resolved.plotSteps = ps;
-
-            result[i].styleValue = resolved;
+        if (style.styleValue.attributes) |override_attrs| {
+            var resolved_attrs = resolved.attributes orelse Vec2dAttributes{};
+            if (override_attrs.lineWidth) |lw| resolved_attrs.lineWidth = lw;
+            if (override_attrs.lineColor) |lc| resolved_attrs.lineColor = lc;
+            if (override_attrs.lineOpacity) |lo| resolved_attrs.lineOpacity = lo;
+            if (override_attrs.lineCap) |le| resolved_attrs.lineCap = le;
+            if (override_attrs.lineJoin) |lj| resolved_attrs.lineJoin = lj;
+            if (override_attrs.lineDashing) |ld| resolved_attrs.lineDashing = ld;
+            resolved.attributes = resolved_attrs;
         }
 
+        if (style.styleValue.styleType) |st| resolved.styleType = st;
+        if (style.styleValue.coordinateSystem) |cs| resolved.coordinateSystem = cs;
+        if (style.styleValue.coordinateOrientation) |co| resolved.coordinateOrientation = co;
+        if (style.styleValue.plotSteps) |ps| resolved.plotSteps = ps;
+
+        result[i].styleValue = resolved;
         try map.put(result[i].styleNumber, result[i].styleValue);
     }
 
@@ -1349,4 +1353,92 @@ test "stylesParser" {
 
     const exp_styles1 = [2]Style{ exp_element2, exp_element3 };
     try testing.expectEqualDeep(&exp_styles1, r1.value.ok);
+}
+
+/// Serializes a resolved Style to its string representation, filling in defaults.
+/// Suitable for --debug output so users see the effective settings.
+pub fn serializeStyle(allocator: std.mem.Allocator, style: Style) ![]const u8 {
+    var parts = std.ArrayList([]const u8).empty;
+    defer {
+        for (parts.items) |p| allocator.free(p);
+        parts.deinit(allocator);
+    }
+
+    const sv = style.styleValue;
+
+    // eN:{
+    try parts.append(allocator, try std.fmt.allocPrint(allocator, "e{}:{{", .{style.styleNumber}));
+
+    // Type
+    const st = sv.styleType orelse .vec2d;
+    try parts.append(allocator, try allocator.dupe(u8, @tagName(st)));
+
+    // Coordinate system
+    const cs = sv.coordinateSystem orelse .xy;
+    try parts.append(allocator, try std.fmt.allocPrint(allocator, " {s}", .{@tagName(cs)}));
+
+    // Orientation
+    const co = sv.coordinateOrientation orelse .fixed;
+    try parts.append(allocator, try std.fmt.allocPrint(allocator, " {s}", .{@tagName(co)}));
+
+    // Plot steps
+    const ps = sv.plotSteps orelse .last;
+    try parts.append(allocator, try std.fmt.allocPrint(allocator, " {s}", .{@tagName(ps)}));
+
+    // Attributes
+    const attrs = sv.attributes orelse Vec2dAttributes{};
+    const lw = attrs.lineWidth orelse LineWidthType.defaultLineWidthType();
+    const lc = attrs.lineColor orelse LineColorType.defaultLineColorType();
+    const lo = attrs.lineOpacity orelse LineOpacityType.defaultLineOpacityType();
+    const le = attrs.lineCap orelse LineCapType.defaultLineCapType();
+    const lj = attrs.lineJoin orelse LineJoinType.defaultLineJoinType();
+    const has_dashing = attrs.lineDashing != null;
+    const ld = attrs.lineDashing orelse LineDashingType.defaultLineDashingType();
+
+    try parts.append(allocator, try std.fmt.allocPrint(allocator, " [lw:{}, lc: {s}, lo: {}, le:{s}, lj: {s}, ld:", .{
+        lw.value,
+        @tagName(lc.value),
+        lo.value,
+        @tagName(le.value),
+        @tagName(lj.value),
+    }));
+
+    // Dashing pattern
+    if (has_dashing and ld.onOff.len > 0) {
+        var dash_parts = std.ArrayList([]const u8).empty;
+        defer {
+            for (dash_parts.items) |p| allocator.free(p);
+            dash_parts.deinit(allocator);
+        }
+        try dash_parts.append(allocator, try allocator.dupe(u8, "["));
+        for (ld.onOff, 0..) |v, i| {
+            if (i > 0) try dash_parts.append(allocator, try allocator.dupe(u8, ", "));
+            try dash_parts.append(allocator, try std.fmt.allocPrint(allocator, "{}", .{v}));
+        }
+        try dash_parts.append(allocator, try allocator.dupe(u8, "]"));
+        const dash_str = try std.mem.join(allocator, "", dash_parts.items);
+        try parts.append(allocator, dash_str);
+        try parts.append(allocator, try std.fmt.allocPrint(allocator, " {}]}}", .{ld.offset}));
+    } else {
+        try parts.append(allocator, try allocator.dupe(u8, "none]}}"));
+    }
+
+    return try std.mem.join(allocator, "", parts.items);
+}
+
+/// Serializes a slice of resolved styles into a single comma-separated string.
+pub fn serializeStyles(allocator: std.mem.Allocator, styles: []const Style) ![]const u8 {
+    var parts = std.ArrayList([]const u8).empty;
+    defer {
+        for (parts.items) |p| allocator.free(p);
+        parts.deinit(allocator);
+    }
+
+    for (styles, 0..) |style, i| {
+        if (i > 0) try parts.append(allocator, try allocator.dupe(u8, ", "));
+        const s = try serializeStyle(allocator, style);
+        try parts.append(allocator, s);
+    }
+
+    return try std.mem.join(allocator, "", parts.items);
 }

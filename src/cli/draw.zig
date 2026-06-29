@@ -285,8 +285,10 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     const framesValidated = try Frames.validateConnection(alloc, framesNum, paneNames, frames);
 
     if (debug) {
+        const styles_debug = try Styles.serializeStyles(alloc, styles);
+        defer alloc.free(styles_debug);
         try ctx.writer.print("stdin:\n{s}\n", .{stdin_str});
-        try ctx.writer.print("\n--styles {s}\n", .{styles_str});
+        try ctx.writer.print("\n--styles {s}\n", .{styles_debug});
         try ctx.writer.print("--datum {s}\n", .{datum_str});
         try ctx.writer.print("--outputs {s}\n", .{output_str});
         try ctx.writer.print("--panes {s}\n", .{panes_str});
