@@ -11,6 +11,19 @@ const ValsRange = inputs.ValsRange;
 const determine_pane_bounds = inputs.determine_pane_bounds;
 const determine_pane_bounds_with_end = inputs.determine_pane_bounds_with_end;
 
+const CoordinateType = enum {
+    xy,
+    polar,
+};
+
+const pi: f32 = 3.14159265359;
+
+/// Converts a polar vector (r, phi_degrees) to Cartesian (x, y).
+fn polarToCartesian(v: Vector) Vector {
+    const angle_rad = v.y * pi / 180.0;
+    return Vector{ .x = v.x * @cos(angle_rad), .y = v.x * @sin(angle_rad) };
+}
+
 test "getAnchorPoint" {
     const TestPoint = struct { x: f32, y: f32 };
     const TestAnchorPoint = union(enum) { point: TestPoint, fraction: void, beginning: void, end: void, middle: void };
@@ -247,7 +260,8 @@ fn updateBounds(px: f32, py: f32, minX: *f32, maxX: *f32, minY: *f32, maxY: *f32
 }
 
 test "walkInputRowBounds" {
-    const TestElem = union(enum) { point: struct { x: f32, y: f32 }, vector: struct { x: f32, y: f32 }, vectors: []const struct { x: f32, y: f32 } };
+    const TestVec = struct { x: f32, y: f32 };
+    const TestElem = union(enum) { point: TestVec, vector: TestVec, vectors: []const TestVec };
     const TestRow = struct { row: []const TestElem };
     const TestInputs = struct { input: []const TestRow };
 
@@ -264,7 +278,7 @@ test "walkInputRowBounds" {
     } };
     const test_inputs = TestInputs{ .input = &[1]TestRow{row} };
 
-    walkInputRowBounds(10.0, 10.0, &test_inputs, 0, &minX, &maxX, &minY, &maxY, &initialized);
+    walkInputRowBounds(10.0, 10.0, &test_inputs, 0, &minX, &maxX, &minY, &maxY, &initialized, CoordinateType.xy);
     try testing.expect(initialized);
     // After start (10,10): bounds = (10,10,10,10)
     // After vector (1,2): cur = (11,12), bounds = (10,11,10,12)
@@ -276,38 +290,91 @@ test "walkInputRowBounds" {
 
     // idx out of range — no change
     updateBounds(100.0, 100.0, &minX, &maxX, &minY, &maxY, &initialized);
-    walkInputRowBounds(0.0, 0.0, &test_inputs, 5, &minX, &maxX, &minY, &maxY, &initialized);
+    walkInputRowBounds(0.0, 0.0, &test_inputs, 5, &minX, &maxX, &minY, &maxY, &initialized, CoordinateType.xy);
     try testing.expectEqual(@as(f32, 100.0), maxX);
+}
+
+test "walkInputRowBounds polar cumulative" {
+    const Vec = struct { x: f32, y: f32 };
+    const TestElem = union(enum) { point: Vec, vector: Vec, vectors: []const Vec };
+    const TestRow = struct { row: []const TestElem };
+    const TestInputs = struct { input: []const TestRow };
+
+    // [[1,45], [1,10], [2,10]] in polar -> cumulative angles 45, 55, 65 degrees
+    const vs = &[3]Vec{
+        .{ .x = 1.0, .y = 45.0 },
+        .{ .x = 1.0, .y = 10.0 },
+        .{ .x = 2.0, .y = 10.0 },
+    };
+    const row = TestRow{ .row = &[1]TestElem{.{ .vectors = vs }} };
+    const test_inputs = TestInputs{ .input = &[1]TestRow{row} };
+
+    var minX: f32 = 0;
+    var maxX: f32 = 0;
+    var minY: f32 = 0;
+    var maxY: f32 = 0;
+    var initialized = false;
+
+    walkInputRowBounds(0.0, 0.0, &test_inputs, 0, &minX, &maxX, &minY, &maxY, &initialized, CoordinateType.polar);
+    try testing.expect(initialized);
+    // After first vector (45°): (cos45, sin45) ~ (0.707, 0.707)
+    // After second vector (55°): (0.707+cos55, 0.707+sin55) ~ (1.281, 1.526)
+    // After third vector (65°): (1.281+2*cos65, 1.526+2*sin65) ~ (2.127, 3.339)
+    try testing.expectApproxEqAbs(@as(f32, 0.0), minX, 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 2.126), maxX, 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), minY, 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 3.339), maxY, 0.001);
 }
 
 /// Walks through input vectors/points from a starting position, updating bounds
 /// at each step. Vectors accumulate, points replace the current position.
+/// For polar coordinates, angles are cumulative across the row.
 ///
 /// Example:
 /// ```
-/// walkInputRowBounds(0, 0, &input_data, 0, &minX, &maxX, &minY, &maxY, &initialized);
-/// ```
-fn walkInputRowBounds(start_x: f32, start_y: f32, input_data: anytype, row_idx: usize, minX: *f32, maxX: *f32, minY: *f32, maxY: *f32, initialized: *bool) void {
+fn walkInputRowBounds(start_x: f32, start_y: f32, input_data: anytype, row_idx: usize, minX: *f32, maxX: *f32, minY: *f32, maxY: *f32, initialized: *bool, coordinate_type: anytype) void {
     if (row_idx >= input_data.input.len) return;
     const input_row = input_data.input[row_idx];
+    var heading: f32 = 0.0;
     for (input_row.row) |elem| {
         switch (elem) {
             .vector => |v| {
+                var dx = v.x;
+                var dy = v.y;
+                if (coordinate_type == .polar) {
+                    heading += v.y;
+                    const angle_rad = heading * pi / 180.0;
+                    dx = v.x * @cos(angle_rad);
+                    dy = v.x * @sin(angle_rad);
+                }
                 updateBounds(start_x, start_y, minX, maxX, minY, maxY, initialized);
-                updateBounds(start_x + v.x, start_y + v.y, minX, maxX, minY, maxY, initialized);
+                updateBounds(start_x + dx, start_y + dy, minX, maxX, minY, maxY, initialized);
             },
             .vectors => |vs| {
                 var cur_x = start_x;
                 var cur_y = start_y;
                 updateBounds(cur_x, cur_y, minX, maxX, minY, maxY, initialized);
                 for (vs) |v| {
-                    cur_x += v.x;
-                    cur_y += v.y;
+                    var dx = v.x;
+                    var dy = v.y;
+                    if (coordinate_type == .polar) {
+                        heading += v.y;
+                        const angle_rad = heading * pi / 180.0;
+                        dx = v.x * @cos(angle_rad);
+                        dy = v.x * @sin(angle_rad);
+                    }
+                    cur_x += dx;
+                    cur_y += dy;
                     updateBounds(cur_x, cur_y, minX, maxX, minY, maxY, initialized);
                 }
             },
             .point => |p| {
-                updateBounds(p.x, p.y, minX, maxX, minY, maxY, initialized);
+                if (coordinate_type == .polar) {
+                    const angle_rad = p.y * pi / 180.0;
+                    updateBounds(p.x * @cos(angle_rad), p.x * @sin(angle_rad), minX, maxX, minY, maxY, initialized);
+                } else {
+                    updateBounds(p.x, p.y, minX, maxX, minY, maxY, initialized);
+                }
             },
         }
     }
@@ -321,7 +388,8 @@ test "computeBounds" {
     const TestOps = struct { ops: []const TestOp };
     const TestPair = struct { operation: TestOps };
 
-    const TestElem = union(enum) { point: struct { x: f32, y: f32 }, vector: struct { x: f32, y: f32 }, vectors: []const struct { x: f32, y: f32 } };
+    const TestVec = struct { x: f32, y: f32 };
+    const TestElem = union(enum) { point: TestVec, vector: TestVec, vectors: []const TestVec };
     const TestRow = struct { row: []const TestElem };
     const TestInputs = struct { input: []const TestRow };
 
@@ -333,7 +401,7 @@ test "computeBounds" {
     const pair_fixed = TestPair{ .operation = .{ .ops = &op_fixed } };
     const outputs_fixed = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_fixed} };
     const inputs_empty = TestInputs{ .input = &[0]TestRow{} };
-    const r1 = computeBounds(&outputs_fixed, &inputs_empty, &[1]enum { coord, origin, fixed }{.fixed});
+    const r1 = computeBounds(&outputs_fixed, &inputs_empty, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.xy});
     try testing.expectEqual(@as(f32, 1.0), r1.x[0]);
     try testing.expectEqual(@as(f32, 5.0), r1.x[1]);
     try testing.expectEqual(@as(f32, 1.0), r1.y[0]);
@@ -346,7 +414,7 @@ test "computeBounds" {
     };
     const pair_coord = TestPair{ .operation = .{ .ops = &op_coord } };
     const outputs_coord = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_coord} };
-    const r2 = computeBounds(&outputs_coord, &inputs_empty, &[1]enum { coord, origin, fixed }{.coord});
+    const r2 = computeBounds(&outputs_coord, &inputs_empty, &[1]enum { coord, origin, fixed }{.coord}, &[1]CoordinateType{.xy});
     try testing.expectEqual(@as(f32, 2.0), r2.x[0]);
     try testing.expectEqual(@as(f32, 7.0), r2.x[1]);
     try testing.expectEqual(@as(f32, 1.0), r2.y[0]);
@@ -361,7 +429,7 @@ test "computeBounds" {
     };
     const pair_origin = TestPair{ .operation = .{ .ops = &op_origin } };
     const outputs_origin = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_origin} };
-    const r3 = computeBounds(&outputs_origin, &test_inputs, &[1]enum { coord, origin, fixed }{.origin});
+    const r3 = computeBounds(&outputs_origin, &test_inputs, &[1]enum { coord, origin, fixed }{.origin}, &[1]CoordinateType{.xy});
     // begin=(100,100), end=(103,104), bounds cover (100,100) and (103,104)
     try testing.expectEqual(@as(f32, 100.0), r3.x[0]);
     try testing.expectEqual(@as(f32, 103.0), r3.x[1]);
@@ -370,7 +438,7 @@ test "computeBounds" {
 
     // Empty outputs -> default bounds (0,0)-(1,1)
     const outputs_empty = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[0]TestPair{} };
-    const r4 = computeBounds(&outputs_empty, &inputs_empty, &[0]enum { coord, origin, fixed }{});
+    const r4 = computeBounds(&outputs_empty, &inputs_empty, &[0]enum { coord, origin, fixed }{}, &[0]CoordinateType{});
     try testing.expectEqual(@as(f32, 0.0), r4.x[0]);
     try testing.expectEqual(@as(f32, 1.0), r4.x[1]);
     try testing.expectEqual(@as(f32, 0.0), r4.y[0]);
@@ -382,12 +450,28 @@ test "computeBounds" {
     };
     const pair_single = TestPair{ .operation = .{ .ops = &op_single } };
     const outputs_single = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_single} };
-    const r5 = computeBounds(&outputs_single, &test_inputs, &[1]enum { coord, origin, fixed }{.fixed});
+    const r5 = computeBounds(&outputs_single, &test_inputs, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.xy});
     // start=(5,5), vector=(3,4) -> end=(8,9), bounds cover (5,5) and (8,9)
     try testing.expectEqual(@as(f32, 5.0), r5.x[0]);
     try testing.expectEqual(@as(f32, 8.0), r5.x[1]);
     try testing.expectEqual(@as(f32, 5.0), r5.y[0]);
     try testing.expectEqual(@as(f32, 9.0), r5.y[1]);
+
+    // Single anchor with polar multi-segment: cumulative angles
+    const polar_vs = &[3]TestVec{
+        .{ .x = 1.0, .y = 45.0 },
+        .{ .x = 1.0, .y = 10.0 },
+        .{ .x = 2.0, .y = 10.0 },
+    };
+    const polar_row = TestRow{ .row = &[1]TestElem{.{ .vectors = polar_vs }} };
+    const polar_inputs = TestInputs{ .input = &[1]TestRow{polar_row} };
+    const r6 = computeBounds(&outputs_single, &polar_inputs, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.polar});
+    // start=(5,5), polar vectors with cumulative heading 45, 55, 65
+    // end ~ (5+2.126, 5+3.339) = (7.126, 8.339)
+    try testing.expectApproxEqAbs(@as(f32, 5.0), r6.x[0], 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 7.126), r6.x[1], 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 5.0), r6.y[0], 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 8.339), r6.y[1], 0.001);
 }
 
 /// Resolves the coordinate orientation for a given input row from styles and datum mappings.
@@ -422,7 +506,7 @@ fn resolveCoordOrientation(styles: anytype, mappings: anytype, row_idx: usize) @
 /// const bounds = computeBounds(&outputs, &input_data, &coord_orientations);
 /// // bounds.x = {min_x, max_x}, bounds.y = {min_y, max_y}
 /// ```
-fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anytype) ValsRange {
+fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anytype, coord_types: anytype) ValsRange {
     var minX: f32 = 0.0;
     var maxX: f32 = 0.0;
     var minY: f32 = 0.0;
@@ -432,6 +516,8 @@ fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anyt
     for (outputs.transformationPairs, 0..) |pair, row_idx| {
         const ops = pair.operation.ops;
         const orientation = if (row_idx < coord_orientations.len) coord_orientations[row_idx] else .fixed;
+        if (row_idx >= coord_types.len) continue;
+        const coord_type = coord_types[row_idx];
 
         if (ops.len >= 2 and orientation == .coord) {
             for (ops) |op| {
@@ -474,7 +560,7 @@ fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anyt
                 if (start_op == .anchor and start_op.anchor.point == .point) {
                     const sx = start_op.anchor.point.point.x;
                     const sy = start_op.anchor.point.point.y;
-                    walkInputRowBounds(sx, sy, input_data, row_idx, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                    walkInputRowBounds(sx, sy, input_data, row_idx, &minX, &maxX, &minY, &maxY, &boundsInitialized, coord_type);
                     updateBounds(sx, sy, &minX, &maxX, &minY, &maxY, &boundsInitialized);
                 }
             }
@@ -483,7 +569,7 @@ fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anyt
             if (start_op == .anchor and start_op.anchor.point == .point) {
                 const sx = start_op.anchor.point.point.x;
                 const sy = start_op.anchor.point.point.y;
-                walkInputRowBounds(sx, sy, input_data, row_idx, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                walkInputRowBounds(sx, sy, input_data, row_idx, &minX, &maxX, &minY, &maxY, &boundsInitialized, coord_type);
                 updateBounds(sx, sy, &minX, &maxX, &minY, &maxY, &boundsInitialized);
             }
         }
@@ -632,21 +718,30 @@ fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_i
 /// ```
 /// try drawPolylineFromAnchor(&ctx, 0, 0, &input_data, 0, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
 /// ```
-fn drawPolylineFromAnchor(context: *z2d.Context, start_x: f64, start_y: f64, input_data: anytype, row_idx: usize, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
+fn drawPolylineFromAnchor(context: *z2d.Context, start_x: f64, start_y: f64, input_data: anytype, row_idx: usize, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64, coordinate_type: anytype) !void {
     if (row_idx >= input_data.input.len) return;
     const input_row = input_data.input[row_idx];
+    var heading: f32 = 0.0;
 
     for (input_row.row) |elem| {
         switch (elem) {
             .vector => |v| {
+                var dx = @as(f64, v.x);
+                var dy = @as(f64, v.y);
+                if (coordinate_type == .polar) {
+                    heading += v.y;
+                    const angle_rad = heading * pi / 180.0;
+                    dx = @as(f64, v.x) * @cos(angle_rad);
+                    dy = @as(f64, v.x) * @sin(angle_rad);
+                }
                 context.resetPath();
                 const bx = origin_x + start_x * x_scale;
                 var by = origin_y - start_y * y_scale;
                 if (by < min_y) by = min_y;
                 if (by > max_y) by = max_y;
                 try context.moveTo(bx, by);
-                const ex = origin_x + (start_x + @as(f64, v.x)) * x_scale;
-                var ey = origin_y - (start_y + @as(f64, v.y)) * y_scale;
+                const ex = origin_x + (start_x + dx) * x_scale;
+                var ey = origin_y - (start_y + dy) * y_scale;
                 if (ey < min_y) ey = min_y;
                 if (ey > max_y) ey = max_y;
                 try context.lineTo(ex, ey);
@@ -662,8 +757,16 @@ fn drawPolylineFromAnchor(context: *z2d.Context, start_x: f64, start_y: f64, inp
                 if (plot_y > max_y) plot_y = max_y;
                 try context.moveTo(plot_x, plot_y);
                 for (vs) |v| {
-                    cur_x += @as(f64, v.x);
-                    cur_y += @as(f64, v.y);
+                    var dx = @as(f64, v.x);
+                    var dy = @as(f64, v.y);
+                    if (coordinate_type == .polar) {
+                        heading += v.y;
+                        const angle_rad = heading * pi / 180.0;
+                        dx = @as(f64, v.x) * @cos(angle_rad);
+                        dy = @as(f64, v.x) * @sin(angle_rad);
+                    }
+                    cur_x += dx;
+                    cur_y += dy;
                     plot_x = origin_x + cur_x * x_scale;
                     plot_y = origin_y - cur_y * y_scale;
                     if (plot_y < min_y) plot_y = min_y;
@@ -673,13 +776,20 @@ fn drawPolylineFromAnchor(context: *z2d.Context, start_x: f64, start_y: f64, inp
                 try context.stroke();
             },
             .point => |p| {
+                var px = @as(f64, p.x);
+                var py = @as(f64, p.y);
+                if (coordinate_type == .polar) {
+                    const angle_rad = p.y * pi / 180.0;
+                    px = @as(f64, p.x) * @cos(angle_rad);
+                    py = @as(f64, p.x) * @sin(angle_rad);
+                }
                 context.resetPath();
-                const px = origin_x + @as(f64, p.x) * x_scale;
-                var py = origin_y - @as(f64, p.y) * y_scale;
-                if (py < min_y) py = min_y;
-                if (py > max_y) py = max_y;
-                try context.moveTo(px, py);
-                try context.lineTo(px, py);
+                const plot_px = origin_x + px * x_scale;
+                var plot_py = origin_y - py * y_scale;
+                if (plot_py < min_y) plot_py = min_y;
+                if (plot_py > max_y) plot_py = max_y;
+                try context.moveTo(plot_px, plot_py);
+                try context.lineTo(plot_px, plot_py);
                 try context.stroke();
             },
         }
@@ -825,7 +935,17 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
             .fixed;
     }
 
-    const bounds = computeBounds(outputs, input_data, coord_orientations);
+    const StyleCoordType = @typeInfo(@TypeOf(parsed_data.styles[0].styleValue.coordinateSystem)).optional.child;
+    const coord_types = try std.heap.page_allocator.alloc(StyleCoordType, outputs.transformationPairs.len);
+    defer std.heap.page_allocator.free(coord_types);
+    for (0..outputs.transformationPairs.len) |idx| {
+        coord_types[idx] = if (parsed_data.styles.len > idx and parsed_data.styles[idx].styleValue.coordinateSystem != null)
+            parsed_data.styles[idx].styleValue.coordinateSystem.?
+        else
+            .xy;
+    }
+
+    const bounds = computeBounds(outputs, input_data, coord_orientations, coord_types);
 
     const x_range = bounds.x[1] - bounds.x[0];
     const y_range = bounds.y[1] - bounds.y[0];
@@ -854,6 +974,8 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
             context.setLineJoinMode(style.join_mode);
 
             const orientation = if (row_idx < coord_orientations.len) coord_orientations[row_idx] else .fixed;
+            if (row_idx >= coord_types.len) continue;
+            const ct = coord_types[row_idx];
 
             if (row_idx < outputs.transformationPairs.len) {
                 const pair = outputs.transformationPairs[row_idx];
@@ -871,17 +993,22 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
                         } else {
                             const start_op = ops[ops.len - 2];
                             if (start_op == .anchor and start_op.anchor.point == .point) {
-                                try drawPolylineFromAnchor(&context, @as(f64, start_op.anchor.point.point.x), @as(f64, start_op.anchor.point.point.y), input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
+                                try drawPolylineFromAnchor(&context, @as(f64, start_op.anchor.point.point.x), @as(f64, start_op.anchor.point.point.y), input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y, ct);
                             }
                         }
                     } else {
-                        try drawFixedPairs(&context, ops, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
+                        const vector_count = if (row_idx < input_data.input.len) countVectors(input_data.input[row_idx]) else 0;
+                        if (vector_count > 0 and ops.len % (vector_count + 1) == 0) {
+                            try drawCoordPolylines(&context, ops, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
+                        } else {
+                            try drawFixedPairs(&context, ops, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
+                        }
                     }
                 }
                 if (ops.len == 1) {
                     const start_op = ops[0];
                     if (start_op == .anchor and start_op.anchor.point == .point) {
-                        try drawPolylineFromAnchor(&context, @as(f64, start_op.anchor.point.point.x), @as(f64, start_op.anchor.point.point.y), input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
+                        try drawPolylineFromAnchor(&context, @as(f64, start_op.anchor.point.point.x), @as(f64, start_op.anchor.point.point.y), input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y, ct);
                     }
                 }
             }

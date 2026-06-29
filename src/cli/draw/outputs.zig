@@ -1545,7 +1545,7 @@ test "generateCoordPolyline" {
 /// const vectors = try collectVectors(a, inp, 0);
 /// // vectors now contains all InputElement.vector values from inp.input[0]
 /// ```
-fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize, coordinate_type: CoordinateType) ![]inputs.Vector {
+fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize, coordinate_type: CoordinateType, orientation: CoordinateOrientation) ![]inputs.Vector {
     var count: usize = 0;
     if (idx < inp.input.len) {
         for (inp.input[idx].row) |elem| {
@@ -1558,13 +1558,19 @@ fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize, 
     }
     var vectors = try allocator.alloc(inputs.Vector, count);
     var vidx: usize = 0;
+    var cumulative_angle: f32 = 0.0;
     if (idx < inp.input.len) {
         for (inp.input[idx].row) |elem| {
             switch (elem) {
                 .vector => |v| {
                     var vr = v;
                     if (coordinate_type == .polar) {
-                        vr = inputs.polarVectorToCartesian(v);
+                        if (orientation == .coord) {
+                            vr = inputs.polarVectorToCartesian(v);
+                        } else {
+                            cumulative_angle += v.y;
+                            vr = inputs.polarVectorToCartesian(.{ .x = v.x, .y = cumulative_angle });
+                        }
                     }
                     vectors[vidx] = vr;
                     vidx += 1;
@@ -1573,7 +1579,12 @@ fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize, 
                     for (vs) |v| {
                         var vr = v;
                         if (coordinate_type == .polar) {
-                            vr = inputs.polarVectorToCartesian(v);
+                            if (orientation == .coord) {
+                                vr = inputs.polarVectorToCartesian(v);
+                            } else {
+                                cumulative_angle += v.y;
+                                vr = inputs.polarVectorToCartesian(.{ .x = v.x, .y = cumulative_angle });
+                            }
                         }
                         vectors[vidx] = vr;
                         vidx += 1;
@@ -1597,7 +1608,7 @@ test "collectVectors" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const vectors = try collectVectors(a, inp, 0, .xy);
+    const vectors = try collectVectors(a, inp, 0, .xy, .fixed);
     defer a.free(vectors);
     try testing.expectEqual(@as(usize, 2), vectors.len);
     try testing.expectEqual(@as(f32, 1.0), vectors[0].x);
@@ -1606,8 +1617,30 @@ test "collectVectors" {
     try testing.expectEqual(@as(f32, 4.0), vectors[1].y);
 
     // idx out of range -> empty
-    const empty = try collectVectors(a, inp, 5, .xy);
+    const empty = try collectVectors(a, inp, 5, .xy, .fixed);
     try testing.expectEqual(@as(usize, 0), empty.len);
+
+    // polar multi-segment in fixed mode: cumulative angles
+    const pv1 = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 0.0 } };
+    const pv2 = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 90.0 } };
+    const polar_row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ pv1, pv2 } };
+    const polar_inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{polar_row} };
+    const polar_fixed = try collectVectors(a, polar_inp, 0, .polar, .fixed);
+    defer a.free(polar_fixed);
+    try testing.expectEqual(@as(usize, 2), polar_fixed.len);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), polar_fixed[0].x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), polar_fixed[0].y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), polar_fixed[1].x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), polar_fixed[1].y, 0.0001);
+
+    // polar multi-segment in coord mode: absolute angles
+    const polar_coord = try collectVectors(a, polar_inp, 0, .polar, .coord);
+    defer a.free(polar_coord);
+    try testing.expectEqual(@as(usize, 2), polar_coord.len);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), polar_coord[0].x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), polar_coord[0].y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), polar_coord[1].x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), polar_coord[1].y, 0.0001);
 }
 
 /// Counts explicit point anchors in a composition and returns them in reverse order.
@@ -1696,6 +1729,15 @@ test "sumInputVectors" {
     const sum3 = sumInputVectors(inp2, 0, .xy);
     try testing.expectEqual(@as(f32, -1.0), sum3.x);
     try testing.expectEqual(@as(f32, 1.0), sum3.y);
+
+    // polar multi-segment cumulative angles
+    const pv1 = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 0.0 } };
+    const pv2 = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 90.0 } };
+    const polar_row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ pv1, pv2 } };
+    const polar_inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{polar_row} };
+    const polar_sum = sumInputVectors(polar_inp, 0, .polar);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), polar_sum.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), polar_sum.y, 0.0001);
 }
 
 /// Sums all input vectors for the given output index into a single (x, y) pair.
@@ -1708,18 +1750,25 @@ test "sumInputVectors" {
 fn sumInputVectors(inp: inputs.Inputs, idx: usize, coordinate_type: CoordinateType) struct { x: f32, y: f32 } {
     var input_x: f32 = 0.0;
     var input_y: f32 = 0.0;
+    var cumulative_angle: f32 = 0.0;
     if (idx < inp.input.len) {
         const row = inp.input[idx];
         for (row.row) |elem| {
             switch (elem) {
                 .vector => |v| {
-                    const resolved = if (coordinate_type == .polar) inputs.polarVectorToCartesian(v) else v;
+                    const resolved = if (coordinate_type == .polar) blk: {
+                        cumulative_angle += v.y;
+                        break :blk inputs.polarVectorToCartesian(.{ .x = v.x, .y = cumulative_angle });
+                    } else v;
                     input_x += resolved.x;
                     input_y += resolved.y;
                 },
                 .vectors => |vs| {
                     for (vs) |v| {
-                        const resolved = if (coordinate_type == .polar) inputs.polarVectorToCartesian(v) else v;
+                        const resolved = if (coordinate_type == .polar) blk: {
+                            cumulative_angle += v.y;
+                            break :blk inputs.polarVectorToCartesian(.{ .x = v.x, .y = cumulative_angle });
+                        } else v;
                         input_x += resolved.x;
                         input_y += resolved.y;
                     }
@@ -2500,7 +2549,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     continue;
                 }
 
-                const vectors = try collectVectors(allocator, inp, idx, coordinate_type);
+                const vectors = try collectVectors(allocator, inp, idx, coordinate_type, orientation);
                 defer allocator.free(vectors);
 
                 var ctx_begin: ?inputs.Point = null;
@@ -2600,7 +2649,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 continue;
             }
 
-            const vectors = try collectVectors(allocator, inp, output_idx, coordinate_type);
+            const vectors = try collectVectors(allocator, inp, output_idx, coordinate_type, .coord);
             defer allocator.free(vectors);
 
             if (vectors.len == 0) {

@@ -419,9 +419,33 @@ printf '[[1,45]]' | zsat draw \
 
 Data input from stdin is setting `(r, phi) = (1, 45 deg)` and the next step rotate around the end of the result of the first step another 45 degrees counter-clockwise.
 
-``bash
+```bash
 printf '[[1,45]]' | zsat draw \
   -s 'e0:{vec2d polar all}' \
   -o '(out) -> (r [-1r6p a (beg self)] & r [45 a (end self)] & a {(0,0)}) out'
 ```
 <img src="fig31.png" width="332" style="border: 2px solid grey;">
+
+** Multi-segment data**
+
+We saw how separate data is delivered (via new line separated data in stdin) and handled in separate fashion. If we want data to be treated as the one object and relate mutually on each other
+using multi-segment vectors could be the first example.
+
+```bash
+printf '[[1,45], [1,10], [2,30]]' | zsat draw \
+  -s 'e0:{vec2d polar all}' \
+  -o '(out) -> (a {(0,0)}) out'
+```
+<img src="fig32.png" width="332" style="border: 2px solid grey;">
+
+The 3-segment vector here is constructed in such a way that the second segment starts where the first ends, and the third starts where the second ends. The structure works like a whole meaning it adopts the style and undergoes the transformations alltogether. See the example below.
+
+```bash
+printf '[[1,45], [1,10], [2,30]]\n[[3.5,3.5]]' | zsat draw \
+  -s 'e0:{vec2d polar all}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+  -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
+  -o '(out0, out1) -> ((m (y=x) & a {(0,0)}) out0, (a {(0,0)}) out1)'
+```
+<img src="fig33.png" width="332" style="border: 2px solid grey;">
+
+
