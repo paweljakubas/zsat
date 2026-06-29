@@ -138,6 +138,13 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
     }, draw_help.printHelpExec);
     try cmd.addCommand(line_cmd);
 
+    const angle_cmd = try zli.Command.init(init_opts, .{
+        .name = "angle",
+        .description = "How to represent angles: degrees, radians, and fractions of pi",
+        .help = draw_help.angle_help,
+    }, draw_help.printHelpExec);
+    try cmd.addCommand(angle_cmd);
+
     const color_cmd = try zli.Command.init(init_opts, .{
         .name = "color",
         .description = "Available color names for line color",

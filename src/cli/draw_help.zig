@@ -200,6 +200,34 @@ pub const color_help =
     \\  lc: rebeccapurple
 ;
 
+/// Help text for `zsat draw angle --help`
+pub const angle_help =
+    \\Angles are used in transformations like `rotate` and in polar coordinates.
+    \\They can be expressed in degrees, in radians, or as fractions of pi.
+    \\
+    \\Degrees (default):
+    \\  90        -- 90 degrees counter-clockwise
+    \\  -45       -- 45 degrees clockwise
+    \\  180       -- half turn
+    \\
+    \\Radians using `p` for pi:
+    \\  p         -- pi radians = 180 degrees
+    \\  2p        -- 2*pi radians = 360 degrees
+    \\  -1r2p     -- -pi/2 = -90 degrees
+    \\  1r4p      -- pi/4 = 45 degrees
+    \\  -1r6p     -- -pi/6 = -30 degrees
+    \\
+    \\Fraction syntax:
+    \\  NUMrDENp  -- means (NUM/DEN) * pi
+    \\  The `r` stands for ratio. This avoids writing decimals like 0.3333.
+    \\
+    \\Examples:
+    \\  rotate [90 a (0% self)]           -- rotate 90 degrees
+    \\  rotate [1r4p a (mid self)]        -- rotate 45 degrees (pi/4)
+    \\  rotate [-1r6p a (end self)]       -- rotate -30 degrees (-pi/6)
+    \\  r [2p a (beg self)]               -- full 360-degree rotation
+;
+
 /// Help text for `zsat draw objects --help`
 pub const objects_help =
     \\The `draw` command works with geometric objects and concepts.
@@ -215,6 +243,8 @@ pub const objects_help =
     \\       How to define points: explicit coordinates or references
     \\  zsat draw line --help
     \\       How to define lines for the mirror transformation
+    \\  zsat draw angle --help
+    \\       How to represent angles: degrees, radians, and fractions of pi
     \\  zsat draw color --help
     \\       Available color names for line color
 ;
