@@ -67,12 +67,7 @@ Construct figure for stdin data using styles, datum, outputs, panes and frames
 
 Usage: zsat draw [options]
 
-Available commands:
-   color           Available color names for line color
-   line            How to define lines for the mirror transformation
-   objects         Overview of objects and concepts you can explore
-   point           How to define points: explicit coordinates or references
-   vec2d           2D vector data format and concepts
+To explore help more try: zsat draw objects --help
 
 Flags:
    --out            Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal.

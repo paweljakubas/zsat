@@ -251,12 +251,8 @@ test "zsat draw -h cleaned output" {
     try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
     try testing.expectEqual(@as(u8, 0), result.code);
 
-    // Should list available doc subcommands
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "objects"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "vec2d"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "point"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "line"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "color"));
+    // Should show the hint pointing to objects --help instead of listing commands
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "To explore help more try: zsat draw objects --help"));
 
     // Type annotations like [String] or [Bool] should NOT appear
     try testing.expect(!std.mem.containsAtLeast(u8, result.stdout, 1, " [String]"));

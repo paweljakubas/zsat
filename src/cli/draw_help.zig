@@ -203,20 +203,20 @@ pub const color_help =
 /// Help text for `zsat draw objects --help`
 pub const objects_help =
     \\The `draw` command works with geometric objects and concepts.
-    \\Use the subcommands below to explore each topic in detail.
+    \\Use the commands below to explore each topic in detail.
     \\
-    \\  vec2d       -- 2D vector data format, input shapes, coordinate systems
-    \\                 (run: zsat draw vec2d --help)
-    \\  style       -- Style attributes: coordinate system, orientation, steps, line properties
-    \\                 (run: zsat draw vec2d style --help)
-    \\  output      -- Output transformations: anchor, rotate, scale, mirror
-    \\                 (run: zsat draw vec2d output --help)
-    \\  point       -- How to define points: explicit coordinates or references
-    \\                 (run: zsat draw point --help)
-    \\  line        -- How to define lines for the mirror transformation
-    \\                 (run: zsat draw line --help)
-    \\  color       -- Available color names for line color
-    \\                 (run: zsat draw color --help)
+    \\  zsat draw vec2d --help
+    \\       2D vector data format, input shapes, coordinate systems
+    \\  zsat draw vec2d style --help
+    \\       Style attributes: coordinate system, orientation, steps, line properties
+    \\  zsat draw vec2d output --help
+    \\       Output transformations: anchor, rotate, scale, mirror
+    \\  zsat draw point --help
+    \\       How to define points: explicit coordinates or references
+    \\  zsat draw line --help
+    \\       How to define lines for the mirror transformation
+    \\  zsat draw color --help
+    \\       Available color names for line color
 ;
 
 /// Print help text directly (used as execFn for doc-only subcommands).
