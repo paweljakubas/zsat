@@ -488,3 +488,45 @@ printf '[[1,45], [1,10], [2,30]]\n[[3.5,3.5]]' | zsat draw \
   -o '(out0, out1) -> ((m (y=x) & a {(0,0)}) out0, (a {(0,0)}) out1)'
 ```
 <img src="fig33.png" width="332" style="border: 2px solid grey;">
+
+## Exploring the tool through help
+
+`zsat` provides built-in documentation through subcommands. Instead of remembering every detail, you can query the tool directly.
+
+To learn about the `vec2d` data format — input shapes, coordinate systems, and how vectors compose:
+
+```bash
+zsat draw vec2d --help
+```
+
+For a complete reference on style attributes — coordinate system (`xy`/`polar`), orientation (`fixed`/`origin`/`coord`), plot steps (`last`/`all`), and all line properties:
+
+```bash
+zsat draw vec2d style --help
+```
+
+To see how transformations are composed in `--outputs` — `anchor`, `rotate`, `scale`, `mirror` — and the syntax for angles and points:
+
+```bash
+zsat draw vec2d output --help
+```
+
+For the syntax of points, both explicit `{(x,y)}` and by reference (`beg self`, `mid out0`, `25% self`):
+
+```bash
+zsat draw point --help
+```
+
+For the syntax of lines used in mirroring — general form, horizontal, vertical, and special cases like `y=x`:
+
+```bash
+zsat draw line --help
+```
+
+To browse available colors, here are some beginning with the letter **c**:
+`coral`, `crimson`, `cyan`, `chocolate`, `chartreuse`, `cadetblue`, `cornflowerblue`, `cornsilk`.
+You can see the full list with:
+
+```bash
+zsat draw color --help
+```
