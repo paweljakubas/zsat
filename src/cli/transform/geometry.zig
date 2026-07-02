@@ -23,6 +23,45 @@ pub fn rotateByAngleAroundPoint(angle: Angle, around: Point, point: Point, accur
     return Point{ .x = x_rotated, .y = y_rotated };
 }
 
+/// Orthogonal projection of a point onto a line.
+/// Line is in the form a*y = b*x + c, i.e. b*x - a*y + c = 0.
+pub fn projectPointOntoLine(point: Point, line: Line) Point {
+    const denom = line.a * line.a + line.b * line.b;
+    if (denom < 1e-10) {
+        return point;
+    }
+    const t = (line.b * point.x - line.a * point.y + line.c) / denom;
+    return Point{
+        .x = point.x - line.b * t,
+        .y = point.y + line.a * t,
+    };
+}
+
+test "projectPointOntoLine" {
+    // Horizontal line y = 0
+    const line1 = Line{ .a = 1.0, .b = 0.0, .c = 0.0 };
+    const p1 = projectPointOntoLine(Point{ .x = 3.0, .y = 4.0 }, line1);
+    try testing.expectEqual(@as(f32, 3.0), p1.x);
+    try testing.expectEqual(@as(f32, 0.0), p1.y);
+
+    // Vertical line x = 0
+    const line2 = Line{ .a = 0.0, .b = 1.0, .c = 0.0 };
+    const p2 = projectPointOntoLine(Point{ .x = 3.0, .y = 4.0 }, line2);
+    try testing.expectEqual(@as(f32, 0.0), p2.x);
+    try testing.expectEqual(@as(f32, 4.0), p2.y);
+
+    // Line y = x (45 degrees)
+    const line3 = Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    const p3 = projectPointOntoLine(Point{ .x = 2.0, .y = 0.0 }, line3);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), p3.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), p3.y, 0.0001);
+
+    // Point already on the line
+    const p4 = projectPointOntoLine(Point{ .x = 1.0, .y = 1.0 }, line3);
+    try testing.expectEqual(@as(f32, 1.0), p4.x);
+    try testing.expectEqual(@as(f32, 1.0), p4.y);
+}
+
 test "rotateByAngleAroundPoint" {
     const sqrt2: f32 = 1.41421;
 

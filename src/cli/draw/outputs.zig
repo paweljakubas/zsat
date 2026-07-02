@@ -94,6 +94,7 @@ pub const OneArgFunctionPartial = union(enum) {
     rotate: RotatePartial,
     scale: ScalePartial,
     mirror: MirrorPartial,
+    project: ProjectPartial,
 };
 
 //Anchor obj to point
@@ -126,6 +127,16 @@ pub const ScalePartial = struct {
 //Mirror over line
 pub const MirrorPartial = struct {
     line: inputs.Line,
+};
+
+//Project onto line or vector
+pub const ProjectTarget = union(enum) {
+    line: inputs.Line,
+    vector: inputs.Vector,
+};
+
+pub const ProjectPartial = struct {
+    target: ProjectTarget,
 };
 
 pub const ElementReference = union(enum) {
@@ -811,6 +822,75 @@ test "mirrorPartialParser" {
     try testing.expectEqualDeep(m3, r3.value.ok);
 }
 
+const vectorParserLocal = mecha.combine(.{
+    common.skipOpenSquare,
+    common.floatFromDecimal,
+    common.skipComma,
+    common.floatFromDecimal,
+    common.skipCloseSquare,
+}).convert(struct {
+    fn toVector(_: std.mem.Allocator, a: anytype) mecha.ConvertError!inputs.Vector {
+        return inputs.Vector{ .x = a[0], .y = a[1] };
+    }
+}.toVector);
+
+const projectTargetParser = mecha.oneOf(.{
+    mirrorLineParser.map(struct {
+        fn toLineTarget(l: inputs.Line) mecha.ConvertError!ProjectTarget {
+            return ProjectTarget{ .line = l };
+        }
+    }.toLineTarget),
+    vectorParserLocal.map(struct {
+        fn toVecTarget(v: inputs.Vector) mecha.ConvertError!ProjectTarget {
+            return ProjectTarget{ .vector = v };
+        }
+    }.toVecTarget),
+});
+
+const projectPartialParserRawInner = mecha.combine(.{
+    common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("project"),
+        mecha.string("p"),
+    }).discard(),
+    common.skipWhitespace,
+    projectTargetParser,
+});
+const projectPartialParserRawWithout = projectPartialParserRawInner;
+const projectPartialParserRawWith = mecha.combine(.{
+    common.skipOpenBracket,
+    projectPartialParserRawInner,
+    common.skipCloseBracket,
+});
+const projectPartialParserRaw = mecha.oneOf(.{
+    projectPartialParserRawWith,
+    projectPartialParserRawWithout,
+});
+const projectPartialParserRawP = @TypeOf(projectPartialParserRaw);
+fn toProjectPartial(_: std.mem.Allocator, res: projectPartialParserRawP.T) mecha.ConvertError!ProjectPartial {
+    return ProjectPartial{ .target = try res };
+}
+const projectPartialParser = projectPartialParserRaw.convert(toProjectPartial);
+
+test "projectPartialParser" {
+    const fa = testing.failing_allocator;
+
+    const r1 = try projectPartialParser.parse(fa, "project (y=2x+1)");
+    const l1 = inputs.Line{ .a = 1.0, .b = 2.0, .c = 1.0 };
+    const m1 = ProjectPartial{ .target = ProjectTarget{ .line = l1 } };
+    try testing.expectEqualDeep(m1, r1.value.ok);
+
+    const r2 = try projectPartialParser.parse(fa, "p [1,1]");
+    const v2 = inputs.Vector{ .x = 1.0, .y = 1.0 };
+    const m2 = ProjectPartial{ .target = ProjectTarget{ .vector = v2 } };
+    try testing.expectEqualDeep(m2, r2.value.ok);
+
+    const r3 = try projectPartialParser.parse(fa, "(project [2.5,-3])");
+    const v3 = inputs.Vector{ .x = 2.5, .y = -3.0 };
+    const m3 = ProjectPartial{ .target = ProjectTarget{ .vector = v3 } };
+    try testing.expectEqualDeep(m3, r3.value.ok);
+}
+
 const twoArgCombinatorParser =
     mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("on"), mecha.string("under"), mecha.string("with") }).asStr(), mecha.toEnum(TwoArgCombinator)) });
 
@@ -854,12 +934,17 @@ fn toMirrorPartialUnion(_: std.mem.Allocator, res: MirrorPartial) mecha.ConvertE
     return OneArgFunctionPartial{ .mirror = res };
 }
 const mirrorPartialUnionParser = mirrorPartialParser.convert(toMirrorPartialUnion);
+fn toProjectPartialUnion(_: std.mem.Allocator, res: ProjectPartial) mecha.ConvertError!OneArgFunctionPartial {
+    return OneArgFunctionPartial{ .project = res };
+}
+const projectPartialUnionParser = projectPartialParser.convert(toProjectPartialUnion);
 
 const oneArgFunctionPartialParser = mecha.oneOf(.{
     anchorPartialUnionParser,
     rotatePartialUnionParser,
     scalePartialUnionParser,
     mirrorPartialUnionParser,
+    projectPartialUnionParser,
 });
 
 test "oneArgFunctionPartialParser" {
@@ -2360,6 +2445,101 @@ fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
     return poly;
 }
 
+/// Projects a polyline onto a line or vector target.
+///
+/// The result preserves the projected shape: the beginning of the polyline is
+/// orthogonally projected onto the target line, and each subsequent point follows
+/// the projection of its displacement vector onto the line direction.
+///
+/// By mode:
+/// - fixed: projection is applied in global coordinates directly.
+/// - origin: points are translated by -ctx_begin, projected, then translated back.
+/// - coord: points are transformed to a local frame (origin at poly[0], x-axis along
+///   the polyline direction), projected in local coordinates, then transformed back.
+fn processProjectOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, target: ProjectTarget, orientation: CoordinateOrientation, ctx_begin: ?inputs.Point) ![]inputs.Point {
+    const line: inputs.Line = switch (target) {
+        .line => |l| l,
+        .vector => |v| inputs.Line{ .a = v.x, .b = v.y, .c = 0 },
+    };
+    const dir_x = line.a;
+    const dir_y = line.b;
+    const denom = dir_x * dir_x + dir_y * dir_y;
+
+    var poly = try allocator.alloc(inputs.Point, prev_poly.len);
+    if (denom < 1e-10) {
+        @memcpy(poly, prev_poly);
+        return poly;
+    }
+
+    if (orientation == .fixed) {
+        const p0 = prev_poly[0];
+        const p0_proj = geometry.projectPointOntoLine(p0, line);
+        for (prev_poly, 0..) |p, j| {
+            const dx = p.x - p0.x;
+            const dy = p.y - p0.y;
+            const dot = dx * dir_x + dy * dir_y;
+            const scale = dot / denom;
+            poly[j] = inputs.Point{
+                .x = p0_proj.x + scale * dir_x,
+                .y = p0_proj.y + scale * dir_y,
+            };
+        }
+    } else if (orientation == .origin) {
+        const origin = ctx_begin orelse inputs.Point{ .x = 0, .y = 0 };
+        const p0 = prev_poly[0];
+        const p0_local = inputs.Point{ .x = p0.x - origin.x, .y = p0.y - origin.y };
+        const p0_proj_local = geometry.projectPointOntoLine(p0_local, line);
+        for (prev_poly, 0..) |p, j| {
+            const p_local = inputs.Point{ .x = p.x - origin.x, .y = p.y - origin.y };
+            const dx = p_local.x - p0_local.x;
+            const dy = p_local.y - p0_local.y;
+            const dot = dx * dir_x + dy * dir_y;
+            const scale = dot / denom;
+            poly[j] = inputs.Point{
+                .x = p0_proj_local.x + scale * dir_x + origin.x,
+                .y = p0_proj_local.y + scale * dir_y + origin.y,
+            };
+        }
+    } else { // .coord
+        const dx = prev_poly[prev_poly.len - 1].x - prev_poly[0].x;
+        const dy = prev_poly[prev_poly.len - 1].y - prev_poly[0].y;
+        const len = @sqrt(@as(f64, dx) * @as(f64, dx) + @as(f64, dy) * @as(f64, dy));
+        var x_axis_x: f64 = 1.0;
+        var x_axis_y: f64 = 0.0;
+        if (len > 1e-10) {
+            x_axis_x = @as(f64, dx) / len;
+            x_axis_y = @as(f64, dy) / len;
+        }
+        const perp_x = -x_axis_y;
+        const perp_y = x_axis_x;
+        const origin = prev_poly[0];
+
+        const p0_local = inputs.Point{ .x = 0, .y = 0 };
+        const p0_proj_local = geometry.projectPointOntoLine(p0_local, line);
+        for (prev_poly, 0..) |p, j| {
+            const rdx = @as(f64, p.x) - @as(f64, origin.x);
+            const rdy = @as(f64, p.y) - @as(f64, origin.y);
+            const local_x: f32 = @floatCast(rdx * x_axis_x + rdy * x_axis_y);
+            const local_y: f32 = @floatCast(rdx * perp_x + rdy * perp_y);
+            const p_local = inputs.Point{ .x = local_x, .y = local_y };
+
+            const pdx = p_local.x - p0_local.x;
+            const pdy = p_local.y - p0_local.y;
+            const dot = pdx * dir_x + pdy * dir_y;
+            const scale = dot / denom;
+            const p_proj_local = inputs.Point{
+                .x = p0_proj_local.x + scale * dir_x,
+                .y = p0_proj_local.y + scale * dir_y,
+            };
+
+            const gx = @as(f64, p_proj_local.x) * x_axis_x + @as(f64, p_proj_local.y) * perp_x;
+            const gy = @as(f64, p_proj_local.x) * x_axis_y + @as(f64, p_proj_local.y) * perp_y;
+            poly[j] = inputs.Point{ .x = @floatCast(@as(f64, origin.x) + gx), .y = @floatCast(@as(f64, origin.y) + gy) };
+        }
+    }
+    return poly;
+}
+
 test "processOriginFixed" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -2591,6 +2771,9 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     } else if (op == .mirror) {
                         const prev_poly = polylines[poly_count - 1];
                         poly = try processMirrorOp(allocator, prev_poly, op.mirror.line, orientation, ctx_begin);
+                    } else if (op == .project) {
+                        const prev_poly = polylines[poly_count - 1];
+                        poly = try processProjectOp(allocator, prev_poly, op.project.target, orientation, ctx_begin);
                     } else continue;
                     polylines[poly_count] = poly;
                     ctx_begin = poly[0];
@@ -4782,4 +4965,265 @@ test "toExplicitPoint fixed mode - rotate & anchor with plot_steps all" {
     try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0001);
     try testing.expectApproxEqAbs(@as(f32, -1.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 0.0001);
     try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 0.0001);
+}
+
+test "toExplicitPoint fixed - compose with anchor and project onto line" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((project (y=0)) & (anchor {(1,1)})) with input [[1,0]]
+    // & applies in reverse: first anchor (1,1), then project onto horizontal line
+    // (a) anchor at (1,1) with vector [1,0]: polyline from (1,1) to (2,1)
+    // (b) project onto y=0: shift line to y=1 (through beginning), project, shift back
+    //     (1,1) -> (1,0), (2,1) -> (2,0)
+    const l1 = inputs.Line{ .a = 1.0, .b = 0.0, .c = 0.0 };
+    const p1 = ProjectPartial{ .target = ProjectTarget{ .line = l1 } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .project = p1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    // Final polyline after project: (1, 0) -> (2, 0)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0);
+}
+
+test "toExplicitPoint fixed - compose with anchor and project onto vector" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((project [1,0]) & (anchor {(1,1)})) with input [[1,1]]
+    // (a) anchor at (1,1) with vector [1,1]: polyline from (1,1) to (2,2)
+    // (b) project onto horizontal vector [1,0]:
+    //     P0=(1,1) orthogonally projected onto y=0 -> (1,0)
+    //     displacement (1,1) projected onto horizontal -> (1,0)
+    //     result: (1,0) -> (2,0)
+    const p1 = ProjectPartial{ .target = ProjectTarget{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .project = p1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    // Final polyline: (1, 0) -> (2, 0)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0);
+}
+
+test "toExplicitPoint fixed - compose with anchor and project onto 45deg line" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((project (y=x)) & (anchor {(0,1)})) with input [[1,0]]
+    // (a) anchor at (0,1) with vector [1,0]: polyline from (0,1) to (1,1)
+    // (b) project onto y=x:
+    //     P0=(0,1) orthogonally projected onto y=x -> (0.5, 0.5)
+    //     displacement (1,0) projected onto direction (1,1) -> (0.5, 0.5)
+    //     result: (0.5, 0.5) -> (1.0, 1.0)
+    const l1 = inputs.Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
+    const p1 = ProjectPartial{ .target = ProjectTarget{ .line = l1 } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .project = p1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    // Final polyline: (0.5, 0.5) -> (1.0, 1.0)
+    try testing.expectApproxEqAbs(@as(f32, 0.5), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+}
+
+test "toExplicitPoint origin - compose with anchor and project onto line" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((project (y=0)) & (anchor {(1,1)})) with input [[1,0]]
+    // Origin mode: local frame at (1,1), project in local frame, shift back
+    // Local polyline: (0,0) -> (1,0), project onto y=0: (0,0) -> (1,0)
+    // Global: (1,1) -> (2,1)
+    const l1 = inputs.Line{ .a = 1.0, .b = 0.0, .c = 0.0 };
+    const p1 = ProjectPartial{ .target = ProjectTarget{ .line = l1 } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .project = p1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .origin, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    // Origin mode: beginning moves to previous end = (1,1), then vector is projected
+    // But wait, in origin mode, the first anchor creates begin=(1,1), end=(2,1).
+    // Then project acts on this polyline with origin at ctx_begin=(1,1).
+    // Local: (0,0) -> (1,0). Project onto y=0: same. Global: (1,1) -> (2,1).
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.0);
+}
+
+test "toExplicitPoint coord - compose with anchor and project onto line" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((project (y=0)) & (anchor {(1,1)})) with input [[1,1]]
+    // & applies in reverse: first anchor (1,1), then project
+    // (a) anchor at (1,1) with vector [1,1]: polyline from (1,1) to (2,2)
+    // (b) coord mode: local frame origin=(1,1), x-axis=(0.707,0.707), perp=(-0.707,0.707)
+    //     line y=0 in global is a*x - b*y + c = 0 with a=1,b=0,c=0
+    //     In local frame: x_local = (0.707,0.707), y_local = (-0.707,0.707)
+    //     The line y=0 (global) becomes: 1*(1 + 0.707*lx - 0.707*ly) = 0 ???
+    //     Actually projectOp uses the line directly in local coordinates, so
+    //     local point (0,0) on line a=1,b=0,c=0 means (0,0) is on y=0 in local frame.
+    //     So the local frame x-axis IS the line y=0 in local coords.
+    //     Projecting vector [1,1] in local (which is (sqrt(2), 0) in local frame coords)
+    //     onto local y=0: it's already on it. So result: (1,1) -> (2,2).
+    const l1 = inputs.Line{ .a = 1.0, .b = 0.0, .c = 0.0 };
+    const p1 = ProjectPartial{ .target = ProjectTarget{ .line = l1 } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .project = p1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .coord, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    // In coord mode with y=0 as target, the local x-axis is along the polyline
+    // which is at 45deg. The line y=0 in local frame IS the x-axis.
+    // So projecting onto it preserves the vector.
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 1.0);
+    try testing.expectApproxEqAbs(@as(f32, 2.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 2.0), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+}
+
+test "toExplicitPoint fixed - compose with anchor and project onto vector multi-segment" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((project [1,0]) & (anchor {(1,1)})) with input [[1,1],[1,-1]]
+    // (a) anchor at (1,1): polyline (1,1)->(2,2)->(3,1)
+    // (b) project onto horizontal vector [1,0]:
+    //     P0=(1,1) orthogonally projected onto y=0 -> (1,0)
+    //     displacements: (1,1)->(1,0), (2,0)->(2,0)
+    //     result: (1,0) -> (2,0) -> (3,0)
+    const p1 = ProjectPartial{ .target = ProjectTarget{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .project = p1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v1 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const v2 = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = -1.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 3);
+
+    // Final polyline: (1,0) -> (2,0) -> (3,0)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 1.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 2.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 3.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0);
 }
