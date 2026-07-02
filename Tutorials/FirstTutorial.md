@@ -391,7 +391,25 @@ printf '[[1,1]]' | zsat draw \
 ```
 <img src="fig25.png" width="332" style="border: 2px solid grey;">
 
-TODO: `orto` and `project` transformations.
+Now, projection transformation. We have several options here. First we can, have that operation against a line and if so we will have a shadow projection on that line. See, two examples:
+
+```bash
+printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
+-s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)'  \
+-o '(out0, out1) -> ((p (y=0) & a {(1,1)}) out0, (a {(0,0)}) out1)'
+```
+<img src="fig34.png" width="332" style="border: 2px solid grey;">
+
+```bash
+printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
+-s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)'  \
+-o '(out0, out1) -> ((p (x=0) & a {(1,1)}) out0, (a {(0,0)}) out1)'
+```
+<img src="fig35.png" width="332" style="border: 2px solid grey;">
+
+
 
 **Note on coordinate systems**
 
