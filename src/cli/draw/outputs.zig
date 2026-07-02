@@ -134,6 +134,7 @@ pub const MirrorPartial = struct {
 pub const ProjectTarget = union(enum) {
     line: inputs.Line,
     vector: inputs.Vector,
+    point: GeneralPoint,
 };
 
 pub const ProjectPartial = struct {
@@ -850,6 +851,11 @@ const projectTargetParser = mecha.oneOf(.{
             return ProjectTarget{ .vector = v };
         }
     }.toVecTarget),
+    generalPointParser.map(struct {
+        fn toPointTarget(gp: GeneralPoint) mecha.ConvertError!ProjectTarget {
+            return ProjectTarget{ .point = gp };
+        }
+    }.toPointTarget),
 });
 
 const projectPartialParserRawInner = mecha.combine(.{
@@ -894,6 +900,16 @@ test "projectPartialParser" {
     const v3 = inputs.Vector{ .x = 2.5, .y = -3.0 };
     const m3 = ProjectPartial{ .target = ProjectTarget{ .vector = v3 } };
     try testing.expectEqualDeep(m3, r3.value.ok);
+
+    const r4 = try projectPartialParser.parse(fa, "project {(1,2)}");
+    const gp4 = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 2.0 } };
+    const m4 = ProjectPartial{ .target = ProjectTarget{ .point = gp4 } };
+    try testing.expectEqualDeep(m4, r4.value.ok);
+
+    const r5 = try projectPartialParser.parse(fa, "p (beg self)");
+    const gp5 = GeneralPoint{ .beginning = .self };
+    const m5 = ProjectPartial{ .target = ProjectTarget{ .point = gp5 } };
+    try testing.expectEqualDeep(m5, r5.value.ok);
 }
 
 test "orthogonalPartialParser" {
@@ -913,6 +929,16 @@ test "orthogonalPartialParser" {
     const v3 = inputs.Vector{ .x = 2.5, .y = -3.0 };
     const m3 = OrthogonalPartial{ .target = ProjectTarget{ .vector = v3 } };
     try testing.expectEqualDeep(m3, r3.value.ok);
+
+    const r4 = try orthogonalPartialParser.parse(fa, "orthogonal {(3,4)}");
+    const gp4 = GeneralPoint{ .point = inputs.Point{ .x = 3.0, .y = 4.0 } };
+    const m4 = OrthogonalPartial{ .target = ProjectTarget{ .point = gp4 } };
+    try testing.expectEqualDeep(m4, r4.value.ok);
+
+    const r5 = try orthogonalPartialParser.parse(fa, "o (end vec1)");
+    const gp5 = GeneralPoint{ .end = ElementReference{ .other = "vec1" } };
+    const m5 = OrthogonalPartial{ .target = ProjectTarget{ .point = gp5 } };
+    try testing.expectEqualDeep(m5, r5.value.ok);
 }
 
 const twoArgCombinatorParser =
@@ -2515,6 +2541,7 @@ fn processProjectOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Poin
     const line: inputs.Line = switch (target) {
         .line => |l| l,
         .vector => |v| inputs.Line{ .a = v.x, .b = v.y, .c = 0 },
+        .point => unreachable, // resolved to vector before calling
     };
     const dir_x = line.a;
     const dir_y = line.b;
@@ -2611,6 +2638,7 @@ fn processOrthogonalOp(allocator: std.mem.Allocator, prev_poly: []const inputs.P
     const line: inputs.Line = switch (target) {
         .line => |l| l,
         .vector => |v| inputs.Line{ .a = v.x, .b = v.y, .c = 0 },
+        .point => unreachable, // resolved to vector before calling
     };
     const dir_x = line.a;
     const dir_y = line.b;
@@ -2926,10 +2954,73 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                         poly = try processMirrorOp(allocator, prev_poly, op.mirror.line, orientation, ctx_begin);
                     } else if (op == .project) {
                         const prev_poly = polylines[poly_count - 1];
-                        poly = try processProjectOp(allocator, prev_poly, op.project.target, orientation, ctx_begin);
+                        switch (op.project.target) {
+                            .point => |gp| {
+                                const pt = try resolveGeneralPoint(gp, ctx_begin, ctx_end, inp, outputs, idx, orientation);
+                                const dir = inputs.Vector{ .x = pt.x - prev_poly[0].x, .y = pt.y - prev_poly[0].y };
+                                const denom = dir.x * dir.x + dir.y * dir.y;
+                                poly = try allocator.alloc(inputs.Point, prev_poly.len);
+                                if (denom < 1e-10) {
+                                    for (poly) |*p| p.* = pt;
+                                } else {
+                                    const p0 = prev_poly[0];
+                                    for (prev_poly, 0..) |p, j| {
+                                        const dx = p.x - p0.x;
+                                        const dy = p.y - p0.y;
+                                        const dot = dx * dir.x + dy * dir.y;
+                                        const proj_len = @abs(dot) / @sqrt(denom);
+                                        if (proj_len < 1e-10) {
+                                            poly[j] = pt;
+                                        } else {
+                                            const scale = dot / (proj_len * denom);
+                                            poly[j] = inputs.Point{
+                                                .x = pt.x + scale * dir.x,
+                                                .y = pt.y + scale * dir.y,
+                                            };
+                                        }
+                                    }
+                                }
+                            },
+                            else => |target| {
+                                poly = try processProjectOp(allocator, prev_poly, target, orientation, ctx_begin);
+                            },
+                        }
                     } else if (op == .orthogonal) {
                         const prev_poly = polylines[poly_count - 1];
-                        poly = try processOrthogonalOp(allocator, prev_poly, op.orthogonal.target, orientation, ctx_begin);
+                        switch (op.orthogonal.target) {
+                            .point => |gp| {
+                                const pt = try resolveGeneralPoint(gp, ctx_begin, ctx_end, inp, outputs, idx, orientation);
+                                const dir = inputs.Vector{ .x = pt.x - prev_poly[0].x, .y = pt.y - prev_poly[0].y };
+                                const denom = dir.x * dir.x + dir.y * dir.y;
+                                poly = try allocator.alloc(inputs.Point, prev_poly.len);
+                                if (denom < 1e-10) {
+                                    for (poly) |*p| p.* = pt;
+                                } else {
+                                    const p0 = prev_poly[0];
+                                    for (prev_poly, 0..) |p, j| {
+                                        const dx = p.x - p0.x;
+                                        const dy = p.y - p0.y;
+                                        const dot = dx * dir.x + dy * dir.y;
+                                        const proj_x = dot / denom * dir.x;
+                                        const proj_y = dot / denom * dir.y;
+                                        const ortho_x = dx - proj_x;
+                                        const ortho_y = dy - proj_y;
+                                        const ortho_len = @sqrt(ortho_x * ortho_x + ortho_y * ortho_y);
+                                        if (ortho_len < 1e-10) {
+                                            poly[j] = pt;
+                                        } else {
+                                            poly[j] = inputs.Point{
+                                                .x = pt.x + ortho_x / ortho_len,
+                                                .y = pt.y + ortho_y / ortho_len,
+                                            };
+                                        }
+                                    }
+                                }
+                            },
+                            else => |target| {
+                                poly = try processOrthogonalOp(allocator, prev_poly, target, orientation, ctx_begin);
+                            },
+                        }
                     } else continue;
                     polylines[poly_count] = poly;
                     ctx_begin = poly[0];
@@ -5556,4 +5647,233 @@ test "toExplicitPoint fixed - compose with anchor and orthogonal multi-segment" 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.x, 1.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[2].anchor.point.point.y, 0.0);
+}
+
+test "toExplicitPoint fixed - project onto explicit point is unit vector" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((project {(2,0)}) & (anchor {(0,1)})) with input [[2,1]]
+    // (a) anchor at (0,1) with vector [2,1]: polyline from (0,1) to (2,2)
+    // (b) project onto point (2,0):
+    //     direction = (2,0) - (0,1) = (2,-1), |dir| = sqrt(5)
+    //     displacement (2,1), dot = 3, proj_len = 3/sqrt(5)
+    //     UNIT projection: (2/sqrt(5), -1/sqrt(5)) ≈ (0.8944, -0.4472)
+    //     result anchored at (2,0): (2,0) -> (2.8944, -0.4472)
+    const gp = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 0.0 } };
+    const p1 = ProjectPartial{ .target = ProjectTarget{ .point = gp } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .project = p1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 2.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    try testing.expectApproxEqAbs(@as(f32, 2.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 2.0 + 2.0 / @sqrt(5.0)), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, -1.0 / @sqrt(5.0)), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+
+    // Verify unit length
+    const dx = res.transformationPairs[0].operation.ops[1].anchor.point.point.x - res.transformationPairs[0].operation.ops[0].anchor.point.point.x;
+    const dy = res.transformationPairs[0].operation.ops[1].anchor.point.point.y - res.transformationPairs[0].operation.ops[0].anchor.point.point.y;
+    const len = @sqrt(dx * dx + dy * dy);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), len, 0.0001);
+}
+
+test "toExplicitPoint fixed - orthogonal onto explicit point is unit vector" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((orthogonal {(2,0)}) & (anchor {(0,1)})) with input [[2,1]]
+    // (a) anchor at (0,1) with vector [2,1]: polyline from (0,1) to (2,2)
+    // (b) orthogonal to point (2,0):
+    //     direction = (2,0) - (0,1) = (2,-1), |dir| = sqrt(5)
+    //     displacement (2,1), dot = 3, proj = (1.2, -0.6)
+    //     ortho = (0.8, 1.6), |ortho| = sqrt(3.2) ≈ 1.7889
+    //     UNIT orthogonal: (0.4472, 0.8944)
+    //     result anchored at (2,0): (2,0) -> (2.4472, 0.8944)
+    const gp = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 0.0 } };
+    const o1 = OrthogonalPartial{ .target = ProjectTarget{ .point = gp } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .orthogonal = o1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 1.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 2.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    try testing.expectApproxEqAbs(@as(f32, 2.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 2.0 + 0.8 / @sqrt(3.2)), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.6 / @sqrt(3.2)), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+
+    // Verify unit length
+    const dx = res.transformationPairs[0].operation.ops[1].anchor.point.point.x - res.transformationPairs[0].operation.ops[0].anchor.point.point.x;
+    const dy = res.transformationPairs[0].operation.ops[1].anchor.point.point.y - res.transformationPairs[0].operation.ops[0].anchor.point.point.y;
+    const len = @sqrt(dx * dx + dy * dy);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), len, 0.0001);
+}
+
+test "toExplicitPoint fixed - project onto point giving horizontal unit" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((project {(5,0)}) & (anchor {(0,0)})) with input [[3,4]]
+    // direction = (5,0) - (0,0) = (5,0), horizontal
+    // displacement (3,4), dot = 15, proj_len = 3
+    // UNIT projection: (1,0)
+    // result anchored at (5,0): (5,0) -> (6,0)
+    const gp = GeneralPoint{ .point = inputs.Point{ .x = 5.0, .y = 0.0 } };
+    const p1 = ProjectPartial{ .target = ProjectTarget{ .point = gp } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .project = p1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 0.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 3.0, .y = 4.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    // Unit projection result: (5,0) -> (6,0)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 5.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 6.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0);
+}
+
+test "toExplicitPoint fixed - orthogonal onto point giving vertical unit" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((orthogonal {(5,0)}) & (anchor {(0,0)})) with input [[3,4]]
+    // direction = (5,0) - (0,0) = (5,0), horizontal
+    // displacement (3,4), dot = 15, proj = (3,0)
+    // ortho = (0,4), |ortho| = 4
+    // UNIT orthogonal: (0,1)
+    // result anchored at (5,0): (5,0) -> (5,1)
+    const gp = GeneralPoint{ .point = inputs.Point{ .x = 5.0, .y = 0.0 } };
+    const o1 = OrthogonalPartial{ .target = ProjectTarget{ .point = gp } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .orthogonal = o1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 0.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 3.0, .y = 4.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    // Unit orthogonal result: (5,0) -> (5,1)
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 5.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 5.0);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 1.0);
+}
+
+test "toExplicitPoint fixed - project onto self-referenced point is unit" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((project (end self)) & (anchor {(0,0)})) with input [[1,1]]
+    // (a) anchor at (0,0): polyline (0,0)->(1,1)
+    // (b) project onto (end self) = (1,1):
+    //     direction = (1,1) - (0,0) = (1,1), |dir| = sqrt(2)
+    //     displacement (1,1), dot = 2, proj_len = sqrt(2)
+    //     UNIT projection: (1/sqrt(2), 1/sqrt(2)) ≈ (0.7071, 0.7071)
+    //     result anchored at (1,1): (1,1) -> (1.7071, 1.7071)
+    const gp = GeneralPoint{ .end = .self };
+    const p1 = ProjectPartial{ .target = ProjectTarget{ .point = gp } };
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{
+            .ops = &[2]OneArgFunctionPartial{
+                OneArgFunctionPartial{ .project = p1 },
+                OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 0.0, .y = 0.0 } } } },
+            },
+        },
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    // Unit projection anchored at (1,1)
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0 + 1.0 / @sqrt(2.0)), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0 + 1.0 / @sqrt(2.0)), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+
+    // Verify unit length
+    const dx = res.transformationPairs[0].operation.ops[1].anchor.point.point.x - res.transformationPairs[0].operation.ops[0].anchor.point.point.x;
+    const dy = res.transformationPairs[0].operation.ops[1].anchor.point.point.y - res.transformationPairs[0].operation.ops[0].anchor.point.point.y;
+    const len = @sqrt(dx * dx + dy * dy);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), len, 0.0001);
 }
