@@ -538,8 +538,9 @@ pub const Line = struct {
 };
 
 fn toYLineType(_: std.mem.Allocator, res: anytype) !Line {
-    if (res.len == 3) {
-        return Line{ .a = 1.0, .b = res[1], .c = res[2] };
+    if (res.len == 4) {
+        const coeff_sign: f32 = if (res[2] == '-') -1.0 else 1.0;
+        return Line{ .a = 1.0, .b = res[1], .c = coeff_sign * res[3] };
     } else {
         return Line{ .a = 1.0, .b = 0.0, .c = res[1] };
     }
@@ -565,14 +566,30 @@ const yLineWithXParser = mecha.combine(.{
     mecha.utf8.char('=').discard(),
     common.skipWhitespace,
     floatParser,
+    mecha.utf8.char('*').opt().discard(),
     mecha.utf8.char('x').discard(),
     common.skipWhitespace,
-    mecha.oneOf(.{ mecha.utf8.char('+'), mecha.utf8.char('-') }).discard(),
+    mecha.oneOf(.{ mecha.utf8.char('+'), mecha.utf8.char('-') }),
     common.skipWhitespace,
     floatParser,
 });
 
 const yLineWithX = yLineWithXParser.convert(toYLineType);
+
+const yLineWithXNoConstParser = mecha.combine(.{
+    mecha.utf8.char('y'),
+    common.skipWhitespace,
+    mecha.utf8.char('=').discard(),
+    common.skipWhitespace,
+    floatParser,
+    mecha.utf8.char('*').opt().discard(),
+    mecha.utf8.char('x').discard(),
+    common.skipWhitespace,
+}).convert(struct {
+    fn conv(_: std.mem.Allocator, res: anytype) mecha.ConvertError!Line {
+        return Line{ .a = 1.0, .b = res[1], .c = 0.0 };
+    }
+}.conv);
 
 const yLineWithoutXParser = mecha.combine(.{
     mecha.utf8.char('y'),
@@ -597,7 +614,7 @@ const yLineXOnlyParser = mecha.combine(.{
     }
 }.conv);
 
-const yLineParser = mecha.oneOf(.{ yLineWithX, yLineWithoutX, yLineXOnlyParser });
+const yLineParser = mecha.oneOf(.{ yLineWithX, yLineWithXNoConstParser, yLineWithoutX, yLineXOnlyParser });
 
 pub const lineParser = mecha.oneOf(.{ xLineParserVal, yLineParser });
 
@@ -637,4 +654,13 @@ test "lineParser" {
     const r8 = try lineParser.parse(a, "y=x");
     const l8 = Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
     try testing.expectEqualDeep(l8, r8.value.ok);
+
+    // With explicit multiplication sign
+    const r9 = try lineParser.parse(a, "y=0.3*x+1");
+    const l9 = Line{ .a = 1.0, .b = 0.3, .c = 1.0 };
+    try testing.expectEqualDeep(l9, r9.value.ok);
+
+    const r10 = try lineParser.parse(a, "y=2*x-5");
+    const l10 = Line{ .a = 1.0, .b = 2.0, .c = -5.0 };
+    try testing.expectEqualDeep(l10, r10.value.ok);
 }

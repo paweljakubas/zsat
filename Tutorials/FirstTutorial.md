@@ -409,6 +409,13 @@ printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
 ```
 <img src="fig35.png" width="332" style="border: 2px solid grey;">
 
+```bash
+printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
+-s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)'  \
+-o '(out0, out1) -> ((p (y=0.3*x) & a {(1,1)}) out0, (a {(0,0)}) out1)'
+```
+<img src="fig36.png" width="332" style="border: 2px solid grey;">
 
 
 **Note on coordinate systems**
