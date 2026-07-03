@@ -3090,7 +3090,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                     } else if (op == .rotate) {
                         const arg = op.rotate.elements[0];
                         const prev_poly = polylines[poly_count - 1];
-                        const rot_pt = try resolveGeneralPoint(arg.point, ctx_begin, ctx_end, inp, outputs, idx, orientation);
+                        const rot_pt = try resolveGeneralPoint(allocator, arg.point, ctx_begin, ctx_end, inp, outputs, orientation, coordinate_type, plot_steps);
                         poly = try processRotateOp(allocator, prev_poly, arg, rot_pt);
                     } else if (op == .scale) {
                         const arg = op.scale.elements[0];
@@ -3103,7 +3103,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                         const prev_poly = polylines[poly_count - 1];
                         switch (op.project.target) {
                             .point => |gp| {
-                                const pt = try resolveGeneralPoint(gp, ctx_begin, ctx_end, inp, outputs, idx, orientation);
+                                const pt = try resolveGeneralPoint(allocator, gp, ctx_begin, ctx_end, inp, outputs, orientation, coordinate_type, plot_steps);
                                 poly = try processUnitVectorAtPoint(allocator, prev_poly, pt, .project);
                             },
                             .element => |eref| {
@@ -3118,7 +3118,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                         const prev_poly = polylines[poly_count - 1];
                         switch (op.orthogonal.target) {
                             .point => |gp| {
-                                const pt = try resolveGeneralPoint(gp, ctx_begin, ctx_end, inp, outputs, idx, orientation);
+                                const pt = try resolveGeneralPoint(allocator, gp, ctx_begin, ctx_end, inp, outputs, orientation, coordinate_type, plot_steps);
                                 poly = try processUnitVectorAtPoint(allocator, prev_poly, pt, .orthogonal);
                             },
                             .element => |eref| {
@@ -3327,6 +3327,10 @@ fn resolveNonPointReferences(allocator: std.mem.Allocator, inp: inputs.Inputs, o
 }
 
 test "resolveGeneralPoint" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
     const p = inputs.Point{ .x = 3.0, .y = 4.0 };
     const ctx_b = inputs.Point{ .x = 1.0, .y = 1.0 };
     const ctx_e = inputs.Point{ .x = 3.0, .y = 3.0 };
@@ -3338,43 +3342,43 @@ test "resolveGeneralPoint" {
     const validated = OutputsValidated{ .transformationPairs = &[1]OutputTransformationPair{pair} };
 
     // Direct point
-    const r1 = try resolveGeneralPoint(.{ .point = p }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    const r1 = try resolveGeneralPoint(a, .{ .point = p }, ctx_b, ctx_e, inp, validated, .fixed, .xy, .last);
     try testing.expectEqual(@as(f32, 3.0), r1.x);
     try testing.expectEqual(@as(f32, 4.0), r1.y);
 
     // Beginning of self
-    const r2 = try resolveGeneralPoint(.{ .beginning = .self }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    const r2 = try resolveGeneralPoint(a, .{ .beginning = .self }, ctx_b, ctx_e, inp, validated, .fixed, .xy, .last);
     try testing.expectEqual(@as(f32, 1.0), r2.x);
     try testing.expectEqual(@as(f32, 1.0), r2.y);
 
     // End of self
-    const r3 = try resolveGeneralPoint(.{ .end = .self }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    const r3 = try resolveGeneralPoint(a, .{ .end = .self }, ctx_b, ctx_e, inp, validated, .fixed, .xy, .last);
     try testing.expectEqual(@as(f32, 3.0), r3.x);
     try testing.expectEqual(@as(f32, 3.0), r3.y);
 
     // Middle of self
-    const r4 = try resolveGeneralPoint(.{ .middle = .self }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    const r4 = try resolveGeneralPoint(a, .{ .middle = .self }, ctx_b, ctx_e, inp, validated, .fixed, .xy, .last);
     try testing.expectEqual(@as(f32, 2.0), r4.x);
     try testing.expectEqual(@as(f32, 2.0), r4.y);
 
     // Fraction 50% of self = (1,1) + 0.5*((3,3)-(1,1)) = (2,2)
-    const r5 = try resolveGeneralPoint(.{ .fraction = .{ .fromStart = 50, .element = .self } }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    const r5 = try resolveGeneralPoint(a, .{ .fraction = .{ .fromStart = 50, .element = .self } }, ctx_b, ctx_e, inp, validated, .fixed, .xy, .last);
     try testing.expectEqual(@as(f32, 2.0), r5.x);
     try testing.expectEqual(@as(f32, 2.0), r5.y);
 
     // Fraction -50% of self = (1,1) + -0.5*((3,3)-(1,1)) = (0,0)
-    const r6 = try resolveGeneralPoint(.{ .fraction = .{ .fromStart = -50, .element = .self } }, ctx_b, ctx_e, inp, validated, 0, .fixed);
+    const r6 = try resolveGeneralPoint(a, .{ .fraction = .{ .fromStart = -50, .element = .self } }, ctx_b, ctx_e, inp, validated, .fixed, .xy, .last);
     try testing.expectEqual(@as(f32, 0.0), r6.x);
     try testing.expectEqual(@as(f32, 0.0), r6.y);
 
-    // Beginning of other output
+    // Beginning of other output (out2 has no explicit ops, so falls back to raw input: beginning = (0,0))
     const eref = ElementReference{ .other = "out2" };
     const v2 = inputs.InputElement{ .vector = .{ .x = 5.0, .y = 5.0 } };
     const row2 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v2} };
     const inp2 = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row, row2 } };
     const pair2 = OutputTransformationPair{ .outputName = "out2", .operation = .{ .ops = &.{} } };
     const validated2 = OutputsValidated{ .transformationPairs = &[2]OutputTransformationPair{ pair, pair2 } };
-    const r7 = try resolveGeneralPoint(.{ .beginning = eref }, ctx_b, ctx_e, inp2, validated2, 0, .fixed);
+    const r7 = try resolveGeneralPoint(a, .{ .beginning = eref }, ctx_b, ctx_e, inp2, validated2, .fixed, .xy, .last);
     try testing.expectEqual(@as(f32, 0.0), r7.x);
     try testing.expectEqual(@as(f32, 0.0), r7.y);
 }
@@ -3391,23 +3395,25 @@ test "resolveGeneralPoint" {
 /// // pt = ctx_begin
 /// ```
 fn resolveGeneralPoint(
+    allocator: std.mem.Allocator,
     pt: GeneralPoint,
     ctx_begin: ?inputs.Point,
     ctx_end: ?inputs.Point,
     inp: inputs.Inputs,
     outputs: OutputsValidated,
-    idx: usize,
     orientation: CoordinateOrientation,
+    coordinate_type: CoordinateType,
+    plot_steps: PlotSteps,
 ) ToExplicitPointError!inputs.Point {
     switch (pt) {
         .point => |p| return p,
         .beginning => |ref| {
             if (ref == .self) return ctx_begin orelse return ToExplicitPointError.CannotDetermineExplicitPoint;
-            return getExplicitPoint(inp, outputs, ref, idx, .{ .beginning = .self }, orientation);
+            return getTransformedExplicitPoint(allocator, inp, outputs, ref, .{ .beginning = .self }, orientation, coordinate_type, plot_steps);
         },
         .end => |ref| {
             if (ref == .self) return ctx_end orelse return ToExplicitPointError.CannotDetermineExplicitPoint;
-            return getExplicitPoint(inp, outputs, ref, idx, .{ .end = .self }, orientation);
+            return getTransformedExplicitPoint(allocator, inp, outputs, ref, .{ .end = .self }, orientation, coordinate_type, plot_steps);
         },
         .middle => |ref| {
             if (ref == .self) {
@@ -3415,7 +3421,7 @@ fn resolveGeneralPoint(
                 const e = ctx_end orelse return ToExplicitPointError.CannotDetermineExplicitPoint;
                 return inputs.Point{ .x = (b.x + e.x) / 2.0, .y = (b.y + e.y) / 2.0 };
             }
-            return getExplicitPoint(inp, outputs, ref, idx, .{ .middle = .self }, orientation);
+            return getTransformedExplicitPoint(allocator, inp, outputs, ref, .{ .middle = .self }, orientation, coordinate_type, plot_steps);
         },
         .fraction => |frac| {
             if (frac.element == .self) {
@@ -3426,7 +3432,7 @@ fn resolveGeneralPoint(
                 const factor = @as(f32, @floatFromInt(frac.fromStart)) / 100.0;
                 return inputs.Point{ .x = b.x + dx * factor, .y = b.y + dy * factor };
             }
-            return getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation);
+            return getTransformedExplicitPoint(allocator, inp, outputs, frac.element, .{ .fraction = frac }, orientation, coordinate_type, plot_steps);
         },
     }
 }
@@ -3567,6 +3573,120 @@ fn getExplicitPoint(inp: inputs.Inputs, outputs: OutputsValidated, ref: ElementR
             const x = end_x * factor;
             const y = end_y * factor;
             return .{ .x = x, .y = y };
+        },
+    };
+}
+
+/// Evaluates a referenced output to explicit ops and extracts a specific point
+/// (beginning, end, middle, or fraction) from its resulting polyline.
+/// If the evaluated output has no explicit points, falls back to getExplicitPoint
+/// which uses raw input vector sums.
+fn getTransformedExplicitPoint(
+    allocator: std.mem.Allocator,
+    inp: inputs.Inputs,
+    outputs: OutputsValidated,
+    ref: ElementReference,
+    pt_type: GeneralPoint,
+    orientation: CoordinateOrientation,
+    coordinate_type: CoordinateType,
+    plot_steps: PlotSteps,
+) ToExplicitPointError!inputs.Point {
+    const target_idx: usize = switch (ref) {
+        .self => return ToExplicitPointError.CannotDetermineExplicitPoint,
+        .other => |name| blk: {
+            for (outputs.transformationPairs, 0..) |pair, i| {
+                if (std.mem.eql(u8, pair.outputName, name)) {
+                    break :blk i;
+                }
+            }
+            return ToExplicitPointError.CannotDetermineExplicitPoint;
+        },
+    };
+
+    // Shortcut: if target ops are already all explicit-point anchors, extract directly
+    // without calling toExplicitPoint. This avoids infinite recursion when
+    // toExplicitPoint would reach Phase 4 due to non-point refs in OTHER outputs.
+    const target_pair = outputs.transformationPairs[target_idx];
+    var all_explicit = true;
+    for (target_pair.operation.ops) |op| {
+        if (op == .anchor) {
+            if (op.anchor.point != .point) {
+                all_explicit = false;
+                break;
+            }
+        } else {
+            // Non-anchor ops need full evaluation
+            all_explicit = false;
+            break;
+        }
+    }
+
+    var first: ?inputs.Point = null;
+    var last: ?inputs.Point = null;
+
+    if (all_explicit) {
+        for (target_pair.operation.ops) |op| {
+            if (op == .anchor and op.anchor.point == .point) {
+                const p = op.anchor.point.point;
+                if (first == null) first = p;
+                last = p;
+            }
+        }
+    } else {
+        const evaluated = try toExplicitPoint(allocator, inp, outputs, orientation, plot_steps, target_idx, coordinate_type);
+        const eval_ops = evaluated.transformationPairs[target_idx].operation.ops;
+        for (eval_ops) |op| {
+            if (op == .anchor and op.anchor.point == .point) {
+                const p = op.anchor.point.point;
+                if (first == null) first = p;
+                last = p;
+            }
+        }
+    }
+
+    // If the evaluated output has no explicit points yet, fall back to raw input data
+    if (first == null) {
+        return getExplicitPoint(inp, outputs, ref, target_idx, pt_type, orientation);
+    }
+
+    // Compute input vector sum for the target output
+    var sum_x: f32 = 0.0;
+    var sum_y: f32 = 0.0;
+    if (target_idx < inp.input.len) {
+        for (inp.input[target_idx].row) |elem| {
+            switch (elem) {
+                .vector => |v| {
+                    sum_x += v.x;
+                    sum_y += v.y;
+                },
+                .vectors => |vs| {
+                    for (vs) |v| {
+                        sum_x += v.x;
+                        sum_y += v.y;
+                    }
+                },
+                .point => {},
+            }
+        }
+    }
+
+    const b = first.?;
+    // If only one explicit point was found, add the input sum to get the actual end
+    var e = last orelse b;
+    if (first != null and last != null and first.?.x == last.?.x and first.?.y == last.?.y) {
+        e = inputs.Point{ .x = b.x + sum_x, .y = b.y + sum_y };
+    }
+
+    return switch (pt_type) {
+        .point => .{ .x = 0.0, .y = 0.0 },
+        .beginning => b,
+        .end => e,
+        .middle => .{ .x = (b.x + e.x) / 2.0, .y = (b.y + e.y) / 2.0 },
+        .fraction => |frac| {
+            const dx = e.x - b.x;
+            const dy = e.y - b.y;
+            const factor = @as(f32, @floatFromInt(frac.fromStart)) / 100.0;
+            return .{ .x = b.x + dx * factor, .y = b.y + dy * factor };
         },
     };
 }
