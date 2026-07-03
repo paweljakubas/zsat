@@ -435,6 +435,24 @@ printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
 ```
 <img src="fig38.png" width="332" style="border: 2px solid grey;">
 
+If using projection/ortogonal transformation on vector we end up with two vectors that if vector summed they will result in the input vector.
+
+```bash
+printf '[[1,1]]\n[[0,2]],[[2,0]]\n[[2,0.5]]' | zsat draw \
+-s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}, e2: {[lw:30, lc: grey, lo: 50]}' \
+-d '(vec0, vec1, vec2) -> (vec0 -> e0, vec1 -> e1, vec2 -> e2)' \
+-o '(out0, out1, out2) -> ((o out2 & a {(1,1)}) out0, (a {(0,0)}) out1, (a {(0.5,0.5)}) out2)'
+```
+<img src="fig39.png" width="332" style="border: 2px solid grey;">
+
+```bash
+printf '[[1,1]]\n[[0,2]],[[2,0]]\n[[2,0.5]]' | zsat draw \
+-s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}, e2: {[lw:30, lc: grey, lo: 50]}' \
+-d '(vec0, vec1, vec2) -> (vec0 -> e0, vec1 -> e1, vec2 -> e2)' \
+-o '(out0, out1, out2) -> ((p out2 & a {(1,1)}) out0, (a {(0,0)}) out1, (a {(0.5,0.5)}) out2)'
+```
+<img src="fig40.png" width="332" style="border: 2px solid grey;">
+
 **Note on coordinate systems**
 
 Until now we have implicitly used the **fixed** coordinate system, as it is the default.

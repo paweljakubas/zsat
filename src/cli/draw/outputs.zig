@@ -135,6 +135,7 @@ pub const ProjectTarget = union(enum) {
     line: inputs.Line,
     vector: inputs.Vector,
     point: GeneralPoint,
+    element: ElementReference,
 };
 
 pub const ProjectPartial = struct {
@@ -840,6 +841,19 @@ const vectorParserLocal = mecha.combine(.{
     }
 }.toVector);
 
+const elementReferencePlainParser = mecha.oneOf(.{
+    mecha.string("self").map(struct {
+        fn toSelfPlain(_: anytype) ElementReference {
+            return .self;
+        }
+    }.toSelfPlain),
+    common.nameParser.map(struct {
+        fn toOtherPlain(name: anytype) ElementReference {
+            return ElementReference{ .other = name };
+        }
+    }.toOtherPlain),
+});
+
 const projectTargetParser = mecha.oneOf(.{
     mirrorLineParser.map(struct {
         fn toLineTarget(l: inputs.Line) mecha.ConvertError!ProjectTarget {
@@ -856,6 +870,11 @@ const projectTargetParser = mecha.oneOf(.{
             return ProjectTarget{ .point = gp };
         }
     }.toPointTarget),
+    elementReferencePlainParser.map(struct {
+        fn toElemTarget(e: ElementReference) mecha.ConvertError!ProjectTarget {
+            return ProjectTarget{ .element = e };
+        }
+    }.toElemTarget),
 });
 
 const projectPartialParserRawInner = mecha.combine(.{
@@ -910,6 +929,10 @@ test "projectPartialParser" {
     const gp5 = GeneralPoint{ .beginning = .self };
     const m5 = ProjectPartial{ .target = ProjectTarget{ .point = gp5 } };
     try testing.expectEqualDeep(m5, r5.value.ok);
+
+    const r6 = try projectPartialParser.parse(fa, "p out2");
+    const m6 = ProjectPartial{ .target = ProjectTarget{ .element = ElementReference{ .other = "out2" } } };
+    try testing.expectEqualDeep(m6, r6.value.ok);
 }
 
 test "orthogonalPartialParser" {
@@ -939,6 +962,10 @@ test "orthogonalPartialParser" {
     const gp5 = GeneralPoint{ .end = ElementReference{ .other = "vec1" } };
     const m5 = OrthogonalPartial{ .target = ProjectTarget{ .point = gp5 } };
     try testing.expectEqualDeep(m5, r5.value.ok);
+
+    const r6 = try orthogonalPartialParser.parse(fa, "o out2");
+    const m6 = OrthogonalPartial{ .target = ProjectTarget{ .element = ElementReference{ .other = "out2" } } };
+    try testing.expectEqualDeep(m6, r6.value.ok);
 }
 
 const twoArgCombinatorParser =
@@ -2537,11 +2564,12 @@ fn processMirrorOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point
 /// - origin: points are translated by -ctx_begin, projected, then translated back.
 /// - coord: points are transformed to a local frame (origin at poly[0], x-axis along
 ///   the polyline direction), projected in local coordinates, then transformed back.
-fn processProjectOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, target: ProjectTarget, orientation: CoordinateOrientation, ctx_begin: ?inputs.Point) ![]inputs.Point {
+fn processProjectOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, target: ProjectTarget, orientation: CoordinateOrientation, ctx_begin: ?inputs.Point, preserve_start: bool) ![]inputs.Point {
     const line: inputs.Line = switch (target) {
         .line => |l| l,
         .vector => |v| inputs.Line{ .a = v.x, .b = v.y, .c = 0 },
         .point => unreachable, // resolved to vector before calling
+        .element => unreachable, // resolved to line before calling
     };
     const dir_x = line.a;
     const dir_y = line.b;
@@ -2555,7 +2583,7 @@ fn processProjectOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Poin
 
     if (orientation == .fixed) {
         const p0 = prev_poly[0];
-        const p0_proj = geometry.projectPointOntoLine(p0, line);
+        const p0_proj = if (preserve_start) p0 else geometry.projectPointOntoLine(p0, line);
         for (prev_poly, 0..) |p, j| {
             const dx = p.x - p0.x;
             const dy = p.y - p0.y;
@@ -2570,7 +2598,7 @@ fn processProjectOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Poin
         const origin = ctx_begin orelse inputs.Point{ .x = 0, .y = 0 };
         const p0 = prev_poly[0];
         const p0_local = inputs.Point{ .x = p0.x - origin.x, .y = p0.y - origin.y };
-        const p0_proj_local = geometry.projectPointOntoLine(p0_local, line);
+        const p0_proj_local = if (preserve_start) p0_local else geometry.projectPointOntoLine(p0_local, line);
         for (prev_poly, 0..) |p, j| {
             const p_local = inputs.Point{ .x = p.x - origin.x, .y = p.y - origin.y };
             const dx = p_local.x - p0_local.x;
@@ -2597,7 +2625,7 @@ fn processProjectOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Poin
         const origin = prev_poly[0];
 
         const p0_local = inputs.Point{ .x = 0, .y = 0 };
-        const p0_proj_local = geometry.projectPointOntoLine(p0_local, line);
+        const p0_proj_local = if (preserve_start) p0_local else geometry.projectPointOntoLine(p0_local, line);
         for (prev_poly, 0..) |p, j| {
             const rdx = @as(f64, p.x) - @as(f64, origin.x);
             const rdy = @as(f64, p.y) - @as(f64, origin.y);
@@ -2634,11 +2662,12 @@ fn processProjectOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Poin
 /// - origin: same as fixed but in a local frame centered at ctx_begin.
 /// - coord: points are transformed to a local frame, orthogonal component computed,
 ///   then transformed back.
-fn processOrthogonalOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, target: ProjectTarget, orientation: CoordinateOrientation, ctx_begin: ?inputs.Point) ![]inputs.Point {
+fn processOrthogonalOp(allocator: std.mem.Allocator, prev_poly: []const inputs.Point, target: ProjectTarget, orientation: CoordinateOrientation, ctx_begin: ?inputs.Point, preserve_start: bool) ![]inputs.Point {
     const line: inputs.Line = switch (target) {
         .line => |l| l,
         .vector => |v| inputs.Line{ .a = v.x, .b = v.y, .c = 0 },
         .point => unreachable, // resolved to vector before calling
+        .element => unreachable, // resolved to line before calling
     };
     const dir_x = line.a;
     const dir_y = line.b;
@@ -2647,14 +2676,14 @@ fn processOrthogonalOp(allocator: std.mem.Allocator, prev_poly: []const inputs.P
     var poly = try allocator.alloc(inputs.Point, prev_poly.len);
     if (denom < 1e-10) {
         const p0 = prev_poly[0];
-        const p0_proj = geometry.projectPointOntoLine(p0, line);
+        const p0_proj = if (preserve_start) p0 else geometry.projectPointOntoLine(p0, line);
         for (poly) |*p| p.* = p0_proj;
         return poly;
     }
 
     if (orientation == .fixed) {
         const p0 = prev_poly[0];
-        const p0_proj = geometry.projectPointOntoLine(p0, line);
+        const p0_proj = if (preserve_start) p0 else geometry.projectPointOntoLine(p0, line);
         for (prev_poly, 0..) |p, j| {
             const dx = p.x - p0.x;
             const dy = p.y - p0.y;
@@ -2669,7 +2698,7 @@ fn processOrthogonalOp(allocator: std.mem.Allocator, prev_poly: []const inputs.P
         const origin = ctx_begin orelse inputs.Point{ .x = 0, .y = 0 };
         const p0 = prev_poly[0];
         const p0_local = inputs.Point{ .x = p0.x - origin.x, .y = p0.y - origin.y };
-        const p0_proj_local = geometry.projectPointOntoLine(p0_local, line);
+        const p0_proj_local = if (preserve_start) p0_local else geometry.projectPointOntoLine(p0_local, line);
         for (prev_poly, 0..) |p, j| {
             const p_local = inputs.Point{ .x = p.x - origin.x, .y = p.y - origin.y };
             const dx = p_local.x - p0_local.x;
@@ -2696,7 +2725,7 @@ fn processOrthogonalOp(allocator: std.mem.Allocator, prev_poly: []const inputs.P
         const origin = prev_poly[0];
 
         const p0_local = inputs.Point{ .x = 0, .y = 0 };
-        const p0_proj_local = geometry.projectPointOntoLine(p0_local, line);
+        const p0_proj_local = if (preserve_start) p0_local else geometry.projectPointOntoLine(p0_local, line);
         for (prev_poly, 0..) |p, j| {
             const rdx = @as(f64, p.x) - @as(f64, origin.x);
             const rdy = @as(f64, p.y) - @as(f64, origin.y);
@@ -2816,6 +2845,82 @@ test "processOriginFixed" {
     try testing.expectEqual(@as(f32, 2.0), res2.transformationPairs[0].operation.ops[1].anchor.point.point.x);
     try testing.expectEqual(@as(f32, 3.0), res2.transformationPairs[0].operation.ops[2].anchor.point.point.x);
     try testing.expectEqual(@as(f32, 4.0), res2.transformationPairs[0].operation.ops[3].anchor.point.point.x);
+}
+
+/// Resolves an element reference to a line for use as a project/orthogonal target.
+/// The referenced output is evaluated to its explicit anchor ops, and a line
+/// is constructed from the first and last points of its polyline.
+fn resolveElementToLine(
+    allocator: std.mem.Allocator,
+    inp: inputs.Inputs,
+    outputs: OutputsValidated,
+    ref: ElementReference,
+    _: usize,
+    coordinate_type: CoordinateType,
+    orientation: CoordinateOrientation,
+    plot_steps: PlotSteps,
+) ToExplicitPointError!inputs.Line {
+    const target_idx: usize = switch (ref) {
+        .self => return ToExplicitPointError.CannotDetermineExplicitPoint,
+        .other => |name| blk: {
+            for (outputs.transformationPairs, 0..) |pair, i| {
+                if (std.mem.eql(u8, pair.outputName, name)) {
+                    break :blk i;
+                }
+            }
+            return ToExplicitPointError.CannotDetermineExplicitPoint;
+        },
+    };
+
+    if (target_idx >= inp.input.len) {
+        return ToExplicitPointError.CannotDetermineExplicitPoint;
+    }
+
+    // Evaluate target output to explicit ops
+    const evaluated = try toExplicitPoint(allocator, inp, outputs, orientation, plot_steps, target_idx, coordinate_type);
+    const eval_ops = evaluated.transformationPairs[target_idx].operation.ops;
+
+    var begin: ?inputs.Point = null;
+    var end: ?inputs.Point = null;
+
+    for (eval_ops) |op| {
+        if (op == .anchor and op.anchor.point == .point) {
+            const p = op.anchor.point.point;
+            if (begin == null) begin = p;
+            end = p;
+        }
+    }
+
+    const b = begin orelse return ToExplicitPointError.CannotDetermineExplicitPoint;
+    var e = end orelse b;
+
+    // If only one explicit point was found, compute the endpoint from input vectors
+    if (e.x == b.x and e.y == b.y) {
+        var sum_x: f32 = 0.0;
+        var sum_y: f32 = 0.0;
+        for (inp.input[target_idx].row) |elem| {
+            switch (elem) {
+                .vector => |v| {
+                    sum_x += v.x;
+                    sum_y += v.y;
+                },
+                .vectors => |vs| {
+                    for (vs) |v| {
+                        sum_x += v.x;
+                        sum_y += v.y;
+                    }
+                },
+                .point => {},
+            }
+        }
+        e = inputs.Point{ .x = b.x + sum_x, .y = b.y + sum_y };
+    }
+
+    const dx = e.x - b.x;
+    const dy = e.y - b.y;
+    var c = dx * b.y - dy * b.x;
+    if (@abs(c) < 1e-10) c = 0;
+    return inputs.Line{ .a = dx, .b = dy, .c = c };
 }
 
 /// Processes anchors in origin or fixed mode, expanding each anchor into a
@@ -2956,6 +3061,11 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
             var result_pairs = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
 
             for (outputs.transformationPairs, 0..) |pair, idx| {
+                if (idx != output_idx) {
+                    result_pairs[idx] = pair;
+                    continue;
+                }
+
                 const ops = pair.operation.ops;
                 const num_ops = ops.len;
 
@@ -3021,8 +3131,12 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                                 const pt = try resolveGeneralPoint(gp, ctx_begin, ctx_end, inp, outputs, idx, orientation);
                                 poly = try processUnitVectorAtPoint(allocator, prev_poly, pt, .project);
                             },
+                            .element => |eref| {
+                                const line = try resolveElementToLine(allocator, inp, outputs, eref, idx, coordinate_type, orientation, plot_steps);
+                                poly = try processProjectOp(allocator, prev_poly, .{ .line = line }, orientation, ctx_begin, false);
+                            },
                             else => |target| {
-                                poly = try processProjectOp(allocator, prev_poly, target, orientation, ctx_begin);
+                                poly = try processProjectOp(allocator, prev_poly, target, orientation, ctx_begin, false);
                             },
                         }
                     } else if (op == .orthogonal) {
@@ -3032,8 +3146,33 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                                 const pt = try resolveGeneralPoint(gp, ctx_begin, ctx_end, inp, outputs, idx, orientation);
                                 poly = try processUnitVectorAtPoint(allocator, prev_poly, pt, .orthogonal);
                             },
+                            .element => |eref| {
+                                const line = try resolveElementToLine(allocator, inp, outputs, eref, idx, coordinate_type, orientation, plot_steps);
+                                // For orthogonal relative to another output, the result should start
+                                // at the end of where the projection onto that output would land.
+                                // Compute the projection component, run orthogonal with preserve_start=false
+                                // (which anchors at the foot on the referenced line), then shift by the
+                                // projection component so the orthogonal begins at the projection's end.
+                                const total_dx = prev_poly[prev_poly.len - 1].x - prev_poly[0].x;
+                                const total_dy = prev_poly[prev_poly.len - 1].y - prev_poly[0].y;
+                                const denom = line.a * line.a + line.b * line.b;
+                                var proj_dx: f32 = 0;
+                                var proj_dy: f32 = 0;
+                                if (denom > 1e-10) {
+                                    const dot = total_dx * line.a + total_dy * line.b;
+                                    const scale = dot / denom;
+                                    proj_dx = scale * line.a;
+                                    proj_dy = scale * line.b;
+                                }
+                                const orth_poly = try processOrthogonalOp(allocator, prev_poly, .{ .line = line }, orientation, ctx_begin, false);
+                                for (orth_poly) |*p| {
+                                    p.x += proj_dx;
+                                    p.y += proj_dy;
+                                }
+                                poly = orth_poly;
+                            },
                             else => |target| {
-                                poly = try processOrthogonalOp(allocator, prev_poly, target, orientation, ctx_begin);
+                                poly = try processOrthogonalOp(allocator, prev_poly, target, orientation, ctx_begin, false);
                             },
                         }
                     } else continue;
@@ -5896,4 +6035,107 @@ test "toExplicitPoint fixed - project onto self-referenced point is unit" {
     const dy = res.transformationPairs[0].operation.ops[1].anchor.point.point.y - res.transformationPairs[0].operation.ops[0].anchor.point.point.y;
     const len = @sqrt(dx * dx + dy * dy);
     try testing.expectApproxEqAbs(@as(f32, 1.0), len, 0.0001);
+}
+
+test "toExplicitPoint fixed - project onto referenced output" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // out1: vector [2,0.5], anchored at (0.5,0.5) -> line from (0.5,0.5) to (2.5,1.0)
+    // out0: vector [1,1], anchored at (1,1), then projected onto out1's line
+    const v0 = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 1.0 } };
+    const v1 = inputs.InputElement{ .vector = .{ .x = 2.0, .y = 0.5 } };
+    const row0 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v0} };
+    const row1 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v1} };
+    const inp = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row0, row1 } };
+
+    const ops1 = [_]OneArgFunctionPartial{
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 0.5, .y = 0.5 } } } },
+    };
+    const pair1 = OutputTransformationPair{ .outputName = "out1", .operation = .{ .ops = &ops1 } };
+
+    const ops0 = [_]OneArgFunctionPartial{
+        .{ .project = .{ .target = .{ .element = ElementReference{ .other = "out1" } } } },
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+    };
+    const pair0 = OutputTransformationPair{ .outputName = "out0", .operation = .{ .ops = &ops0 } };
+
+    const validated = OutputsValidated{ .transformationPairs = &[2]OutputTransformationPair{ pair0, pair1 } };
+
+    const res = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 2);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    // out1: from (0.5,0.5) to (2.5,1.0), direction (2,0.5)
+    // line equation: a=2, b=0.5, c=0.75
+    // Projection is drawn ON out2's actual line (preserve_start=false):
+    // foot F = projectPointOntoLine((1,1), line) = (1.088235, 0.647059)
+    // displacement [1,1] projected onto direction (2,0.5):
+    //   dot = 1*2 + 1*0.5 = 2.5
+    //   denom = 4 + 0.25 = 4.25
+    //   scale = 2.5 / 4.25 = 0.5882353
+    //   proj_component = (1.176471, 0.294118)
+    // poly[0] = F = (1.088235, 0.647059)
+    // poly[1] = F + proj_component = (2.264706, 0.941177)
+
+    try testing.expectApproxEqAbs(@as(f32, 1.088235), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.647059), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 2.264706), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.941177), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+}
+
+test "toExplicitPoint fixed - orthogonal onto referenced output" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // out1: vector [2,0.5], anchored at (0.5,0.5)
+    // out0: vector [1,1], anchored at (1,1), orthogonal onto out1
+    const v0 = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 1.0 } };
+    const v1 = inputs.InputElement{ .vector = .{ .x = 2.0, .y = 0.5 } };
+    const row0 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v0} };
+    const row1 = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v1} };
+    const inp = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row0, row1 } };
+
+    const ops1 = [_]OneArgFunctionPartial{
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 0.5, .y = 0.5 } } } },
+    };
+    const pair1 = OutputTransformationPair{ .outputName = "out1", .operation = .{ .ops = &ops1 } };
+
+    const ops0 = [_]OneArgFunctionPartial{
+        .{ .orthogonal = .{ .target = .{ .element = ElementReference{ .other = "out1" } } } },
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+    };
+    const pair0 = OutputTransformationPair{ .outputName = "out0", .operation = .{ .ops = &ops0 } };
+
+    const validated = OutputsValidated{ .transformationPairs = &[2]OutputTransformationPair{ pair0, pair1 } };
+
+    const res = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 2);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 2);
+
+    // Orthogonal starts at the end of projection result (on out2's line):
+    // P = F + proj_component = (2.264706, 0.941177)
+    // orthogonal_component = [1,1] - proj_component = (-0.176471, 0.705882)
+    // poly[0] = P = (2.264706, 0.941177)
+    // poly[1] = P + orthogonal_component = (2.088235, 1.647059)
+
+    try testing.expectApproxEqAbs(@as(f32, 2.264706), res.transformationPairs[0].operation.ops[0].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.941177), res.transformationPairs[0].operation.ops[0].anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 2.088235), res.transformationPairs[0].operation.ops[1].anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.647059), res.transformationPairs[0].operation.ops[1].anchor.point.point.y, 0.0001);
+
+    // Verify: projection + orthogonal (as vectors) = original vector
+    // projection vector = (1.176471, 0.294118)
+    // orthogonal vector = (-0.176471, 0.705882)
+    // sum = (1.0, 1.0) = original out0 vector
+    const proj_vec_x: f32 = 1.176471;
+    const proj_vec_y: f32 = 0.294118;
+    const orth_vec_x: f32 = -0.176471;
+    const orth_vec_y: f32 = 0.705882;
+    try testing.expectApproxEqAbs(@as(f32, 1.0), proj_vec_x + orth_vec_x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), proj_vec_y + orth_vec_y, 0.0001);
 }
