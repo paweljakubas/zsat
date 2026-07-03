@@ -90,16 +90,20 @@ pub const vec2d_output_help =
     \\
     \\Available operations:
     \\
-    \\  anchor POINT  -- mandatory; pins the vector at the given point
+    \\  anchor POINT      -- mandatory; pins the vector at the given point
     \\  rotate ANGLE around POINT  -- rotate counter-clockwise by ANGLE degrees
-    \\  scale [SX,SY]  -- scale x and y components independently
-    \\  mirror (LINE)  -- reflect across LINE
+    \\  scale [SX,SY]     -- scale x and y components independently
+    \\  mirror (LINE)     -- reflect across LINE
+    \\  project TARGET    -- project onto a line or another output's direction
+    \\  orthogonal TARGET -- orthogonal component relative to a line or output
     \\
     \\Shorthand forms:
     \\  a   -- anchor
     \\  r   -- rotate
     \\  s   -- scale
     \\  m   -- mirror
+    \\  p   -- project
+    \\  o   -- orthogonal
     \\
     \\ANGLE syntax:
     \\  90        -- 90 degrees
@@ -111,12 +115,30 @@ pub const vec2d_output_help =
     \\POINT syntax:  see `zsat draw point --help`
     \\LINE syntax:   see `zsat draw line --help`
     \\
+    \\TARGET for project / orthogonal:
+    \\  (LINE)            -- a line, e.g. (y=0) or (y=2x+1)
+    \\  outN              -- reference to another output's direction
+    \\  POINT             -- explicit point; produces a UNIT vector anchored there
+    \\
+    \\When TARGET is another output (e.g. `out2`):
+    \\  - `p out2` projects the current vector onto out2's line
+    \\  - `o out2` gives the orthogonal component; it starts where projection ends
+    \\  - projection + orthogonal = original vector (as vectors)
+    \\
+    \\When TARGET is a POINT (e.g. `{(1,1)}` or `(beg out2)`):
+    \\  - `p POINT` produces a unit vector parallel to the current output
+    \\  - `o POINT` produces a unit vector 90 degrees CCW from the current output
+    \\  - both are anchored at the resolved POINT
+    \\
     \\Examples:
     \\  (out) -> (a {(0,0)}) out
     \\  (out) -> (r [90 a (0% self)] & a {(0,0)}) out
     \\  (out) -> (m (y=x) & a {(0,0)}) out
     \\  (out) -> (s [[2,1]] & a {(0,0)}) out
     \\  (out) -> (r [45 a (mid self)] & s [[1,2]] & a {(0,0)}) out
+    \\  (out) -> (p out2 & a {(1,1)}) out        -- project onto out2's line
+    \\  (out) -> (o out2 & a {(1,1)}) out        -- orthogonal to out2's direction
+    \\  (out) -> (p (beg out2) & a {(1,1)}) out  -- unit vector anchored at out2's start
 ;
 
 /// Help text for `zsat draw point --help`

@@ -391,7 +391,13 @@ printf '[[1,1]]' | zsat draw \
 ```
 <img src="fig25.png" width="332" style="border: 2px solid grey;">
 
-Now, projection transformation. We have several options here. First we can, have that operation against a line and if so we will have a shadow projection on that line. See, two examples:
+Now, projection and orthogonal transformations. The target for these operations can be one of three things:
+
+1. **A line** — the vector is projected onto (or decomposed orthogonally to) that line in space.
+2. **Another output** — the vector is decomposed relative to the other output's direction. The projection is drawn on the other output's line; the orthogonal starts where the projection ends. Their vector sum equals the original.
+3. **A point** — produces a unit vector anchored at that point. `p POINT` gives a unit vector parallel to the current output; `o POINT` gives a unit vector 90° counter-clockwise from it.
+
+First, projection onto a line (shadow projection):
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
@@ -417,7 +423,7 @@ printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
 ```
 <img src="fig36.png" width="332" style="border: 2px solid grey;">
 
-We can have also unit vectors, in-line and ortonormal pinned to some point:
+Unit vectors anchored at a point — parallel (`p`) and orthogonal (`o`) to the current output:
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
@@ -435,7 +441,7 @@ printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
 ```
 <img src="fig38.png" width="332" style="border: 2px solid grey;">
 
-If using projection/ortogonal transformation on vector we end up with two vectors that if vector summed they will result in the input vector.
+Decomposition relative to another output. Projection plus orthogonal equals the original vector:
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]\n[[2,0.5]]' | zsat draw \
@@ -453,7 +459,7 @@ printf '[[1,1]]\n[[0,2]],[[2,0]]\n[[2,0.5]]' | zsat draw \
 ```
 <img src="fig40.png" width="332" style="border: 2px solid grey;">
 
-Please notice that point could be specified implicitely.
+Points can also be specified by reference to another output. Here `p (m out2)` produces a unit vector parallel to out0, anchored at the midpoint of out2:
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]\n[[2,0.5]]' | zsat draw \
