@@ -860,11 +860,6 @@ const projectTargetParser = mecha.oneOf(.{
             return ProjectTarget{ .line = l };
         }
     }.toLineTarget),
-    vectorParserLocal.map(struct {
-        fn toVecTarget(v: inputs.Vector) mecha.ConvertError!ProjectTarget {
-            return ProjectTarget{ .vector = v };
-        }
-    }.toVecTarget),
     generalPointParser.map(struct {
         fn toPointTarget(gp: GeneralPoint) mecha.ConvertError!ProjectTarget {
             return ProjectTarget{ .point = gp };
@@ -910,29 +905,19 @@ test "projectPartialParser" {
     const m1 = ProjectPartial{ .target = ProjectTarget{ .line = l1 } };
     try testing.expectEqualDeep(m1, r1.value.ok);
 
-    const r2 = try projectPartialParser.parse(fa, "p [1,1]");
-    const v2 = inputs.Vector{ .x = 1.0, .y = 1.0 };
-    const m2 = ProjectPartial{ .target = ProjectTarget{ .vector = v2 } };
+    const r2 = try projectPartialParser.parse(fa, "(project {(1,2)})");
+    const gp2 = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 2.0 } };
+    const m2 = ProjectPartial{ .target = ProjectTarget{ .point = gp2 } };
     try testing.expectEqualDeep(m2, r2.value.ok);
 
-    const r3 = try projectPartialParser.parse(fa, "(project [2.5,-3])");
-    const v3 = inputs.Vector{ .x = 2.5, .y = -3.0 };
-    const m3 = ProjectPartial{ .target = ProjectTarget{ .vector = v3 } };
+    const r3 = try projectPartialParser.parse(fa, "p (beg self)");
+    const gp3 = GeneralPoint{ .beginning = .self };
+    const m3 = ProjectPartial{ .target = ProjectTarget{ .point = gp3 } };
     try testing.expectEqualDeep(m3, r3.value.ok);
 
-    const r4 = try projectPartialParser.parse(fa, "project {(1,2)}");
-    const gp4 = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 2.0 } };
-    const m4 = ProjectPartial{ .target = ProjectTarget{ .point = gp4 } };
+    const r4 = try projectPartialParser.parse(fa, "p out2");
+    const m4 = ProjectPartial{ .target = ProjectTarget{ .element = ElementReference{ .other = "out2" } } };
     try testing.expectEqualDeep(m4, r4.value.ok);
-
-    const r5 = try projectPartialParser.parse(fa, "p (beg self)");
-    const gp5 = GeneralPoint{ .beginning = .self };
-    const m5 = ProjectPartial{ .target = ProjectTarget{ .point = gp5 } };
-    try testing.expectEqualDeep(m5, r5.value.ok);
-
-    const r6 = try projectPartialParser.parse(fa, "p out2");
-    const m6 = ProjectPartial{ .target = ProjectTarget{ .element = ElementReference{ .other = "out2" } } };
-    try testing.expectEqualDeep(m6, r6.value.ok);
 }
 
 test "orthogonalPartialParser" {
@@ -943,29 +928,19 @@ test "orthogonalPartialParser" {
     const m1 = OrthogonalPartial{ .target = ProjectTarget{ .line = l1 } };
     try testing.expectEqualDeep(m1, r1.value.ok);
 
-    const r2 = try orthogonalPartialParser.parse(fa, "o [1,1]");
-    const v2 = inputs.Vector{ .x = 1.0, .y = 1.0 };
-    const m2 = OrthogonalPartial{ .target = ProjectTarget{ .vector = v2 } };
+    const r2 = try orthogonalPartialParser.parse(fa, "(orthogonal {(3,4)})");
+    const gp2 = GeneralPoint{ .point = inputs.Point{ .x = 3.0, .y = 4.0 } };
+    const m2 = OrthogonalPartial{ .target = ProjectTarget{ .point = gp2 } };
     try testing.expectEqualDeep(m2, r2.value.ok);
 
-    const r3 = try orthogonalPartialParser.parse(fa, "(orthogonal [2.5,-3])");
-    const v3 = inputs.Vector{ .x = 2.5, .y = -3.0 };
-    const m3 = OrthogonalPartial{ .target = ProjectTarget{ .vector = v3 } };
+    const r3 = try orthogonalPartialParser.parse(fa, "o (end vec1)");
+    const gp3 = GeneralPoint{ .end = ElementReference{ .other = "vec1" } };
+    const m3 = OrthogonalPartial{ .target = ProjectTarget{ .point = gp3 } };
     try testing.expectEqualDeep(m3, r3.value.ok);
 
-    const r4 = try orthogonalPartialParser.parse(fa, "orthogonal {(3,4)}");
-    const gp4 = GeneralPoint{ .point = inputs.Point{ .x = 3.0, .y = 4.0 } };
-    const m4 = OrthogonalPartial{ .target = ProjectTarget{ .point = gp4 } };
+    const r4 = try orthogonalPartialParser.parse(fa, "o out2");
+    const m4 = OrthogonalPartial{ .target = ProjectTarget{ .element = ElementReference{ .other = "out2" } } };
     try testing.expectEqualDeep(m4, r4.value.ok);
-
-    const r5 = try orthogonalPartialParser.parse(fa, "o (end vec1)");
-    const gp5 = GeneralPoint{ .end = ElementReference{ .other = "vec1" } };
-    const m5 = OrthogonalPartial{ .target = ProjectTarget{ .point = gp5 } };
-    try testing.expectEqualDeep(m5, r5.value.ok);
-
-    const r6 = try orthogonalPartialParser.parse(fa, "o out2");
-    const m6 = OrthogonalPartial{ .target = ProjectTarget{ .element = ElementReference{ .other = "out2" } } };
-    try testing.expectEqualDeep(m6, r6.value.ok);
 }
 
 const twoArgCombinatorParser =
@@ -5414,13 +5389,13 @@ test "toExplicitPoint fixed - compose with anchor and project onto vector" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // ((project [1,0]) & (anchor {(1,1)})) with input [[1,1]]
+    // ((project (y=0)) & (anchor {(1,1)})) with input [[1,1]]
     // (a) anchor at (1,1) with vector [1,1]: polyline from (1,1) to (2,2)
-    // (b) project onto horizontal vector [1,0]:
+    // (b) project onto horizontal line y=0:
     //     P0=(1,1) orthogonally projected onto y=0 -> (1,0)
     //     displacement (1,1) projected onto horizontal -> (1,0)
     //     result: (1,0) -> (2,0)
-    const p1 = ProjectPartial{ .target = ProjectTarget{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } } };
+    const p1 = ProjectPartial{ .target = ProjectTarget{ .line = inputs.Line{ .a = 1.0, .b = 0.0, .c = 0.0 } } };
     const tp = OutputTransformationPair{
         .outputName = "out",
         .operation = Compose{
@@ -5590,13 +5565,13 @@ test "toExplicitPoint fixed - compose with anchor and project onto vector multi-
     defer arena.deinit();
     const a = arena.allocator();
 
-    // ((project [1,0]) & (anchor {(1,1)})) with input [[1,1],[1,-1]]
+    // ((project (y=0)) & (anchor {(1,1)})) with input [[1,1],[1,-1]]
     // (a) anchor at (1,1): polyline (1,1)->(2,2)->(3,1)
-    // (b) project onto horizontal vector [1,0]:
+    // (b) project onto horizontal line y=0:
     //     P0=(1,1) orthogonally projected onto y=0 -> (1,0)
     //     displacements: (1,1)->(1,0), (2,0)->(2,0)
     //     result: (1,0) -> (2,0) -> (3,0)
-    const p1 = ProjectPartial{ .target = ProjectTarget{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } } };
+    const p1 = ProjectPartial{ .target = ProjectTarget{ .line = inputs.Line{ .a = 1.0, .b = 0.0, .c = 0.0 } } };
     const tp = OutputTransformationPair{
         .outputName = "out",
         .operation = Compose{
@@ -5677,13 +5652,13 @@ test "toExplicitPoint fixed - compose with anchor and orthogonal onto vector" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // ((orthogonal [1,0]) & (anchor {(1,1)})) with input [[1,1]]
+    // ((orthogonal (y=0)) & (anchor {(1,1)})) with input [[1,1]]
     // (a) anchor at (1,1) with vector [1,1]: polyline from (1,1) to (2,2)
-    // (b) orthogonal to horizontal vector [1,0]:
+    // (b) orthogonal to horizontal line y=0:
     //     P0=(1,1) orthogonally projected onto y=0 -> (1,0)
     //     displacement (1,1), orthogonal = (0,1)
     //     result: (1,0) -> (1,1)
-    const o1 = OrthogonalPartial{ .target = ProjectTarget{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } } };
+    const o1 = OrthogonalPartial{ .target = ProjectTarget{ .line = inputs.Line{ .a = 1.0, .b = 0.0, .c = 0.0 } } };
     const tp = OutputTransformationPair{
         .outputName = "out",
         .operation = Compose{
@@ -5764,13 +5739,13 @@ test "toExplicitPoint fixed - compose with anchor and orthogonal multi-segment" 
     defer arena.deinit();
     const a = arena.allocator();
 
-    // ((orthogonal [1,0]) & (anchor {(1,1)})) with input [[1,1],[1,-1]]
+    // ((orthogonal (y=0)) & (anchor {(1,1)})) with input [[1,1],[1,-1]]
     // (a) anchor at (1,1): polyline (1,1)->(2,2)->(3,1)
-    // (b) orthogonal to horizontal vector [1,0]:
+    // (b) orthogonal to horizontal line y=0:
     //     P0=(1,1) orthogonally projected onto y=0 -> (1,0)
     //     displacements: (1,1)->(0,1), (2,0)->(0,0)
     //     result: (1,0) -> (1,1) -> (1,1)
-    const o1 = OrthogonalPartial{ .target = ProjectTarget{ .vector = inputs.Vector{ .x = 1.0, .y = 0.0 } } };
+    const o1 = OrthogonalPartial{ .target = ProjectTarget{ .line = inputs.Line{ .a = 1.0, .b = 0.0, .c = 0.0 } } };
     const tp = OutputTransformationPair{
         .outputName = "out",
         .operation = Compose{
