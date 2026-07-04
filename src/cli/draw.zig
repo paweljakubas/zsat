@@ -152,6 +152,13 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
     }, draw_help.printHelpExec);
     try cmd.addCommand(color_cmd);
 
+    const border_cmd = try zli.Command.init(init_opts, .{
+        .name = "border",
+        .description = "How to define pane borders: width, opacity, and color",
+        .help = draw_help.border_help,
+    }, draw_help.printHelpExec);
+    try cmd.addCommand(border_cmd);
+
     return cmd;
 }
 

@@ -222,6 +222,27 @@ pub const color_help =
     \\  lc: rebeccapurple
 ;
 
+/// Help text for `zsat draw border --help`
+pub const border_help =
+    \\Borders can be added to panes to frame the drawing area.
+    \\
+    \\Syntax inside a pane definition:
+    \\  border [ATTR1, ATTR2, ...]
+    \\
+    \\Attributes:
+    \\  borderWidth:N  or  bw:N   -- border thickness in pixels (default: 0)
+    \\  borderOpacity:N  or  bo:N -- opacity from 0 to 100 (default: 100)
+    \\  borderColor:NAME  or  bc:NAME -- any CSS color name (default: black)
+    \\
+    \\When a border is present, the plot elements are inset by the border
+    \\width so they do not overlap the frame. For example, a 600-wide pane
+    \\with a border width of 30 leaves 540 pixels for the plot content.
+    \\
+    \\Examples:
+    \\  p0:{size: 600x600, border [bw:30, bo:100, bc:red]}
+    \\  p1:{border [bw:10, bc:blue], view:{(0,0), (100,100)}}
+;
+
 /// Help text for `zsat draw angle --help`
 pub const angle_help =
     \\Angles are used in transformations like `rotate` and in polar coordinates.
@@ -269,6 +290,8 @@ pub const objects_help =
     \\       How to represent angles: degrees, radians, and fractions of pi
     \\  zsat draw color --help
     \\       Available color names for line color
+    \\  zsat draw border --help
+    \\       How to define pane borders: width, opacity, and color
 ;
 
 /// Print help text directly (used as execFn for doc-only subcommands).

@@ -922,6 +922,32 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
     try context.fill();
     context.setLineWidth(10.0); // Re-enable for data lines
     context.resetPath(); // Clear path state after fill
+
+    const border_width: f64 = if (pane.paneValue.border) |b| @floatFromInt(b.width) else 0.0;
+
+    // Draw border if present
+    if (pane.paneValue.border) |border| {
+        const bw = @as(f64, @floatFromInt(border.width));
+        const rgb = colorNameToRGB(border.color);
+        const alpha: u16 = @intCast(@as(u16, border.opacity) * 255 / 100);
+        const r: u8 = @intCast(@as(u16, rgb.r) * alpha / 255);
+        const g: u8 = @intCast(@as(u16, rgb.g) * alpha / 255);
+        const b: u8 = @intCast(@as(u16, rgb.b) * alpha / 255);
+        const a: u8 = @intCast(alpha);
+        context.setSourceToPixel(.{ .rgba = .{ .r = r, .g = g, .b = b, .a = a } });
+        context.setLineWidth(bw);
+        context.resetPath();
+        const half_bw = bw / 2.0;
+        const w_f: f64 = @floatFromInt(width);
+        const h_f: f64 = @floatFromInt(height);
+        try context.moveTo(half_bw, half_bw);
+        try context.lineTo(w_f - half_bw, half_bw);
+        try context.lineTo(w_f - half_bw, h_f - half_bw);
+        try context.lineTo(half_bw, h_f - half_bw);
+        try context.closePath();
+        try context.stroke();
+    }
+
     const outputs = parsed_data.outputs;
     const input_data = parsed_data.inputs;
 
@@ -951,8 +977,9 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
     const y_range = bounds.y[1] - bounds.y[0];
 
     const margin: f64 = 20.0;
-    const draw_width = @as(f64, @floatFromInt(width)) - 2 * margin;
-    const draw_height = @as(f64, @floatFromInt(height)) - 2 * margin;
+    const effective_margin = margin + border_width;
+    const draw_width = @as(f64, @floatFromInt(width)) - 2 * effective_margin;
+    const draw_height = @as(f64, @floatFromInt(height)) - 2 * effective_margin;
 
     if (x_range >= 0 and y_range >= 0) {
         const rX = if (x_range > 0) draw_width / @as(f64, x_range) else draw_width;
@@ -961,10 +988,10 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
         const x_scale = rX;
         const y_scale = rY;
 
-        const origin_x = margin - @as(f64, bounds.x[0]) * x_scale;
-        const origin_y = @as(f64, @floatFromInt(height)) - margin + @as(f64, bounds.y[0]) * y_scale;
-        const min_y = margin;
-        const max_y = @as(f64, @floatFromInt(height)) - margin;
+        const origin_x = effective_margin - @as(f64, bounds.x[0]) * x_scale;
+        const origin_y = @as(f64, @floatFromInt(height)) - effective_margin + @as(f64, bounds.y[0]) * y_scale;
+        const min_y = effective_margin;
+        const max_y = @as(f64, @floatFromInt(height)) - effective_margin;
 
         for (parsed_data.inputs.input, 0..) |_, row_idx| {
             const style = try resolveStyle(&context, parsed_data.styles, parsed_data.datum.mappings, row_idx, height);

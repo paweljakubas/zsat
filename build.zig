@@ -89,6 +89,7 @@ pub fn build(b: *std.Build) void {
 
         const test_files = [_][]const u8{
             "src/cli/draw/common.zig",
+            "src/cli/draw/border.zig",
             "src/cli/draw/datum.zig",
             "src/cli/draw/frames.zig",
             "src/cli/draw/inputs.zig",
