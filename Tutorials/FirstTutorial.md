@@ -22,11 +22,31 @@ stdin:
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> (anchor {(0,0)}) out
 --panes p0:{size: 600x600}
+--border p0: none
 --frames (out) -> out -> p0
 ```
 ![](fig1.png)
 
 There are many dimensions to master in the tool, and it is best to cover each aspect one by one.
+
+**Pane borders**
+
+By default, panes have no border. You can add one inline inside a pane definition:
+
+```bash
+echo '[[1,1]]' | zsat draw -p 'p0:{size: 300x300, border: [bw:20, bc:red]}'
+```
+
+Or define a reusable border in `--styles` and reference it by name:
+
+```bash
+echo '[[1,1]]' | zsat draw -s 'b0: border [bw:20, bc:red]' -p 'p0:{size: 300x300, border: b0}'
+```
+
+The border width reduces the available drawing area: a 300-wide pane with a 20-pixel border leaves 260 pixels for the plot content. Border attributes support both full names and abbreviations:
+- `borderWidth` / `bw` — thickness in pixels
+- `borderOpacity` / `bo` — opacity from 0 to 100
+- `borderColor` / `bc` — any CSS color name
 
 ## Data shape to be plotted
 
@@ -267,6 +287,7 @@ stdin:
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> (anchor {(0,0)}) out
 --panes p0:{size: 600x600}
+--border p0: none
 --frames (out) -> out -> p0
 ```
 <img src="fig18.png" width="332" style="border: 2px solid grey;">
@@ -283,6 +304,7 @@ stdin:
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out
 --panes p0:{size: 600x600}
+--border p0: none
 --frames (out) -> out -> p0
 ```
 <img src="fig19.png" width="332" style="border: 2px solid grey;">
@@ -316,6 +338,7 @@ stdin:
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out
 --panes p0:{size: 600x600}
+--border p0: none
 --frames (out) -> out -> p0
 ```
 <img src="fig20.png" width="332" style="border: 2px solid grey;">
@@ -331,6 +354,7 @@ stdin:
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((r [-90 a (mid self)]) & (rotate [90 a (0% self)]) & (anchor {(0,0)})) out
 --panes p0:{size: 600x600}
+--border p0: none
 --frames (out) -> out -> p0
 ```
 <img src="fig21.png" width="332" style="border: 2px solid grey;">

@@ -4,24 +4,59 @@ const Reader = std.Io.Reader;
 const zli = @import("zli");
 const z2d = @import("z2d");
 const zigimg = @import("zigimg");
+const mecha = @import("mecha");
+const common = @import("draw/common.zig");
 const Styles = @import("draw/styles.zig");
 const Inputs = @import("draw/inputs.zig");
 const Outputs = @import("draw/outputs.zig");
 const Datum = @import("draw/datum.zig");
 const Frames = @import("draw/frames.zig");
 const Panes = @import("draw/panes.zig");
+const Border = @import("draw/border.zig");
 
 const Plot = @import("plot");
 const draw_help = @import("draw_help.zig");
 
 pub const ParsedData = struct {
     styles: []const Styles.Style,
+    borders: []const Border.BorderDefinition,
     inputs: Inputs.Inputs,
     datum: Datum.DataElementValidated,
     outputs: Outputs.OutputsValidated,
     panes: []const Panes.Pane,
     frames: Frames.OutputPaneValidated,
 };
+
+const DrawElement = union(enum) {
+    style: Styles.Style,
+    border: Border.BorderDefinition,
+};
+
+const drawElementParser = mecha.oneOf(.{
+    Styles.styleParser.map(struct {
+        fn toElem(s: Styles.Style) mecha.ConvertError!DrawElement {
+            return DrawElement{ .style = s };
+        }
+    }.toElem),
+    Border.borderDefParser.map(struct {
+        fn toElem(b: Border.BorderDefinition) mecha.ConvertError!DrawElement {
+            return DrawElement{ .border = b };
+        }
+    }.toElem),
+});
+
+const styleSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
+const drawElementsParserRaw = mecha.many(drawElementParser, .{ .collect = true, .separator = styleSeparatorParser });
+const drawElementsParserRawP = @TypeOf(drawElementsParserRaw);
+fn toDrawElementsSlice(arena: std.mem.Allocator, raw: drawElementsParserRawP.T) mecha.ConvertError![]DrawElement {
+    const result = try arena.alloc(DrawElement, raw.len);
+    for (raw, 0..) |elem, i| {
+        result[i] = try elem;
+    }
+    arena.free(raw);
+    return result;
+}
+const drawElementsParser = drawElementsParserRaw.convert(toDrawElementsSlice);
 
 const style_flag = zli.Flag{
     .name = "styles",
@@ -189,13 +224,25 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         }
     }
 
-    const styles_parse_result = try Styles.stylesParser.parse(alloc, styles_str);
-    const raw_styles = switch (styles_parse_result.value) {
-        .ok => |s| s,
+    const elements_parse_result = try drawElementsParser.parse(alloc, styles_str);
+    const draw_elements = switch (elements_parse_result.value) {
+        .ok => |e| e,
         .err => {
             return error.ParseStylesFailed;
         },
     };
+
+    var styles_list = std.ArrayList(Styles.Style).empty;
+    var borders_list = std.ArrayList(Border.BorderDefinition).empty;
+    for (draw_elements) |elem| {
+        switch (elem) {
+            .style => |s| try styles_list.append(alloc, s),
+            .border => |b| try borders_list.append(alloc, b),
+        }
+    }
+    const raw_styles = try styles_list.toOwnedSlice(alloc);
+    const borders = try borders_list.toOwnedSlice(alloc);
+
     if (raw_styles.len == 0) {
         return error.ParseStylesFailed;
     }
@@ -286,6 +333,23 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         return error.ParsePanesFailed;
     }
 
+    // Validate pane border references
+    for (panes) |pane| {
+        if (pane.paneValue.border == .ref) {
+            const name = pane.paneValue.border.ref;
+            var found = false;
+            for (borders) |bdef| {
+                if (std.mem.eql(u8, bdef.name, name)) {
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) {
+                return error.BorderReferenceInvalid;
+            }
+        }
+    }
+
     var paneNames = try alloc.alloc([]const u8, panes.len);
     for (panes, 0..) |pane, i| {
         paneNames[i] = try std.fmt.allocPrint(alloc, "p{}", .{pane.paneNumber});
@@ -314,17 +378,41 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         try ctx.writer.print("--datum {s}\n", .{datum_str});
         try ctx.writer.print("--outputs {s}\n", .{output_str});
         try ctx.writer.print("--panes {s}\n", .{panes_str});
+        for (panes) |pane| {
+            const b = resolvePaneBorder(pane, borders);
+            if (b) |border_val| {
+                try ctx.writer.print("--border p{d}: bw={d}, bo={d}, bc={s}\n", .{ pane.paneNumber, border_val.width, border_val.opacity, @tagName(border_val.color) });
+            } else {
+                try ctx.writer.print("--border p{d}: none\n", .{pane.paneNumber});
+            }
+        }
         try ctx.writer.print("--frames {s}\n", .{frames_str});
     }
 
     return ParsedData{
         .styles = styles,
+        .borders = borders,
         .inputs = inputs,
         .datum = datumValidated,
         .outputs = outputsExplicit,
         .panes = panes,
         .frames = framesValidated,
     };
+}
+
+fn resolvePaneBorder(pane: Panes.Pane, borders: []const Border.BorderDefinition) ?Border.Border {
+    switch (pane.paneValue.border) {
+        .none => return null,
+        .defined => |b| return b,
+        .ref => |name| {
+            for (borders) |bdef| {
+                if (std.mem.eql(u8, bdef.name, name)) {
+                    return bdef.border;
+                }
+            }
+            return null;
+        },
+    }
 }
 
 fn checkTerminalSupportsKitty(environ: std.process.Environ) bool {
@@ -545,6 +633,7 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
         error.WrongNumberOfOutputs => "Error: the number of outputs does not match the expected count.",
         error.ArgumentInPairInvalid => "Error: invalid argument in output transformation pair.",
         error.PaneInMappingInvalid => "Error: an invalid pane was referenced in the frames mapping.",
+        error.BorderReferenceInvalid => "Error: a pane references a border that was not defined in --styles.",
         else => "Error: an unexpected error occurred.",
     };
 }

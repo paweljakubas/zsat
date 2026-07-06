@@ -226,21 +226,27 @@ pub const color_help =
 pub const border_help =
     \\Borders can be added to panes to frame the drawing area.
     \\
-    \\Syntax inside a pane definition:
-    \\  border [ATTR1, ATTR2, ...]
+    \\Defining borders in --styles (reusable):
+    \\  bN: border [ATTR1, ATTR2, ...]
+    \\  bN: border               -- use all defaults
     \\
-    \\Attributes:
-    \\  borderWidth:N  or  bw:N   -- border thickness in pixels (default: 0)
-    \\  borderOpacity:N  or  bo:N -- opacity from 0 to 100 (default: 100)
-    \\  borderColor:NAME  or  bc:NAME -- any CSS color name (default: black)
+    \\Attributes (defaults: bw=10, bc=black, bo=100):
+    \\  borderWidth:N  or  bw:N   -- border thickness in pixels
+    \\  borderOpacity:N  or  bo:N -- opacity from 0 to 100
+    \\  borderColor:NAME  or  bc:NAME -- any CSS color name
+    \\
+    \\Using borders in --panes:
+    \\  border: bN               -- reference a named border defined in --styles
+    \\  border: [ATTR1, ...]     -- inline border definition
     \\
     \\When a border is present, the plot elements are inset by the border
     \\width so they do not overlap the frame. For example, a 600-wide pane
     \\with a border width of 30 leaves 540 pixels for the plot content.
     \\
     \\Examples:
-    \\  p0:{size: 600x600, border [bw:30, bo:100, bc:red]}
-    \\  p1:{border [bw:10, bc:blue], view:{(0,0), (100,100)}}
+    \\  --styles 'b0: border [bw:30, bc:red]' --panes 'p0:{size: 600x600, border: b0}'
+    \\  --panes 'p0:{size: 600x600, border: [bw:20, bc:blue]}'
+    \\  --styles 'b1: border' --panes 'p1:{border: b1}'
 ;
 
 /// Help text for `zsat draw angle --help`

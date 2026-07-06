@@ -108,6 +108,11 @@ With custom size:
 echo '[[1,1], [2,2]]' | zsat draw -p 'p0:{size: 1200x800}'
 ```
 
+With a pane border:
+```bash
+echo '[[1,1], [2,2]]' | zsat draw -p 'p0:{size: 600x600, border: [bw:30, bc:red]}'
+```
+
 Tip: Use `echo -e` instead of `echo` to ensure newlines are properly interpreted in the input data.
 
 ## In-depth tutorial

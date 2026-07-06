@@ -923,13 +923,31 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
     context.setLineWidth(10.0); // Re-enable for data lines
     context.resetPath(); // Clear path state after fill
 
-    const border_width: f64 = if (pane.paneValue.border) |b| @floatFromInt(b.width) else 0.0;
+    // Resolve pane border (inline or from parsed border definitions)
+    const pane_border = blk: {
+        const pb = pane.paneValue.border;
+        switch (pb) {
+            .none => break :blk null,
+            .defined => |b| break :blk b,
+            .ref => |name| {
+                if (@hasField(@TypeOf(parsed_data), "borders")) {
+                    for (parsed_data.borders) |bdef| {
+                        if (std.mem.eql(u8, bdef.name, name)) {
+                            break :blk bdef.border;
+                        }
+                    }
+                }
+                break :blk null;
+            },
+        }
+    };
+    const border_width: f64 = if (pane_border) |b| @floatFromInt(b.width) else 0.0;
 
     // Draw border if present
-    if (pane.paneValue.border) |border| {
-        const bw = @as(f64, @floatFromInt(border.width));
-        const rgb = colorNameToRGB(border.color);
-        const alpha: u16 = @intCast(@as(u16, border.opacity) * 255 / 100);
+    if (pane_border) |border_val| {
+        const bw = @as(f64, @floatFromInt(border_val.width));
+        const rgb = colorNameToRGB(border_val.color);
+        const alpha: u16 = @intCast(@as(u16, border_val.opacity) * 255 / 100);
         const r: u8 = @intCast(@as(u16, rgb.r) * alpha / 255);
         const g: u8 = @intCast(@as(u16, rgb.g) * alpha / 255);
         const b: u8 = @intCast(@as(u16, rgb.b) * alpha / 255);

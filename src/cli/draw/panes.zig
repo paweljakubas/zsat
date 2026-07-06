@@ -12,9 +12,15 @@ pub const Pane = struct {
     paneValue: PaneValue,
 };
 
+pub const PaneBorder = union(enum) {
+    none,
+    defined: border.Border,
+    ref: []const u8,
+};
+
 pub const PaneValue = struct {
     paneSize: ?PaneSize = .defaultPaneSize(),
-    border: ?border.Border = null,
+    border: PaneBorder = .none,
     view: PaneView = .defaultPaneView(),
 };
 
@@ -129,7 +135,7 @@ test "paneView" {
 
 const PaneFieldUnion = union(enum) {
     paneSize: PaneSize,
-    border: border.Border,
+    border: PaneBorder,
     paneView: PaneView,
 };
 
@@ -139,9 +145,15 @@ const paneSizeFieldParser = paneSizeParser.convert(struct {
     }
 }.conv);
 
-const borderFieldParser = border.borderBracketedParser.convert(struct {
+const paneInlineBorderFieldParser = border.paneBorderInlineParser.convert(struct {
     fn conv(_: std.mem.Allocator, res: border.Border) mecha.ConvertError!PaneFieldUnion {
-        return PaneFieldUnion{ .border = res };
+        return PaneFieldUnion{ .border = PaneBorder{ .defined = res } };
+    }
+}.conv);
+
+const paneRefBorderFieldParser = border.paneBorderRefParser.convert(struct {
+    fn conv(_: std.mem.Allocator, res: []const u8) mecha.ConvertError!PaneFieldUnion {
+        return PaneFieldUnion{ .border = PaneBorder{ .ref = res } };
     }
 }.conv);
 
@@ -153,7 +165,8 @@ const paneViewFieldParser = paneViewParser.convert(struct {
 
 const paneFieldParser = mecha.oneOf(.{
     paneSizeFieldParser,
-    borderFieldParser,
+    paneInlineBorderFieldParser,
+    paneRefBorderFieldParser,
     paneViewFieldParser,
 });
 
@@ -195,33 +208,53 @@ test "paneParser" {
     try testing.expectEqual(pane1, r1.value.ok);
 }
 
-test "paneParser with border" {
+test "paneParser with inline border" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r0 = try paneParser.parse(a, "p0:{size: 100x100, border [bw:30, bc:red], view:{(2,1.1), (10.0, 1.2)}}");
+    const r0 = try paneParser.parse(a, "p0:{size: 100x100, border: [bw:30, bc:red], view:{(2,1.1), (10.0, 1.2)}}");
     const s0 = PaneSize{ .width = 100, .height = 100 };
     const b0 = border.Border{ .width = 30, .opacity = 100, .color = .red };
     const p0a = inputs.Point{ .x = 2.0, .y = 1.1 };
     const p0b = inputs.Point{ .x = 10.0, .y = 1.2 };
     const p0 = PaneView{ .from = p0a, .to = p0b };
-    const v0 = PaneValue{ .paneSize = s0, .border = b0, .view = p0 };
+    const v0 = PaneValue{ .paneSize = s0, .border = PaneBorder{ .defined = b0 }, .view = p0 };
     const pane0 = Pane{ .paneNumber = 0, .paneValue = v0 };
     try testing.expectEqual(pane0, r0.value.ok);
 
-    const r1 = try paneParser.parse(a, "p1:{border [bo:50, bc:blue]}");
-    const b1 = border.Border{ .width = 0, .opacity = 50, .color = .blue };
-    const v1 = PaneValue{ .paneSize = PaneSize.defaultPaneSize(), .border = b1, .view = PaneView.defaultPaneView() };
+    const r1 = try paneParser.parse(a, "p1:{border: [bo:50, bc:blue]}");
+    const b1 = border.Border{ .width = 10, .opacity = 50, .color = .blue };
+    const v1 = PaneValue{ .paneSize = PaneSize.defaultPaneSize(), .border = PaneBorder{ .defined = b1 }, .view = PaneView.defaultPaneView() };
     const pane1 = Pane{ .paneNumber = 1, .paneValue = v1 };
     try testing.expectEqual(pane1, r1.value.ok);
 
-    const r2 = try paneParser.parse(a, "p2:{size: 200x200, border [bw:10]}");
+    const r2 = try paneParser.parse(a, "p2:{size: 200x200, b: [bw:15]}");
     const s2 = PaneSize{ .width = 200, .height = 200 };
-    const b2 = border.Border{ .width = 10, .opacity = 100, .color = .black };
-    const v2 = PaneValue{ .paneSize = s2, .border = b2, .view = PaneView.defaultPaneView() };
+    const b2 = border.Border{ .width = 15, .opacity = 100, .color = .black };
+    const v2 = PaneValue{ .paneSize = s2, .border = PaneBorder{ .defined = b2 }, .view = PaneView.defaultPaneView() };
     const pane2 = Pane{ .paneNumber = 2, .paneValue = v2 };
     try testing.expectEqual(pane2, r2.value.ok);
+}
+
+test "paneParser with border ref" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r0 = try paneParser.parse(a, "p0:{size: 100x100, border: b0, view:{(2,1.1), (10.0, 1.2)}}");
+    const s0 = PaneSize{ .width = 100, .height = 100 };
+    const p0a = inputs.Point{ .x = 2.0, .y = 1.1 };
+    const p0b = inputs.Point{ .x = 10.0, .y = 1.2 };
+    const p0 = PaneView{ .from = p0a, .to = p0b };
+    const v0 = PaneValue{ .paneSize = s0, .border = PaneBorder{ .ref = "b0" }, .view = p0 };
+    const pane0 = Pane{ .paneNumber = 0, .paneValue = v0 };
+    try testing.expectEqualDeep(pane0, r0.value.ok);
+
+    const r1 = try paneParser.parse(a, "p1:{b: b12}");
+    const v1 = PaneValue{ .paneSize = PaneSize.defaultPaneSize(), .border = PaneBorder{ .ref = "b12" }, .view = PaneView.defaultPaneView() };
+    const pane1 = Pane{ .paneNumber = 1, .paneValue = v1 };
+    try testing.expectEqualDeep(pane1, r1.value.ok);
 }
 
 const paneSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
