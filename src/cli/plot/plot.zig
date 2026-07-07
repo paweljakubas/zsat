@@ -989,7 +989,15 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
             .xy;
     }
 
-    const bounds = computeBounds(outputs, input_data, coord_orientations, coord_types);
+    var bounds = computeBounds(outputs, input_data, coord_orientations, coord_types);
+    if (@hasField(@TypeOf(parsed_data), "textOverlays")) {
+        for (parsed_data.textOverlays) |txt| {
+            if (txt.x < bounds.x[0]) bounds.x[0] = txt.x;
+            if (txt.x > bounds.x[1]) bounds.x[1] = txt.x;
+            if (txt.y < bounds.y[0]) bounds.y[0] = txt.y;
+            if (txt.y > bounds.y[1]) bounds.y[1] = txt.y;
+        }
+    }
 
     const x_range = bounds.x[1] - bounds.x[0];
     const y_range = bounds.y[1] - bounds.y[0];
@@ -1055,6 +1063,41 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
                     if (start_op == .anchor and start_op.anchor.point == .point) {
                         try drawPolylineFromAnchor(&context, @as(f64, start_op.anchor.point.point.x), @as(f64, start_op.anchor.point.point.y), input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y, ct);
                     }
+                }
+            }
+        }
+
+        // Draw text overlays
+        if (@hasField(@TypeOf(parsed_data), "textOverlays") and parsed_data.textOverlays.len > 0) {
+            const font_path = if (std.mem.eql(u8, parsed_data.textOverlays[0].font, "default"))
+                "/usr/share/fonts/truetype/hack/Hack-Regular.ttf"
+            else
+                parsed_data.textOverlays[0].font;
+            context.setFontToFile(font_path) catch {};
+            defer context.deinitFont();
+            for (parsed_data.textOverlays) |txt| {
+                const plot_x = origin_x + @as(f64, txt.x) * x_scale;
+                const plot_y = origin_y - @as(f64, txt.y) * y_scale;
+
+                const rgb = colorNameToRGB(txt.color);
+                const alpha: u16 = @intCast(@as(u16, txt.opacity) * 255 / 100);
+                const r: u8 = @intCast(@as(u16, rgb.r) * alpha / 255);
+                const g: u8 = @intCast(@as(u16, rgb.g) * alpha / 255);
+                const b: u8 = @intCast(@as(u16, rgb.b) * alpha / 255);
+                const a: u8 = @intCast(alpha);
+                context.setSourceToPixel(.{ .rgba = .{ .r = r, .g = g, .b = b, .a = a } });
+                context.setFontSize(@as(f64, @floatFromInt(txt.size)));
+
+                if (txt.angle != 0) {
+                    const saved = context.transformation;
+                    // Data-space angles are CCW with y-up; z2d screen space is y-down,
+                    // so we negate the angle to preserve the same visual orientation.
+                    const angle_rad = -std.math.degreesToRadians(@as(f64, txt.angle));
+                    context.transformation = z2d.Transformation.identity.translate(plot_x, plot_y).rotate(angle_rad);
+                    context.showText(txt.value, 0, 0) catch {};
+                    context.transformation = saved;
+                } else {
+                    context.showText(txt.value, plot_x, plot_y) catch {};
                 }
             }
         }

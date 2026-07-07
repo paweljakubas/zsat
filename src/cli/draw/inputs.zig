@@ -51,7 +51,7 @@ test "floatFromScientific" {
     try testing.expectEqual(0.00000000751, r6.value.ok);
 }
 
-const floatParser = mecha.oneOf(.{
+pub const floatParser = mecha.oneOf(.{
     floatFromScientific,
     common.floatFromDecimal,
 });

@@ -6,6 +6,7 @@ const mecha = @import("mecha");
 const common = @import("common.zig");
 const inputs = @import("inputs.zig");
 const Styles = @import("styles.zig");
+const Text = @import("text.zig");
 const geometry = @import("../transform/geometry.zig");
 
 const CoordinateOrientation = Styles.CoordinateOrientation;
@@ -1344,17 +1345,63 @@ test "outputTransformationPairParser" {
     try testing.expectEqualDeep(out2, r2.value.ok);
 }
 
+pub const TextOutput = struct {
+    item: Text.TextItem,
+    ops: ?[]const OneArgFunctionPartial = null,
+};
+
 //Raw, pre-validation result of parsing the connection
 pub const Connection = struct {
     outputs: []const Output,
     transformationPairs: []const OutputTransformationPair,
+    textOutputs: []const TextOutput,
 };
 
-const transformationPairsSeparatorParser = mecha.combine(.{common.skipComma});
-const transformationPairsParser = mecha.many(outputTransformationPairParser, .{ .collect = true, .separator = transformationPairsSeparatorParser });
-const transformationPairsWithBracketsParser = mecha.combine(.{
+const TextTransformed = struct {
+    item: Text.TextItem,
+    operation: Compose,
+};
+
+const OutputItem = union(enum) {
+    transformation: OutputTransformationPair,
+    text: Text.TextItem,
+    textTransformed: TextTransformed,
+};
+
+const textTransformationPairParserRaw = mecha.combine(.{
+    composeParser,
+    common.skipWhitespace,
+    Text.textItemParser,
+});
+const textTransformationPairParser = textTransformationPairParserRaw.convert(struct {
+    fn toTransformed(_: std.mem.Allocator, res: anytype) mecha.ConvertError!TextTransformed {
+        return TextTransformed{ .operation = res[0], .item = res[1] };
+    }
+}.toTransformed);
+
+const outputItemParser = mecha.oneOf(.{
+    textTransformationPairParser.map(struct {
+        fn toItem(tt: TextTransformed) mecha.ConvertError!OutputItem {
+            return OutputItem{ .textTransformed = tt };
+        }
+    }.toItem),
+    outputTransformationPairParser.map(struct {
+        fn toItem(pair: OutputTransformationPair) mecha.ConvertError!OutputItem {
+            return OutputItem{ .transformation = pair };
+        }
+    }.toItem),
+    Text.textItemParser.map(struct {
+        fn toItem(item: Text.TextItem) mecha.ConvertError!OutputItem {
+            return OutputItem{ .text = item };
+        }
+    }.toItem),
+});
+
+const outputItemsSeparatorParser = mecha.combine(.{common.skipComma});
+const outputItemsParser = mecha.many(outputItemParser, .{ .collect = true, .separator = outputItemsSeparatorParser });
+const outputItemsWithBracketsParser = mecha.combine(.{
     common.skipOpenBracket,
-    transformationPairsParser,
+    outputItemsParser,
     common.skipCloseBracket,
 });
 const connectionParserRawSingle = mecha.combine(.{
@@ -1370,6 +1417,7 @@ const connectionParserRawSingle = mecha.combine(.{
         return Connection{
             .outputs = args[0],
             .transformationPairs = arr,
+            .textOutputs = &.{},
         };
     }
 }.toSingle);
@@ -1378,12 +1426,25 @@ const connectionParserRawMultiple = mecha.combine(.{
     common.skipWhitespace,
     common.skipArrow,
     common.skipWhitespace,
-    transformationPairsWithBracketsParser,
+    outputItemsWithBracketsParser,
 }).convert(struct {
-    fn toMultiple(_: std.mem.Allocator, args: anytype) mecha.ConvertError!Connection {
+    fn toMultiple(arena: std.mem.Allocator, args: anytype) mecha.ConvertError!Connection {
+        const items = args[1];
+        var pairs = std.ArrayList(OutputTransformationPair).empty;
+        var texts = std.ArrayList(TextOutput).empty;
+        for (items) |item| {
+            const unwrapped = try item;
+            switch (unwrapped) {
+                .transformation => |p| try pairs.append(arena, p),
+                .text => |t| try texts.append(arena, TextOutput{ .item = t }),
+                .textTransformed => |tt| try texts.append(arena, TextOutput{ .item = tt.item, .ops = tt.operation.ops }),
+            }
+        }
+        arena.free(items);
         return Connection{
             .outputs = args[0],
-            .transformationPairs = args[1],
+            .transformationPairs = try pairs.toOwnedSlice(arena),
+            .textOutputs = try texts.toOwnedSlice(arena),
         };
     }
 }.toMultiple);
@@ -1411,6 +1472,7 @@ const connectionParserRawIdentity = mecha.combine(.{
         return Connection{
             .outputs = args[0],
             .transformationPairs = arr,
+            .textOutputs = &.{},
         };
     }
 }.toIdentity);
@@ -1441,6 +1503,7 @@ test "connectionParser" {
     const exp1 = Connection{
         .outputs = &[1]Output{out1},
         .transformationPairs = &[1]OutputTransformationPair{tp1},
+        .textOutputs = &.{},
     };
     try testing.expectEqualDeep(exp1, r1.value.ok);
 
@@ -1475,8 +1538,67 @@ test "connectionParser" {
     const exp2 = Connection{
         .outputs = &[2]Output{ out2a, out2b },
         .transformationPairs = &[2]OutputTransformationPair{ tp2a, tp2b },
+        .textOutputs = &.{},
     };
     try testing.expectEqualDeep(exp2, r2.value.ok);
+}
+
+test "connectionParser with text items" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try connectionParser.parse(a, "(out) -> ((anchor {(0,0)}) out, t0, t1{\"hello\"})");
+    try testing.expectEqual(@as(usize, 1), r1.value.ok.transformationPairs.len);
+    try testing.expectEqual(@as(usize, 2), r1.value.ok.textOutputs.len);
+    try testing.expectEqualStrings("t0", r1.value.ok.textOutputs[0].item.name);
+    try testing.expect(r1.value.ok.textOutputs[0].item.override == null);
+    try testing.expectEqualStrings("t1", r1.value.ok.textOutputs[1].item.name);
+    try testing.expectEqualStrings("hello", r1.value.ok.textOutputs[1].item.override.?.value.?);
+}
+
+test "connectionParser with transformed text" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try connectionParser.parse(a, "(out) -> ((anchor {(0,0)}) out, (anchor {(1,2)}) t0, (r [45 a {(0,0)}]) t1)");
+    try testing.expectEqual(@as(usize, 1), r1.value.ok.transformationPairs.len);
+    try testing.expectEqual(@as(usize, 2), r1.value.ok.textOutputs.len);
+    try testing.expectEqualStrings("t0", r1.value.ok.textOutputs[0].item.name);
+    try testing.expect(r1.value.ok.textOutputs[0].ops != null);
+    try testing.expectEqualStrings("t1", r1.value.ok.textOutputs[1].item.name);
+    try testing.expect(r1.value.ok.textOutputs[1].ops != null);
+}
+
+/// Extracts the final position and angle from a sequence of one-arg operations
+/// intended for a text overlay. The last explicit anchor or rotate center sets
+/// the position, and rotate angles are accumulated.
+pub fn extractTextPositionAndAngle(ops: []const OneArgFunctionPartial) struct { x: f32, y: f32, angle: f32 } {
+    var x: f32 = 0;
+    var y: f32 = 0;
+    var angle: f32 = 0;
+    for (ops) |op| {
+        switch (op) {
+            .anchor => |a| {
+                if (a.point == .point) {
+                    x = a.point.point.x;
+                    y = a.point.point.y;
+                }
+            },
+            .rotate => |r| {
+                if (r.elements.len > 0) {
+                    angle += r.elements[0].phi;
+                    if (r.elements[0].point == .point) {
+                        x = r.elements[0].point.point.x;
+                        y = r.elements[0].point.point.y;
+                    }
+                }
+            },
+            else => {},
+        }
+    }
+    return .{ .x = x, .y = y, .angle = angle };
 }
 
 pub const OutputError = error{

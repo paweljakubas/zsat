@@ -238,7 +238,7 @@ test "zsat draw with debug and custom options" {
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "stdin:"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--datum (vec) -> (vec -> e0)"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--panes p0:{view:{(0,0), (100, 100)}}"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--panes p0:{size: 800x600, border: none}"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--frames (out) -> out -> p0"));
 }
 

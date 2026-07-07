@@ -13,6 +13,7 @@ const Datum = @import("draw/datum.zig");
 const Frames = @import("draw/frames.zig");
 const Panes = @import("draw/panes.zig");
 const Border = @import("draw/border.zig");
+const Text = @import("draw/text.zig");
 
 const Plot = @import("plot");
 const draw_help = @import("draw_help.zig");
@@ -20,6 +21,8 @@ const draw_help = @import("draw_help.zig");
 pub const ParsedData = struct {
     styles: []const Styles.Style,
     borders: []const Border.BorderDefinition,
+    texts: []const Text.TextDefinition,
+    textOverlays: []const Text.Text,
     inputs: Inputs.Inputs,
     datum: Datum.DataElementValidated,
     outputs: Outputs.OutputsValidated,
@@ -30,6 +33,7 @@ pub const ParsedData = struct {
 const DrawElement = union(enum) {
     style: Styles.Style,
     border: Border.BorderDefinition,
+    text: Text.TextDefinition,
 };
 
 const drawElementParser = mecha.oneOf(.{
@@ -41,6 +45,11 @@ const drawElementParser = mecha.oneOf(.{
     Border.borderDefParser.map(struct {
         fn toElem(b: Border.BorderDefinition) mecha.ConvertError!DrawElement {
             return DrawElement{ .border = b };
+        }
+    }.toElem),
+    Text.textDefParser.map(struct {
+        fn toElem(t: Text.TextDefinition) mecha.ConvertError!DrawElement {
+            return DrawElement{ .text = t };
         }
     }.toElem),
 });
@@ -234,14 +243,17 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
 
     var styles_list = std.ArrayList(Styles.Style).empty;
     var borders_list = std.ArrayList(Border.BorderDefinition).empty;
+    var texts_list = std.ArrayList(Text.TextDefinition).empty;
     for (draw_elements) |elem| {
         switch (elem) {
             .style => |s| try styles_list.append(alloc, s),
             .border => |b| try borders_list.append(alloc, b),
+            .text => |t| try texts_list.append(alloc, t),
         }
     }
     const raw_styles = try styles_list.toOwnedSlice(alloc);
     const borders = try borders_list.toOwnedSlice(alloc);
+    const texts = try texts_list.toOwnedSlice(alloc);
 
     if (raw_styles.len == 0) {
         return error.ParseStylesFailed;
@@ -295,6 +307,28 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     const numberOfOutputsForValidation: u8 = @intCast(outputsConnection.outputs.len);
 
     var outputsValidated = try Outputs.validateConnection(alloc, numberOfOutputsForValidation, outputsConnection);
+
+    // Validate text references from outputs and resolve overlays
+    var text_overlays_list = std.ArrayList(Text.Text).empty;
+    if (@hasField(@TypeOf(outputsConnection), "textOutputs")) {
+        for (outputsConnection.textOutputs) |tout| {
+            if (try Text.resolveTextOverlay(alloc, tout.item, texts)) |overlay| {
+                if (tout.ops) |ops| {
+                    const pos_angle = Outputs.extractTextPositionAndAngle(ops);
+                    var modified = overlay;
+                    modified.x = pos_angle.x;
+                    modified.y = pos_angle.y;
+                    modified.angle = pos_angle.angle;
+                    try text_overlays_list.append(alloc, modified);
+                } else {
+                    try text_overlays_list.append(alloc, overlay);
+                }
+            } else {
+                return error.TextReferenceInvalid;
+            }
+        }
+    }
+    const text_overlays = try text_overlays_list.toOwnedSlice(alloc);
 
     // If only one output transformation pair is defined but multiple input
     // rows are present, replicate the pair so each row is drawn independently
@@ -373,25 +407,43 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     if (debug) {
         const styles_debug = try Styles.serializeStyles(alloc, styles);
         defer alloc.free(styles_debug);
+        const texts_debug = try Text.serializeTextDefinitions(alloc, texts);
+        defer alloc.free(texts_debug);
         try ctx.writer.print("stdin:\n{s}\n", .{stdin_str});
-        try ctx.writer.print("\n--styles {s}\n", .{styles_debug});
+        if (texts_debug.len > 0) {
+            try ctx.writer.print("\n--styles {s}, {s}\n", .{ styles_debug, texts_debug });
+        } else {
+            try ctx.writer.print("\n--styles {s}\n", .{styles_debug});
+        }
         try ctx.writer.print("--datum {s}\n", .{datum_str});
         try ctx.writer.print("--outputs {s}\n", .{output_str});
-        try ctx.writer.print("--panes {s}\n", .{panes_str});
-        for (panes) |pane| {
-            const b = resolvePaneBorder(pane, borders);
-            if (b) |border_val| {
-                try ctx.writer.print("--border p{d}: bw={d}, bo={d}, bc={s}\n", .{ pane.paneNumber, border_val.width, border_val.opacity, @tagName(border_val.color) });
-            } else {
-                try ctx.writer.print("--border p{d}: none\n", .{pane.paneNumber});
-            }
+        // Build panes string with embedded border info
+        var panes_debug_parts = std.ArrayList([]const u8).empty;
+        defer {
+            for (panes_debug_parts.items) |p| alloc.free(p);
+            panes_debug_parts.deinit(alloc);
         }
+        for (panes, 0..) |pane, i| {
+            if (i > 0) try panes_debug_parts.append(alloc, try alloc.dupe(u8, ", "));
+            const size = pane.paneValue.paneSize.?;
+            const b = resolvePaneBorder(pane, borders);
+            const pane_str = if (b) |border_val|
+                try std.fmt.allocPrint(alloc, "p{d}:{{size: {}x{}, border: {{width: {}, opacity: {}, color: {s}}}}}" , .{ pane.paneNumber, size.width, size.height, border_val.width, border_val.opacity, @tagName(border_val.color) })
+            else
+                try std.fmt.allocPrint(alloc, "p{d}:{{size: {}x{}, border: none}}" , .{ pane.paneNumber, size.width, size.height });
+            try panes_debug_parts.append(alloc, pane_str);
+        }
+        const panes_debug = try std.mem.join(alloc, "", panes_debug_parts.items);
+        defer alloc.free(panes_debug);
+        try ctx.writer.print("--panes {s}\n", .{panes_debug});
         try ctx.writer.print("--frames {s}\n", .{frames_str});
     }
 
     return ParsedData{
         .styles = styles,
         .borders = borders,
+        .texts = texts,
+        .textOverlays = text_overlays,
         .inputs = inputs,
         .datum = datumValidated,
         .outputs = outputsExplicit,
@@ -634,6 +686,7 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
         error.ArgumentInPairInvalid => "Error: invalid argument in output transformation pair.",
         error.PaneInMappingInvalid => "Error: an invalid pane was referenced in the frames mapping.",
         error.BorderReferenceInvalid => "Error: a pane references a border that was not defined in --styles.",
+        error.TextReferenceInvalid => "Error: an output references a text object that was not defined in --styles.",
         else => "Error: an unexpected error occurred.",
     };
 }
