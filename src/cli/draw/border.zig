@@ -203,7 +203,9 @@ const borderDefParserRaw = mecha.combine(.{
     borderDefNumberParser,
     mecha.opt(mecha.ascii.char(':').discard()),
     common.skipWhitespace,
+    common.skipOpenBrace,
     borderDefBodyParser,
+    common.skipCloseBrace,
 });
 const borderDefParserRawP = @TypeOf(borderDefParserRaw);
 fn toBorderDef(arena: std.mem.Allocator, res: borderDefParserRawP.T) mecha.ConvertError!BorderDefinition {
@@ -219,15 +221,15 @@ test "borderDefParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try borderDefParser.parse(a, "b0: border [bw:30, bc:red]");
+    const r1 = try borderDefParser.parse(a, "b0: {border [bw:30, bc:red]}");
     try testing.expectEqualStrings("b0", r1.value.ok.name);
     try testing.expectEqual(Border{ .width = 30, .opacity = 100, .color = .red }, r1.value.ok.border);
 
-    const r2 = try borderDefParser.parse(a, "b12: border");
+    const r2 = try borderDefParser.parse(a, "b12: {border}");
     try testing.expectEqualStrings("b12", r2.value.ok.name);
     try testing.expectEqual(Border{ .width = 10, .opacity = 100, .color = .black }, r2.value.ok.border);
 
-    const r3 = try borderDefParser.parse(a, "b1: b [bw:20, bo:50]");
+    const r3 = try borderDefParser.parse(a, "b1: {b [bw:20, bo:50]}");
     try testing.expectEqualStrings("b1", r3.value.ok.name);
     try testing.expectEqual(Border{ .width = 20, .opacity = 50, .color = .black }, r3.value.ok.border);
 }

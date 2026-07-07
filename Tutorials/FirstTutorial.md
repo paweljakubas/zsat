@@ -40,7 +40,7 @@ echo '[[1,1]]' | zsat draw -p 'p0:{size: 300x300, border: [bw:20, bc:red]}'
 Or define a reusable border in `--styles` and reference it by name:
 
 ```bash
-echo '[[1,1]]' | zsat draw -s 'b0: border [bw:20, bc:red]' -p 'p0:{size: 300x300, border: b0}'
+echo '[[1,1]]' | zsat draw -s 'b0: {border [bw:20, bc:red]}' -p 'p0:{size: 300x300, border: b0}'
 ```
 
 The border width reduces the available drawing area: a 300-wide pane with a 20-pixel border leaves 260 pixels for the plot content. Border attributes support both full names and abbreviations:

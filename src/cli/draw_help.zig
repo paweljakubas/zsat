@@ -227,8 +227,8 @@ pub const border_help =
     \\Borders can be added to panes to frame the drawing area.
     \\
     \\Defining borders in --styles (reusable):
-    \\  bN: border [ATTR1, ATTR2, ...]
-    \\  bN: border               -- use all defaults
+    \\  bN: {border [ATTR1, ATTR2, ...]}
+    \\  bN: {border}               -- use all defaults
     \\
     \\Attributes (defaults: bw=10, bc=black, bo=100):
     \\  borderWidth:N  or  bw:N   -- border thickness in pixels
@@ -244,9 +244,9 @@ pub const border_help =
     \\with a border width of 30 leaves 540 pixels for the plot content.
     \\
     \\Examples:
-    \\  --styles 'b0: border [bw:30, bc:red]' --panes 'p0:{size: 600x600, border: b0}'
+    \\  --styles 'b0: {border [bw:30, bc:red]}' --panes 'p0:{size: 600x600, border: b0}'
     \\  --panes 'p0:{size: 600x600, border: [bw:20, bc:blue]}'
-    \\  --styles 'b1: border' --panes 'p1:{border: b1}'
+    \\  --styles 'b1: {border}' --panes 'p1:{border: b1}'
 ;
 
 /// Help text for `zsat draw angle --help`
