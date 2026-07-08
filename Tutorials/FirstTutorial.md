@@ -1,4 +1,4 @@
-## First try and how to explore the tool
+# First **zsat** tutorial
 
 **Table of Contents**
 - [First try and how to explore the tool](#first-try-and-how-to-explore-the-tool)
@@ -6,7 +6,10 @@
 - [Defining styles](#defining-styles)
 - [Multiple data](#multiple-data)
 - [Datum transformation with straightforward composing](#datum-transformation-with-straightforward-composing)
+- [Adding text](#adding-text)
 - [Exploring the tool through help](#exploring-the-tool-through-help)
+
+## First try and how to explore the tool
 
 Let's say we have a vector in the `xy` coordinate system, `[1,1]`, and want to plot it.
 We can do it immediately by running:
@@ -592,6 +595,90 @@ printf '[[1,45], [1,10], [2,30]]\n[[3.5,3.5]]' | zsat draw \
   -o '(out0, out1) -> ((m (y=x) & a {(0,0)}) out0, (a {(0,0)}) out1)'
 ```
 <img src="fig33.png" width="332" style="border: 2px solid grey;">
+
+## Adding text
+
+Besides vectors, `zsat` can overlay text on the plot. Text is defined in `--styles` and then anchored in `--outputs`.
+
+**Defining text**
+
+Text definitions use the `tN` key and the `txt` (or `t`) keyword:
+
+```bash
+echo '[[1,1]]' | zsat draw --debug \
+  -s 'e0:{vec2d}, t0: {txt "hello" [tc:red, ts:20]}' \
+  -o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)'
+stdin:
+[[1,1]]
+
+--styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}, t0: {txt "hello" [tc:red, ts:20, tf:default, to:100]}
+--datum (vec) -> (vec -> e0)
+--outputs (out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)
+--panes p0:{size: 600x600, border: none}
+--frames (out) -> out -> p0
+```
+<img src="fig42.png" width="332" style="border: 2px solid grey;">
+
+Text attributes inside `[...]` support both full names and abbreviations:
+- `textColor` / `tc` — any CSS color name
+- `textSize` / `ts` — font size in pixels
+- `textFont` / `tf` — font name
+- `textOpacity` / `to` — opacity from 0 to 100
+
+Unspecified attributes inherit from defaults (`tc: black`, `ts: 16`, `tf: default`, `to: 100`). This inheritance property means a minimal definition such as `t0: {txt "hello"}` expands automatically.
+
+**Positioning and rotating text**
+
+Text must be anchored in `--outputs` to appear in the pane. The last explicit `anchor` or `rotate` point in the transformation chain sets the text position.
+
+```bash
+echo '[[1,1]]' | zsat draw --debug \
+  -s 'e0:{vec2d}, t0: {txt "hello" [tc:red, ts:20]}' \
+  -o '(out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}]) t0)'
+stdin:
+[[1,1]]
+
+--styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}, t0: {txt "hello" [tc:red, ts:20, tf:default, to:100]}
+--datum (vec) -> (vec -> e0)
+--outputs (out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}]) t0)
+--panes p0:{size: 600x600, border: none}
+--frames (out) -> out -> p0
+```
+<img src="fig43.png" width="332" style="border: 2px solid grey;">
+
+Here the text is rotated 45 degrees counter-clockwise around the point `(0.5,0.5)`, which also becomes its anchor position. When both `rotate` and `anchor` are present, the last operation carrying an explicit point determines the final placement. In the example below the text is rotated 45° around `(0.5,0.5)` but ultimately sits at `(0.8,0.8)` because the final `anchor` wins:
+
+```bash
+echo '[[1,1]]' | zsat draw --debug \
+  -s 'e0:{vec2d}, t0: {txt "hello" [tc:red, ts:20]}' \
+  -o '(out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}] & a {(0.8,0.8)}) t0)'
+stdin:
+[[1,1]]
+
+--styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}, t0: {txt "hello" [tc:red, ts:20, tf:default, to:100]}
+--datum (vec) -> (vec -> e0)
+--outputs (out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}] & a {(0.8,0.8)}) t0)
+--panes p0:{size: 600x600, border: none}
+--frames (out) -> out -> p0
+```
+<img src="fig44.png" width="332" style="border: 2px solid grey;">
+
+Text can also override its value inline in `--outputs` without redefining the style:
+
+```bash
+echo '[[1,1]]' | zsat draw --debug \
+  -s 'e0:{vec2d}, t0: {txt "hello" [tc:red, ts:20]}' \
+  -o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{"world"})'
+stdin:
+[[1,1]]
+
+--styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}, t0: {txt "hello" [tc:red, ts:20, tf:default, to:100]}
+--datum (vec) -> (vec -> e0)
+--outputs (out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{"world"})
+--panes p0:{size: 600x600, border: none}
+--frames (out) -> out -> p0
+```
+<img src="fig45.png" width="332" style="border: 2px solid grey;">
 
 ## Exploring the tool through help
 
