@@ -1,5 +1,13 @@
 ## First try and how to explore the tool
 
+**Table of Contents**
+- [First try and how to explore the tool](#first-try-and-how-to-explore-the-tool)
+- [Data shape to be plotted](#data-shape-to-be-plotted)
+- [Defining styles](#defining-styles)
+- [Multiple data](#multiple-data)
+- [Datum transformation with straightforward composing](#datum-transformation-with-straightforward-composing)
+- [Exploring the tool through help](#exploring-the-tool-through-help)
+
 Let's say we have a vector in the `xy` coordinate system, `[1,1]`, and want to plot it.
 We can do it immediately by running:
 
@@ -18,11 +26,10 @@ echo '[[1,1]]' | zsat draw --debug
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld: none]}
+--styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> (anchor {(0,0)}) out
---panes p0:{size: 600x600}
---border p0: none
+--panes p0:{size: 600x600, border: none}
 --frames (out) -> out -> p0
 ```
 ![](fig1.png)
@@ -283,11 +290,10 @@ printf '[[1,1]]' | zsat draw --debug \
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld: none]}
+--styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> (anchor {(0,0)}) out
---panes p0:{size: 600x600}
---border p0: none
+--panes p0:{size: 600x600, border: none}
 --frames (out) -> out -> p0
 ```
 <img src="fig18.png" width="332" style="border: 2px solid grey;">
@@ -300,11 +306,10 @@ printf '[[1,1]]' | zsat draw --debug \
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld: none]}
+--styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out
---panes p0:{size: 600x600}
---border p0: none
+--panes p0:{size: 600x600, border: none}
 --frames (out) -> out -> p0
 ```
 <img src="fig19.png" width="332" style="border: 2px solid grey;">
@@ -334,11 +339,10 @@ printf '[[1,1]]' | zsat draw --debug \
 stdin:
 [[1,1]]
 
---styles e0:{vec2d all}
+--styles e0:{vec2d xy fixed all [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out
---panes p0:{size: 600x600}
---border p0: none
+--panes p0:{size: 600x600, border: none}
 --frames (out) -> out -> p0
 ```
 <img src="fig20.png" width="332" style="border: 2px solid grey;">
@@ -350,11 +354,10 @@ printf '[[1,1]]' | zsat draw --debug \
 stdin:
 [[1,1]]
 
---styles e0:{vec2d all}
+--styles e0:{vec2d xy fixed all [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((r [-90 a (mid self)]) & (rotate [90 a (0% self)]) & (anchor {(0,0)})) out
---panes p0:{size: 600x600}
---border p0: none
+--panes p0:{size: 600x600, border: none}
 --frames (out) -> out -> p0
 ```
 <img src="fig21.png" width="332" style="border: 2px solid grey;">
@@ -606,7 +609,7 @@ For a complete reference on style attributes — coordinate system (`xy`/`polar`
 zsat draw vec2d style --help
 ```
 
-To see how transformations are composed in `--outputs` — `anchor`, `rotate`, `scale`, `mirror` — and the syntax for angles and points:
+To see how transformations are composed in `--outputs` — `anchor`, `rotate`, `scale`, `mirror`, `project`, `orthogonal` — and the syntax for angles and points:
 
 ```bash
 zsat draw vec2d output --help
