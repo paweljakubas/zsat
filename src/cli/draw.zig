@@ -14,6 +14,7 @@ const Frames = @import("draw/frames.zig");
 const Panes = @import("draw/panes.zig");
 const Border = @import("draw/border.zig");
 const Text = @import("draw/text.zig");
+const Axis = @import("draw/axis.zig");
 
 const Plot = @import("plot");
 const draw_help = @import("draw_help.zig");
@@ -23,6 +24,8 @@ pub const ParsedData = struct {
     borders: []const Border.BorderDefinition,
     texts: []const Text.TextDefinition,
     textOverlays: []const Text.Text,
+    axes: []const Axis.AxisDefinition,
+    axisOverlays: []const Axis.AxisOverlay,
     inputs: Inputs.Inputs,
     datum: Datum.DataElementValidated,
     outputs: Outputs.OutputsValidated,
@@ -34,6 +37,7 @@ const DrawElement = union(enum) {
     style: Styles.Style,
     border: Border.BorderDefinition,
     text: Text.TextDefinition,
+    axis: Axis.AxisDefinition,
 };
 
 const drawElementParser = mecha.oneOf(.{
@@ -50,6 +54,11 @@ const drawElementParser = mecha.oneOf(.{
     Text.textDefParser.map(struct {
         fn toElem(t: Text.TextDefinition) mecha.ConvertError!DrawElement {
             return DrawElement{ .text = t };
+        }
+    }.toElem),
+    Axis.axisDefParser.map(struct {
+        fn toElem(a: Axis.AxisDefinition) mecha.ConvertError!DrawElement {
+            return DrawElement{ .axis = a };
         }
     }.toElem),
 });
@@ -244,18 +253,31 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     var styles_list = std.ArrayList(Styles.Style).empty;
     var borders_list = std.ArrayList(Border.BorderDefinition).empty;
     var texts_list = std.ArrayList(Text.TextDefinition).empty;
+    var axes_list = std.ArrayList(Axis.AxisDefinition).empty;
     for (draw_elements) |elem| {
         switch (elem) {
             .style => |s| try styles_list.append(alloc, s),
             .border => |b| try borders_list.append(alloc, b),
             .text => |t| try texts_list.append(alloc, t),
+            .axis => |a| try axes_list.append(alloc, a),
         }
     }
+
+    // If the user provided no explicit styles, auto-inject the default e0 so
+    // datum defaults and vector drawing still work.
+    if (styles_list.items.len == 0) {
+        try styles_list.append(alloc, Styles.Style{
+            .styleNumber = 0,
+            .styleValue = Styles.defaultStyleValue,
+        });
+    }
+
     const raw_styles = try styles_list.toOwnedSlice(alloc);
     const borders = try borders_list.toOwnedSlice(alloc);
     const texts = try texts_list.toOwnedSlice(alloc);
+    const axes = try axes_list.toOwnedSlice(alloc);
 
-    if (raw_styles.len == 0) {
+    if (draw_elements.len == 0) {
         return error.ParseStylesFailed;
     }
     const styles = try Styles.resolveStyles(alloc, raw_styles);
@@ -329,6 +351,19 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         }
     }
     const text_overlays = try text_overlays_list.toOwnedSlice(alloc);
+
+    // Validate axis references from outputs and resolve overlays
+    var axis_overlays_list = std.ArrayList(Axis.AxisOverlay).empty;
+    if (@hasField(@TypeOf(outputsConnection), "axisOutputs")) {
+        for (outputsConnection.axisOutputs) |aout| {
+            if (try Axis.resolveAxisOverlay(alloc, aout.item, axes, aout.from, aout.to)) |overlay| {
+                try axis_overlays_list.append(alloc, overlay);
+            } else {
+                return error.AxisReferenceInvalid;
+            }
+        }
+    }
+    const axis_overlays = try axis_overlays_list.toOwnedSlice(alloc);
 
     // If only one output transformation pair is defined but multiple input
     // rows are present, replicate the pair so each row is drawn independently
@@ -444,6 +479,8 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         .borders = borders,
         .texts = texts,
         .textOverlays = text_overlays,
+        .axes = axes,
+        .axisOverlays = axis_overlays,
         .inputs = inputs,
         .datum = datumValidated,
         .outputs = outputsExplicit,
@@ -687,6 +724,7 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
         error.PaneInMappingInvalid => "Error: an invalid pane was referenced in the frames mapping.",
         error.BorderReferenceInvalid => "Error: a pane references a border that was not defined in --styles.",
         error.TextReferenceInvalid => "Error: an output references a text object that was not defined in --styles.",
+        error.AxisReferenceInvalid => "Error: an output references an axis object that was not defined in --styles.",
         else => "Error: an unexpected error occurred.",
     };
 }

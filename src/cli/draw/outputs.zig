@@ -7,6 +7,7 @@ const common = @import("common.zig");
 const inputs = @import("inputs.zig");
 const Styles = @import("styles.zig");
 const Text = @import("text.zig");
+const Axis = @import("axis.zig");
 const geometry = @import("../transform/geometry.zig");
 
 const CoordinateOrientation = Styles.CoordinateOrientation;
@@ -1350,11 +1351,18 @@ pub const TextOutput = struct {
     ops: ?[]const OneArgFunctionPartial = null,
 };
 
+pub const AxisOutput = struct {
+    item: Axis.AxisItem,
+    from: inputs.Point,
+    to: inputs.Point,
+};
+
 //Raw, pre-validation result of parsing the connection
 pub const Connection = struct {
     outputs: []const Output,
     transformationPairs: []const OutputTransformationPair,
     textOutputs: []const TextOutput,
+    axisOutputs: []const AxisOutput,
 };
 
 const TextTransformed = struct {
@@ -1366,6 +1374,7 @@ const OutputItem = union(enum) {
     transformation: OutputTransformationPair,
     text: Text.TextItem,
     textTransformed: TextTransformed,
+    axis: AxisOutput,
 };
 
 const textTransformationPairParserRaw = mecha.combine(.{
@@ -1379,10 +1388,41 @@ const textTransformationPairParser = textTransformationPairParserRaw.convert(str
     }
 }.toTransformed);
 
+const axisFromToParserRaw = mecha.combine(.{
+    common.skipWhitespace,
+    mecha.oneOf(.{ mecha.string("fromTo"), mecha.string("ft") }).discard(),
+    common.skipWhitespace,
+    common.skipOpenBracket,
+    inputs.pointParser,
+    common.skipComma,
+    inputs.pointParser,
+    common.skipCloseBracket,
+});
+
+const axisOutputParserRaw = mecha.combine(.{
+    axisFromToParserRaw,
+    common.skipWhitespace,
+    Axis.axisItemParser,
+});
+const axisOutputParser = axisOutputParserRaw.convert(struct {
+    fn toOutput(_: std.mem.Allocator, res: anytype) mecha.ConvertError!AxisOutput {
+        return AxisOutput{
+            .from = res[0][0],
+            .to = res[0][1],
+            .item = res[1],
+        };
+    }
+}.toOutput);
+
 const outputItemParser = mecha.oneOf(.{
     textTransformationPairParser.map(struct {
         fn toItem(tt: TextTransformed) mecha.ConvertError!OutputItem {
             return OutputItem{ .textTransformed = tt };
+        }
+    }.toItem),
+    axisOutputParser.map(struct {
+        fn toItem(ao: AxisOutput) mecha.ConvertError!OutputItem {
+            return OutputItem{ .axis = ao };
         }
     }.toItem),
     outputTransformationPairParser.map(struct {
@@ -1418,6 +1458,7 @@ const connectionParserRawSingle = mecha.combine(.{
             .outputs = args[0],
             .transformationPairs = arr,
             .textOutputs = &.{},
+            .axisOutputs = &.{},
         };
     }
 }.toSingle);
@@ -1432,12 +1473,14 @@ const connectionParserRawMultiple = mecha.combine(.{
         const items = args[1];
         var pairs = std.ArrayList(OutputTransformationPair).empty;
         var texts = std.ArrayList(TextOutput).empty;
+        var axes = std.ArrayList(AxisOutput).empty;
         for (items) |item| {
             const unwrapped = try item;
             switch (unwrapped) {
                 .transformation => |p| try pairs.append(arena, p),
                 .text => |t| try texts.append(arena, TextOutput{ .item = t }),
                 .textTransformed => |tt| try texts.append(arena, TextOutput{ .item = tt.item, .ops = tt.operation.ops }),
+                .axis => |a| try axes.append(arena, a),
             }
         }
         arena.free(items);
@@ -1445,6 +1488,7 @@ const connectionParserRawMultiple = mecha.combine(.{
             .outputs = args[0],
             .transformationPairs = try pairs.toOwnedSlice(arena),
             .textOutputs = try texts.toOwnedSlice(arena),
+            .axisOutputs = try axes.toOwnedSlice(arena),
         };
     }
 }.toMultiple);
@@ -1473,6 +1517,7 @@ const connectionParserRawIdentity = mecha.combine(.{
             .outputs = args[0],
             .transformationPairs = arr,
             .textOutputs = &.{},
+            .axisOutputs = &.{},
         };
     }
 }.toIdentity);
@@ -1504,6 +1549,7 @@ test "connectionParser" {
         .outputs = &[1]Output{out1},
         .transformationPairs = &[1]OutputTransformationPair{tp1},
         .textOutputs = &.{},
+        .axisOutputs = &.{},
     };
     try testing.expectEqualDeep(exp1, r1.value.ok);
 
@@ -1539,6 +1585,7 @@ test "connectionParser" {
         .outputs = &[2]Output{ out2a, out2b },
         .transformationPairs = &[2]OutputTransformationPair{ tp2a, tp2b },
         .textOutputs = &.{},
+        .axisOutputs = &.{},
     };
     try testing.expectEqualDeep(exp2, r2.value.ok);
 }

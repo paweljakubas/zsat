@@ -880,6 +880,198 @@ fn drawFixedPairs(context: *z2d.Context, ops: anytype, origin_x: f64, origin_y: 
     }
 }
 
+/// Draws all axis overlays (lines, ticks, and value labels).
+fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
+    var font_set = false;
+    defer if (font_set) context.deinitFont();
+
+    for (axisOverlays) |overlay| {
+        const ax = origin_x + @as(f64, overlay.from.x) * x_scale;
+        const ay = origin_y - @as(f64, overlay.from.y) * y_scale;
+        const bx = origin_x + @as(f64, overlay.to.x) * x_scale;
+        const by = origin_y - @as(f64, overlay.to.y) * y_scale;
+
+        const ay_clamped = std.math.clamp(ay, min_y, max_y);
+        const by_clamped = std.math.clamp(by, min_y, max_y);
+
+        // Draw axis line
+        const rgb_line = colorNameToRGB(overlay.line.color);
+        const alpha_line: u16 = @intCast(@as(u16, overlay.line.opacity) * 255 / 100);
+        const r_line: u8 = @intCast(@as(u16, rgb_line.r) * alpha_line / 255);
+        const g_line: u8 = @intCast(@as(u16, rgb_line.g) * alpha_line / 255);
+        const b_line: u8 = @intCast(@as(u16, rgb_line.b) * alpha_line / 255);
+        const a_line: u8 = @intCast(alpha_line);
+        context.setSourceToPixel(.{ .rgba = .{ .r = r_line, .g = g_line, .b = b_line, .a = a_line } });
+        context.setLineWidth(@as(f64, @floatFromInt(overlay.line.size)));
+        context.resetPath();
+        try context.moveTo(ax, ay_clamped);
+        try context.lineTo(bx, by_clamped);
+        try context.stroke();
+
+        // Pixel-space axis vector and perpendiculars
+        const pdx = bx - ax;
+        const pdy = by - ay;
+        const plen = @sqrt(pdx * pdx + pdy * pdy);
+        if (plen < 1e-10) continue;
+        // "above" = left side of direction = (dy, -dx) normalized
+        const abx = pdy / plen;
+        const aby = -pdx / plen;
+        // "below" = right side of direction = (-dy, dx) normalized
+        const bbx = -pdy / plen;
+        const bby = pdx / plen;
+
+        // Data-space unit vector (for placing tick/value positions along axis)
+        const ddx = overlay.to.x - overlay.from.x;
+        const ddy = overlay.to.y - overlay.from.y;
+        const dlen = @sqrt(ddx * ddx + ddy * ddy);
+        const dux = if (dlen > 1e-10) ddx / dlen else 1.0;
+        const duy = if (dlen > 1e-10) ddy / dlen else 0.0;
+
+        // Draw ticks
+        if (overlay.ticks) |ticks| {
+            const rgb_tick = colorNameToRGB(ticks.style.color);
+            const alpha_tick: u16 = @intCast(@as(u16, ticks.style.opacity) * 255 / 100);
+            const r_tick: u8 = @intCast(@as(u16, rgb_tick.r) * alpha_tick / 255);
+            const g_tick: u8 = @intCast(@as(u16, rgb_tick.g) * alpha_tick / 255);
+            const b_tick: u8 = @intCast(@as(u16, rgb_tick.b) * alpha_tick / 255);
+            const a_tick: u8 = @intCast(alpha_tick);
+            context.setSourceToPixel(.{ .rgba = .{ .r = r_tick, .g = g_tick, .b = b_tick, .a = a_tick } });
+            context.setLineWidth(@as(f64, @floatFromInt(ticks.style.size)));
+
+            const th = @as(f64, @floatFromInt(ticks.style.height));
+
+            for (ticks.positions) |pos| {
+                const p_ax = overlay.from.x + dux * pos;
+                const p_ay = overlay.from.y + duy * pos;
+                const plot_px = origin_x + @as(f64, p_ax) * x_scale;
+                const plot_py = origin_y - @as(f64, p_ay) * y_scale;
+
+                switch (ticks.style.form) {
+                    .above => {
+                        context.resetPath();
+                        try context.moveTo(plot_px, plot_py);
+                        try context.lineTo(plot_px + abx * th, plot_py + aby * th);
+                        try context.stroke();
+                    },
+                    .below => {
+                        context.resetPath();
+                        try context.moveTo(plot_px, plot_py);
+                        try context.lineTo(plot_px + bbx * th, plot_py + bby * th);
+                        try context.stroke();
+                    },
+                    .middle => {
+                        context.resetPath();
+                        try context.moveTo(plot_px - abx * th * 0.5, plot_py - aby * th * 0.5);
+                        try context.lineTo(plot_px + abx * th * 0.5, plot_py + aby * th * 0.5);
+                        try context.stroke();
+                    },
+                    .dot => {
+                        context.resetPath();
+                        try context.arc(plot_px, plot_py, th * 0.5, 0, 2 * std.math.pi);
+                        try context.fill();
+                    },
+                    .square => {
+                        const half = th * 0.5;
+                        context.resetPath();
+                        try context.moveTo(plot_px - half, plot_py - half);
+                        try context.lineTo(plot_px + half, plot_py - half);
+                        try context.lineTo(plot_px + half, plot_py + half);
+                        try context.lineTo(plot_px - half, plot_py + half);
+                        try context.closePath();
+                        try context.fill();
+                    },
+                }
+            }
+        }
+
+        // Draw values
+        if (overlay.values) |vals| {
+            const rgb_val = colorNameToRGB(vals.style.color);
+            const alpha_val: u16 = @intCast(@as(u16, vals.style.opacity) * 255 / 100);
+            const r_val: u8 = @intCast(@as(u16, rgb_val.r) * alpha_val / 255);
+            const g_val: u8 = @intCast(@as(u16, rgb_val.g) * alpha_val / 255);
+            const b_val: u8 = @intCast(@as(u16, rgb_val.b) * alpha_val / 255);
+            const a_val: u8 = @intCast(alpha_val);
+            context.setSourceToPixel(.{ .rgba = .{ .r = r_val, .g = g_val, .b = b_val, .a = a_val } });
+            context.setFontSize(@as(f64, @floatFromInt(vals.style.size)));
+
+            if (!font_set) {
+                const font_path = if (std.mem.eql(u8, vals.style.font, "default"))
+                    "/usr/share/fonts/truetype/hack/Hack-Regular.ttf"
+                else
+                    vals.style.font;
+                context.setFontToFile(font_path) catch {};
+                font_set = true;
+            }
+
+            // z2d.Context.showText(x, y) places the text top at y, not the baseline.
+            // Precompute tick extensions in the "above" (aby) and "below" (bby)
+            // directions so we can position values with exact visible gaps.
+            const th = if (overlay.ticks) |ticks| @as(f64, @floatFromInt(ticks.style.height)) else 0.0;
+            const tick_form = if (overlay.ticks) |ticks| ticks.style.form else null;
+            const font_size = @as(f64, @floatFromInt(vals.style.size));
+            const spacing = @as(f64, @floatFromInt(vals.style.spacing));
+
+            var tick_above_ext: f64 = 0.0;
+            var tick_below_ext: f64 = 0.0;
+            if (tick_form) |tf| {
+                switch (tf) {
+                    .above => tick_above_ext = th,
+                    .below => tick_below_ext = th,
+                    .middle => {
+                        tick_above_ext = th * 0.5;
+                        tick_below_ext = th * 0.5;
+                    },
+                    .dot, .square => {
+                        tick_above_ext = th * 0.5;
+                        tick_below_ext = th * 0.5;
+                    },
+                }
+            }
+
+            for (vals.vals) |val| {
+                const v_ax = overlay.from.x + dux * val;
+                const v_ay = overlay.from.y + duy * val;
+                const plot_vx = origin_x + @as(f64, v_ax) * x_scale;
+                const plot_vy = origin_y - @as(f64, v_ay) * y_scale;
+
+                const val_str = try std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{val});
+                defer std.heap.page_allocator.free(val_str);
+
+                // Center text horizontally around the tick position.
+                // For monospace fonts, char width ≈ font_size * 0.6.
+                const text_width = font_size * 0.6 * @as(f64, @floatFromInt(val_str.len));
+                const center_shift = -text_width * 0.5;
+
+                const text_y = if (vals.style.form == .above) blk: {
+                    const tick_y = plot_vy + aby * tick_above_ext;
+                    // When above points up (aby < 0), subtract to move further up.
+                    // When above points down (aby > 0), add to move further down.
+                    // Text bottom must be `spacing` beyond the tick in the above direction.
+                    // showText places the top at y, and text extends downward.
+                    if (aby < 0) {
+                        break :blk tick_y - spacing - font_size;
+                    } else {
+                        break :blk tick_y + spacing;
+                    }
+                } else blk: {
+                    const tick_y = plot_vy + bby * tick_below_ext;
+                    // When below points up (bby < 0), subtract to move further up.
+                    // When below points down (bby > 0), add to move further down.
+                    // Text top must be `spacing` beyond the tick in the below direction.
+                    if (bby < 0) {
+                        break :blk tick_y - spacing;
+                    } else {
+                        break :blk tick_y + spacing;
+                    }
+                };
+
+                context.showText(val_str, plot_vx + center_shift, text_y) catch {};
+            }
+        }
+    }
+}
+
 /// Renders all parsed outputs onto a z2d canvas and returns the resulting image
 /// (or writes it to a PNG file if output_path is provided).
 ///
@@ -998,6 +1190,18 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
             if (txt.y > bounds.y[1]) bounds.y[1] = txt.y;
         }
     }
+    if (@hasField(@TypeOf(parsed_data), "axisOverlays")) {
+        for (parsed_data.axisOverlays) |axis| {
+            if (axis.from.x < bounds.x[0]) bounds.x[0] = axis.from.x;
+            if (axis.from.x > bounds.x[1]) bounds.x[1] = axis.from.x;
+            if (axis.from.y < bounds.y[0]) bounds.y[0] = axis.from.y;
+            if (axis.from.y > bounds.y[1]) bounds.y[1] = axis.from.y;
+            if (axis.to.x < bounds.x[0]) bounds.x[0] = axis.to.x;
+            if (axis.to.x > bounds.x[1]) bounds.x[1] = axis.to.x;
+            if (axis.to.y < bounds.y[0]) bounds.y[0] = axis.to.y;
+            if (axis.to.y > bounds.y[1]) bounds.y[1] = axis.to.y;
+        }
+    }
 
     const x_range = bounds.x[1] - bounds.x[0];
     const y_range = bounds.y[1] - bounds.y[0];
@@ -1100,6 +1304,11 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
                     context.showText(txt.value, plot_x, plot_y) catch {};
                 }
             }
+        }
+
+        // Draw axis overlays
+        if (@hasField(@TypeOf(parsed_data), "axisOverlays") and parsed_data.axisOverlays.len > 0) {
+            try drawAxisOverlays(&context, parsed_data.axisOverlays, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
         }
     }
 

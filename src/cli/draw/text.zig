@@ -54,7 +54,7 @@ const unquotedStringParser = unquotedStringParserRaw.convert(struct {
     }
 }.conv);
 
-const textValueParser = mecha.oneOf(.{ quotedStringParser, unquotedStringParser });
+pub const textValueParser = mecha.oneOf(.{ quotedStringParser, unquotedStringParser });
 
 // ---- point parser ----
 
