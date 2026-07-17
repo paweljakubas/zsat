@@ -29,7 +29,7 @@ pub const PaneSize = struct {
     height: u16,
 
     pub fn defaultPaneSize() PaneSize {
-        return PaneSize{ .width = 800, .height = 600 };
+        return PaneSize{ .width = 600, .height = 600 };
     }
 };
 
