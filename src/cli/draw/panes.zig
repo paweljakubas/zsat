@@ -66,7 +66,7 @@ test "paneNumber" {
 
 const paneSizeParserRaw = mecha.combine(.{
     common.skipWhitespace,
-    mecha.string("size").discard(),
+    mecha.oneOf(.{ mecha.string("size"), mecha.string("s") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -95,6 +95,14 @@ test "paneSize" {
     const r3 = try paneSizeParser.parse(a, "size:1024x550");
     const p3 = PaneSize{ .width = 1024, .height = 550 };
     try testing.expectEqual(p3, r3.value.ok);
+
+    const r4 = try paneSizeParser.parse(a, "s: 100x100");
+    const p4 = PaneSize{ .width = 100, .height = 100 };
+    try testing.expectEqual(p4, r4.value.ok);
+
+    const r5 = try paneSizeParser.parse(a, "s:1024x550");
+    const p5 = PaneSize{ .width = 1024, .height = 550 };
+    try testing.expectEqual(p5, r5.value.ok);
 }
 
 const paneViewParserRaw = mecha.combine(.{
@@ -213,7 +221,7 @@ test "paneParser with inline border" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r0 = try paneParser.parse(a, "p0:{size: 100x100, border: [bw:30, bc:red], view:{(2,1.1), (10.0, 1.2)}}");
+    const r0 = try paneParser.parse(a, "p0:{size: 100x100, border: [b:30, c:red], view:{(2,1.1), (10.0, 1.2)}}");
     const s0 = PaneSize{ .width = 100, .height = 100 };
     const b0 = border.Border{ .width = 30, .opacity = 100, .color = .red };
     const p0a = inputs.Point{ .x = 2.0, .y = 1.1 };
@@ -223,18 +231,23 @@ test "paneParser with inline border" {
     const pane0 = Pane{ .paneNumber = 0, .paneValue = v0 };
     try testing.expectEqual(pane0, r0.value.ok);
 
-    const r1 = try paneParser.parse(a, "p1:{border: [bo:50, bc:blue]}");
+    const r1 = try paneParser.parse(a, "p1:{border: [o:50, c:blue]}");
     const b1 = border.Border{ .width = 10, .opacity = 50, .color = .blue };
     const v1 = PaneValue{ .paneSize = PaneSize.defaultPaneSize(), .border = PaneBorder{ .defined = b1 }, .view = PaneView.defaultPaneView() };
     const pane1 = Pane{ .paneNumber = 1, .paneValue = v1 };
     try testing.expectEqual(pane1, r1.value.ok);
 
-    const r2 = try paneParser.parse(a, "p2:{size: 200x200, b: [bw:15]}");
+    const r2 = try paneParser.parse(a, "p2:{size: 200x200, b: [b:15]}");
     const s2 = PaneSize{ .width = 200, .height = 200 };
     const b2 = border.Border{ .width = 15, .opacity = 100, .color = .black };
     const v2 = PaneValue{ .paneSize = s2, .border = PaneBorder{ .defined = b2 }, .view = PaneView.defaultPaneView() };
     const pane2 = Pane{ .paneNumber = 2, .paneValue = v2 };
     try testing.expectEqual(pane2, r2.value.ok);
+
+    const r3 = try paneParser.parse(a, "p3:{s: 200x200, b: [b:15]}");
+    const v3 = PaneValue{ .paneSize = s2, .border = PaneBorder{ .defined = b2 }, .view = PaneView.defaultPaneView() };
+    const pane3 = Pane{ .paneNumber = 3, .paneValue = v3 };
+    try testing.expectEqual(pane3, r3.value.ok);
 }
 
 test "paneParser with border ref" {
@@ -255,6 +268,12 @@ test "paneParser with border ref" {
     const v1 = PaneValue{ .paneSize = PaneSize.defaultPaneSize(), .border = PaneBorder{ .ref = "b12" }, .view = PaneView.defaultPaneView() };
     const pane1 = Pane{ .paneNumber = 1, .paneValue = v1 };
     try testing.expectEqualDeep(pane1, r1.value.ok);
+
+    const r2 = try paneParser.parse(a, "p2:{s: 300x300, b: b5}");
+    const s2 = PaneSize{ .width = 300, .height = 300 };
+    const v2 = PaneValue{ .paneSize = s2, .border = PaneBorder{ .ref = "b5" }, .view = PaneView.defaultPaneView() };
+    const pane2 = Pane{ .paneNumber = 2, .paneValue = v2 };
+    try testing.expectEqualDeep(pane2, r2.value.ok);
 }
 
 const paneSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });

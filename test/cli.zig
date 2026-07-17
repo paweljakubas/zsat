@@ -73,7 +73,7 @@ test "zsat draw with invalid styles and datum" {
 
 test "zsat draw with style missing vec2d" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{[lw:10]}", "--datum", "(vec) -> (vec -> e0)" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{[l:10]}", "--datum", "(vec) -> (vec -> e0)" };
     var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -82,7 +82,7 @@ test "zsat draw with style missing vec2d" {
 
 test "zsat draw with style reference" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0: e0{[lw:15, lc: red]}", "--datum", "(vec) -> (vec -> e0)" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0: e0{[l:15, c: red]}", "--datum", "(vec) -> (vec -> e0)" };
     var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
@@ -236,7 +236,7 @@ test "zsat draw with debug and custom options" {
     try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
     try testing.expectEqual(@as(u8, 0), result.code);
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "stdin:"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--datum (vec) -> (vec -> e0)"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--panes p0:{size: 600x600, border: none}"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--frames (out) -> out -> p0"));
@@ -293,9 +293,9 @@ test "zsat draw vec2d style --help" {
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "coord"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "last"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "all"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "lw:"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "lc:"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "ld:"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "l:"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "c:"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "d:"));
 }
 
 test "zsat draw vec2d output --help" {
@@ -352,7 +352,7 @@ test "zsat draw color --help" {
 
     try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "CSS color name"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "lc:"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "c:"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "black"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "aqua"));
 }

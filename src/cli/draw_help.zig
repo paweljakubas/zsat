@@ -32,7 +32,7 @@ pub const vec2d_help =
     \\Examples:
     \\  echo '[[1,1]]' | zsat draw
     \\  echo '[[1,1],[-1,0]]' | zsat draw
-    \\  printf '[[1,1]]\n[[0,1]]' | zsat draw -s 'e0:{vec2d}, e1:{[lc:red]}' \\
+    \\  printf '[[1,1]]\n[[0,1]]' | zsat draw -s 'e0:{vec2d}, e1:{[c:red]}' \\
     \\    -d '(v0,v1) -> (v0 -> e0, v1 -> e1)' \\
     \\    -o '(o0,o1) -> ((a {(0,0)}) o0, (a {(0,0)}) o1)'
 ;
@@ -62,20 +62,20 @@ pub const vec2d_style_help =
     \\  all   -- plot every intermediate step of composed transformations
     \\
     \\ATTRIBUTES inside [...]:
-    \\  lw:N  -- line width in pixels (default: 10)
-    \\  lc:NAME  -- line color, any CSS color name (default: black)
-    \\  lo:N  -- line opacity, 0..100 (default: 100)
-    \\  le:MODE  -- line ending: none | butt | round | square (default: none)
-    \\  lj:MODE  -- line join: none | miter | round | bevel (default: none)
-    \\  ld:[D1,O1,D2,O2,...] OFFSET  -- dashing pattern and offset in pixels
+    \\  l:N  -- line width in pixels (default: 10)
+    \\  c:NAME  -- line color, any CSS color name (default: black)
+    \\  o:N  -- line opacity, 0..100 (default: 100)
+    \\  e:MODE  -- line ending: none | butt | round | square (default: none)
+    \\  j:MODE  -- line join: none | miter | round | bevel (default: none)
+    \\  d:[D1,O1,D2,O2,...] OFFSET  -- dashing pattern and offset in pixels
     \\
     \\Style inheritance:
-    \\  e1: e0{[lc: red]}     -- e1 copies e0, then overrides lc to red
-    \\  e2: e1{[ld: [10,5] 0]}  -- e2 copies e1, then adds dashing
+    \\  e1: e0{[c: red]}     -- e1 copies e0, then overrides c to red
+    \\  e2: e1{[d: [10,5] 0]}  -- e2 copies e1, then adds dashing
     \\
     \\Examples:
-    \\  e0:{vec2d xy fixed last [lw:15, lc: aqua]}
-    \\  e0:{vec2d polar origin all [lw:5, lc: red, ld: [40,10] 0]}
+    \\  e0:{vec2d xy fixed last [l:15, c: aqua]}
+    \\  e0:{vec2d polar origin all [l:5, c: red, d: [40,10] 0]}
 ;
 
 /// Help text for `zsat draw vec2d output --help`
@@ -201,7 +201,7 @@ pub const line_help =
 
 /// Help text for `zsat draw color --help`
 pub const color_help =
-    \\Colors are specified by name in the `lc` (line color) attribute.
+    \\Colors are specified by name in the `c` (color) attribute.
     \\
     \\Any standard CSS color name is accepted. Common choices include:
     \\
@@ -216,10 +216,10 @@ pub const color_help =
     \\  ... and many more (full CSS palette supported)
     \\
     \\Examples:
-    \\  lc: black
-    \\  lc: aqua
-    \\  lc: lightcoral
-    \\  lc: rebeccapurple
+    \\  c: black
+    \\  c: aqua
+    \\  c: lightcoral
+    \\  c: rebeccapurple
 ;
 
 /// Help text for `zsat draw border --help`
@@ -230,10 +230,10 @@ pub const border_help =
     \\  bN: {border [ATTR1, ATTR2, ...]}
     \\  bN: {border}               -- use all defaults
     \\
-    \\Attributes (defaults: bw=10, bc=black, bo=100):
-    \\  borderWidth:N  or  bw:N   -- border thickness in pixels
-    \\  borderOpacity:N  or  bo:N -- opacity from 0 to 100
-    \\  borderColor:NAME  or  bc:NAME -- any CSS color name
+    \\Attributes (defaults: b=10, c=black, o=100):
+    \\  border:N  or  b:N   -- border thickness in pixels
+    \\  opacity:N  or  o:N -- opacity from 0 to 100
+    \\  color:NAME  or  c:NAME -- any CSS color name
     \\
     \\Using borders in --panes:
     \\  border: bN               -- reference a named border defined in --styles
@@ -244,8 +244,8 @@ pub const border_help =
     \\with a border width of 30 leaves 540 pixels for the plot content.
     \\
     \\Examples:
-    \\  --styles 'b0: {border [bw:30, bc:red]}' --panes 'p0:{size: 600x600, border: b0}'
-    \\  --panes 'p0:{size: 600x600, border: [bw:20, bc:blue]}'
+    \\  --styles 'b0: {border [b:30, c:red]}' --panes 'p0:{size: 600x600, border: b0}'
+    \\  --panes 'p0:{size: 600x600, border: [b:20, c:blue]}'
     \\  --styles 'b1: {border}' --panes 'p1:{border: b1}'
 ;
 

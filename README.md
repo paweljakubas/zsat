@@ -74,7 +74,7 @@ Flags:
    -d, --datum      Mapping data streams to the defined styles.
                     Default: "(vec) -> (vec -> e0)"
    -s, --styles     Style(s) definition to be used in further steps when constructing the figure.
-                    Default: "e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld: none]}"
+                    Default: "e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}"
    --debug          Dump the drawing representation for a command invoked.
    -o, --outputs    Input(s) transformation definition of the outputs.
                     Default: "(out) -> (anchor {(0,0)}) out"
@@ -110,7 +110,7 @@ echo '[[1,1], [2,2]]' | zsat draw -p 'p0:{size: 1200x800}'
 
 With a pane border:
 ```bash
-echo '[[1,1], [2,2]]' | zsat draw -p 'p0:{size: 600x600, border: [bw:30, bc:red]}'
+echo '[[1,1], [2,2]]' | zsat draw -p 'p0:{size: 600x600, border: [b:30, c:red]}'
 ```
 
 Tip: Use `echo -e` instead of `echo` to ensure newlines are properly interpreted in the input data.

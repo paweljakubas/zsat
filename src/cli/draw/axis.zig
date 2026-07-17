@@ -172,7 +172,7 @@ const AxisLineAttribute = union(enum) {
 };
 
 const lineColorParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("lineColor"), mecha.string("lc") }).discard(),
+    mecha.oneOf(.{ mecha.string("color"), mecha.string("c") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -185,7 +185,7 @@ const lineColorUnionParser = lineColorParserRaw.convert(struct {
 }.conv);
 
 const lineOpacityParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("lineOpacity"), mecha.string("lo") }).discard(),
+    mecha.oneOf(.{ mecha.string("opacity"), mecha.string("o") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -198,7 +198,7 @@ const lineOpacityUnionParser = lineOpacityParserRaw.convert(struct {
 }.conv);
 
 const lineSizeParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("lineSize"), mecha.string("ls") }).discard(),
+    mecha.oneOf(.{ mecha.string("size"), mecha.string("s") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -235,7 +235,7 @@ test "lineAttributesParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try lineAttributesParser.parse(a, "lc:red, lo:80, ls:3");
+    const r1 = try lineAttributesParser.parse(a, "c:red, o:80, s:3");
     try testing.expectEqual(common.ColorName.red, r1.value.ok.color);
     try testing.expectEqual(@as(u8, 80), r1.value.ok.opacity);
     try testing.expectEqual(@as(u16, 3), r1.value.ok.size);
@@ -296,7 +296,7 @@ const TickAttribute = union(enum) {
 };
 
 const tickColorParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("tickColor"), mecha.string("tc") }).discard(),
+    mecha.oneOf(.{ mecha.string("color"), mecha.string("c") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -309,7 +309,7 @@ const tickColorUnionParser = tickColorParserRaw.convert(struct {
 }.conv);
 
 const tickOpacityParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("tickOpacity"), mecha.string("to") }).discard(),
+    mecha.oneOf(.{ mecha.string("opacity"), mecha.string("o") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -322,7 +322,7 @@ const tickOpacityUnionParser = tickOpacityParserRaw.convert(struct {
 }.conv);
 
 const tickSizeParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("tickSize"), mecha.string("ts") }).discard(),
+    mecha.oneOf(.{ mecha.string("size"), mecha.string("s") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -335,7 +335,7 @@ const tickSizeUnionParser = tickSizeParserRaw.convert(struct {
 }.conv);
 
 const tickHeightParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("tickHeight"), mecha.string("th") }).discard(),
+    mecha.oneOf(.{ mecha.string("height"), mecha.string("h") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -348,7 +348,7 @@ const tickHeightUnionParser = tickHeightParserRaw.convert(struct {
 }.conv);
 
 const tickFormParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("tickForm"), mecha.string("tf") }).discard(),
+    mecha.oneOf(.{ mecha.string("form"), mecha.string("f") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -389,7 +389,7 @@ test "tickAttributesParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try tickAttributesParser.parse(a, "tc:red, to:80, ts:2, th:7, tf:above");
+    const r1 = try tickAttributesParser.parse(a, "c:red, o:80, s:2, h:7, f:above");
     try testing.expectEqual(common.ColorName.red, r1.value.ok.color);
     try testing.expectEqual(@as(u8, 80), r1.value.ok.opacity);
     try testing.expectEqual(@as(u16, 2), r1.value.ok.size);
@@ -409,7 +409,7 @@ const ValueAttribute = union(enum) {
 };
 
 const valueColorParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("valueColor"), mecha.string("vc") }).discard(),
+    mecha.oneOf(.{ mecha.string("color"), mecha.string("c") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -422,7 +422,7 @@ const valueColorUnionParser = valueColorParserRaw.convert(struct {
 }.conv);
 
 const valueOpacityParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("valueOpacity"), mecha.string("vo") }).discard(),
+    mecha.oneOf(.{ mecha.string("opacity"), mecha.string("o") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -435,7 +435,7 @@ const valueOpacityUnionParser = valueOpacityParserRaw.convert(struct {
 }.conv);
 
 const valueSizeParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("valueSize"), mecha.string("vs") }).discard(),
+    mecha.oneOf(.{ mecha.string("size"), mecha.string("s") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -448,7 +448,7 @@ const valueSizeUnionParser = valueSizeParserRaw.convert(struct {
 }.conv);
 
 const valueFontParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("valueFont"), mecha.string("vfont") }).discard(),
+    mecha.string("font").discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -461,14 +461,14 @@ const valueFontUnionParser = valueFontParserRaw.convert(struct {
 }.conv);
 
 const valueFormParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("valueForm"), mecha.string("vf") }).discard(),
+    mecha.oneOf(.{ mecha.string("form"), mecha.string("f") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
     tickFormParser,
 });
 const valueSpacingParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("valueSpacing"), mecha.string("vsp") }).discard(),
+    mecha.oneOf(.{ mecha.string("spacing"), mecha.string("sp") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -517,7 +517,7 @@ test "valueAttributesParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try valueAttributesParser.parse(a, "vc:red, vo:80, vs:12, vsp:4, vf:below");
+    const r1 = try valueAttributesParser.parse(a, "c:red, o:80, s:12, sp:4, f:below");
     try testing.expectEqual(common.ColorName.red, r1.value.ok.color);
     try testing.expectEqual(@as(u8, 80), r1.value.ok.opacity);
     try testing.expectEqual(@as(u16, 12), r1.value.ok.size);
@@ -795,7 +795,7 @@ test "axisDefParser full" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try axisDefParser.parse(a, "a0: {axis line:[lc:red, lo:80, ls:2], ticks:[pos:2,4,..,10, style:[tc:red, to:80, ts:5, tf:above]], values:[vals:2,4,..,10, style:[vc:red, vo:80, vs:12, vf:below]]}");
+    const r1 = try axisDefParser.parse(a, "a0: {axis line:[c:red, o:80, s:2], ticks:[pos:2,4,..,10, style:[c:red, o:80, s:5, h:7, f:above]], values:[vals:2,4,..,10, style:[c:red, o:80, s:12, sp:4, f:below]]}");
     try testing.expectEqualStrings("a0", r1.value.ok.name);
     try testing.expectEqual(common.ColorName.red, r1.value.ok.axis.line.color);
     try testing.expectEqual(@as(u8, 80), r1.value.ok.axis.line.opacity);
@@ -814,7 +814,7 @@ test "axisDefParser minimal" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try axisDefParser.parse(a, "a0: {a line:[lc:red]}");
+    const r1 = try axisDefParser.parse(a, "a0: {a line:[c:red]}");
     try testing.expectEqualStrings("a0", r1.value.ok.name);
     try testing.expectEqual(common.ColorName.red, r1.value.ok.axis.line.color);
     try testing.expect(r1.value.ok.axis.ticks == null);

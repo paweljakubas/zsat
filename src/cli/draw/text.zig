@@ -82,7 +82,7 @@ const TextAttributeUnion = union(enum) {
 };
 
 const textColorParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("textColor"), mecha.string("tc") }).discard(),
+    mecha.oneOf(.{ mecha.string("color"), mecha.string("c") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -95,7 +95,7 @@ const textColorUnionParser = textColorParserRaw.convert(struct {
 }.conv);
 
 const textSizeParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("textSize"), mecha.string("ts") }).discard(),
+    mecha.oneOf(.{ mecha.string("size"), mecha.string("s") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -108,7 +108,7 @@ const textSizeUnionParser = textSizeParserRaw.convert(struct {
 }.conv);
 
 const textFontParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("textFont"), mecha.string("tf") }).discard(),
+    mecha.oneOf(.{ mecha.string("font"), mecha.string("f") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -121,7 +121,7 @@ const textFontUnionParser = textFontParserRaw.convert(struct {
 }.conv);
 
 const textOpacityParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("textOpacity"), mecha.string("to") }).discard(),
+    mecha.oneOf(.{ mecha.string("opacity"), mecha.string("o") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -210,7 +210,7 @@ fn toTextDef(arena: std.mem.Allocator, res: textDefParserRawP.T) mecha.ConvertEr
 }
 pub const textDefParser = textDefParserRaw.convert(toTextDef);
 
-// ---- text item parser for outputs: tN or tN{"value", (x,y)} ----
+// ---- text item parser for outpus: tN or tN{"value", (x,y)} ----
 
 const textItemNumberParser = mecha.combine(.{
     common.skipWhitespace,
@@ -274,7 +274,7 @@ pub fn resolveTextOverlay(arena: std.mem.Allocator, item: TextItem, texts: []con
 }
 
 pub fn serializeText(allocator: std.mem.Allocator, text: Text) ![]const u8 {
-    return try std.fmt.allocPrint(allocator, "{{txt \"{s}\" [tc:{s}, ts:{}, tf:{s}, to:{}]}}", .{
+    return try std.fmt.allocPrint(allocator, "{{txt \"{s}\" [c:{s}, s:{}, f:{s}, o:{}]}}", .{
         text.value,
         @tagName(text.color),
         text.size,
@@ -331,7 +331,7 @@ test "textAttributesParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try textAttributesParser.parse(a, "tc:red, ts:20, tf:Arial, to:80");
+    const r1 = try textAttributesParser.parse(a, "c:red, s:20, f:Arial, o:80");
     try testing.expectEqual(common.ColorName.red, r1.value.ok.color);
     try testing.expectEqual(@as(u16, 20), r1.value.ok.size);
     try testing.expectEqualStrings("Arial", r1.value.ok.font);
@@ -343,7 +343,7 @@ test "textDefParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try textDefParser.parse(a, "t0: {txt \"hello\" [tc:red, ts:20]}");
+    const r1 = try textDefParser.parse(a, "t0: {txt \"hello\" [c:red, s:20]}");
     try testing.expectEqualStrings("t0", r1.value.ok.name);
     try testing.expectEqualStrings("hello", r1.value.ok.text.value);
     try testing.expectEqual(common.ColorName.red, r1.value.ok.text.color);

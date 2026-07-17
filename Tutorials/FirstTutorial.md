@@ -29,7 +29,7 @@ echo '[[1,1]]' | zsat draw --debug
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}
+--styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> (anchor {(0,0)}) out
 --panes p0:{size: 600x600, border: none}
@@ -44,19 +44,19 @@ There are many dimensions to master in the tool, and it is best to cover each as
 By default, panes have no border. You can add one inline inside a pane definition:
 
 ```bash
-echo '[[1,1]]' | zsat draw -p 'p0:{size: 300x300, border: [bw:20, bc:red]}'
+echo '[[1,1]]' | zsat draw -p 'p0:{size: 300x300, border: [b:20, c:red]}'
 ```
 
 Or define a reusable border in `--styles` and reference it by name:
 
 ```bash
-echo '[[1,1]]' | zsat draw -s 'b0: {border [bw:20, bc:red]}' -p 'p0:{size: 300x300, border: b0}'
+echo '[[1,1]]' | zsat draw -s 'b0: {border [b:20, c:red]}' -p 'p0:{size: 300x300, border: b0}'
 ```
 
 The border width reduces the available drawing area: a 300-wide pane with a 20-pixel border leaves 260 pixels for the plot content. Border attributes support both full names and abbreviations:
-- `borderWidth` / `bw` — thickness in pixels
-- `borderOpacity` / `bo` — opacity from 0 to 100
-- `borderColor` / `bc` — any CSS color name
+- `border` / `b` — thickness in pixels
+- `opacity` / `o` — opacity from 0 to 100
+- `color` / `c` — any CSS color name
 
 ## Data shape to be plotted
 
@@ -99,15 +99,15 @@ Error: failed to parse input data. Please check your input format.
 ```
 
 The error occurs because we now have two outputs (one per row), but the default `--outputs` setting only defines a single output.
-To handle this correctly, we need to specify two outputs — for example:
+To handle this correctly, we need to specify two outputs — for exampe:
 `--outputs '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(1,1)}) out2)'`.
 More on this later. For now, we are focusing on understanding what input shapes are supported.
 
 ## Defining styles
 
-The tool provides a default style:
+The tool provides a default stye:
 
-`e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld: none]}`.
+`e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}`.
 
 Let's break down what each part means.
 
@@ -135,18 +135,18 @@ in which values are defined based on the previous segment, if present. More on t
 `last` denotes that we want only the final image to be plotted; `all` means the user wants all images — i.e., intermediary and final — to be plotted. More on that later.
 
 `[..]` is the vector styling setting:
-- `lw` means **line width**, expressed in pixels
-- `lc` means **line color**
-- `lo` means **line opacity**, where `0` is totally transparent and `100` is totally opaque
-- `le` means **line ending**; besides the default `none`, the choices are `butt`, `round`, or `square`
-- `lj` stands for **line join** and is relevant for n-segment vectors; it describes how two segments are attached to each other. In addition to the default `none`, the choices are `miter`, `round`, and `bevel`
-- `ld` stands for **line dashing**, which is switched off by default, meaning a continuous line is used. If one wants to use it, the pattern is specified as `[dash1, off1, dash2, off2, ..]`, which means the width of the first dash, `dash1`, then empty space, `off1`, and so on. After the pattern, the offset (in pixels) is provided: it tells how far from the start of the dashing pattern we should begin to plot. Everything is expressed in pixels. If the overall length of dashes and empty spaces within `[..]` is less than the vector to be covered, after covering the whole length of `[..]` the dashing pattern is continued until the whole length of the vector is covered. We will see examples soon.
+- `l` means **line width**, expressed in pixels
+- `c` means **line color**
+- `o` means **line opacity**, where `0` is totally transparent and `100` is totally opaque
+- `e` means **line ending**; besides the default `none`, the choices are `butt`, `round`, or `square`
+- `j` stands for **line join** and is relevant for n-segment vectors; it describes how two segments are attached to each other. In addition to the default `none`, the choices are `miter`, `round`, and `bevel`
+- `d` stands for **line dashing**, which is switched off by default, meaning a continuous line is used. If one wants to use it, the pattern is specified as `[dash1, off1, dash2, off2, ..]`, which means the width of the first dash, `dash1`, then empty space, `off1`, and so on. After the pattern, the offset (in pixels) is provided: it tells how far from the start of the dashing pattern we should begin to plot. Everything is expressed in pixels. If the overall length of dashes and empty spaces within `[..]` is less than the vector to be covered, after covering the whole length of `[..]` the dashing pattern is continued until the whole length of the vector is covered. We will see examples soon.
 
 Let's see some examples of vector styling.
 
 ```bash
 echo '[[1,1]]' | zsat draw \
---styles 'e0{[lw:15, lc: aqua]}'
+--styles 'e0{[l:15, c: aqua]}'
 ```
 ![](fig4.png)
 
@@ -155,7 +155,7 @@ Another example below.
 
 ```bash
 echo '[[1,1]]' | zsat draw \
---styles 'e0{[lw:15, lc: aqua, lo: 20]}'
+--styles 'e0{[l:15, c: aqua, o: 20]}'
 ```
 ![](fig5.png)
 
@@ -163,13 +163,13 @@ Now, two examples showing how dashing is defined.
 
 ```bash
 echo '[[1,1]]' | zsat draw \
---styles 'e0{[lw:15, lc: aqua, ld: [10,10] 0]}'
+--styles 'e0{[l:15, c: aqua, d: [10,10] 0]}'
 ```
 ![](fig6.png)
 
 ```bash
 echo '[[1,1]]' | zsat draw \
---styles 'e0{[lw:15, lc: aqua, ld: [40,10] 0]}'
+--styles 'e0{[l:15, c: aqua, d: [40,10] 0]}'
 ```
 ![](fig7.png)
 
@@ -177,26 +177,26 @@ The last value in the dashing definition is the `offset`. It controls where in t
 
 ```bash
 echo '[[1,1]]' | zsat draw --styles \
-'e0{[lw:15, lc: aqua, ld: [100,30] 0]}'
+'e0{[l:15, c: aqua, d: [100,30] 0]}'
 ```
 ![](fig8.png)
 
 ```bash
 echo '[[1,1]]' | zsat draw \
---styles 'e0{[lw:15, lc: aqua, ld: [100,30] 65]}'
+--styles 'e0{[l:15, c: aqua, d: [100,30] 65]}'
 ```
 ![](fig9.png)
 
 ```bash
 echo '[[1,1]]' | zsat draw \
---styles 'e0{[lw:15, lc: aqua, ld: [100,30] 130]}'
+--styles 'e0{[l:15, c: aqua, d: [100,30] 130]}'
 ```
 ![](fig10.png)
 
 In the first figure we start with `0` offset, meaning we start from the beginning of the pattern.
 In the middle figure we start exactly in the middle of the pattern, as the pattern is `100+30=130` pixels long.
 In the third figure we wrap around and start from the pattern's beginning again.
-This means that specifying `ld: [100,30] 0` and `ld: [100,30] 130` is equivalent.
+This means that specifying `d: [100,30] 0` and `d: [100,30] 130` is equivalent.
 
 ## Multiple data
 
@@ -204,7 +204,7 @@ As mentioned in the data section, objects that require different treatment must 
 
 ```bash
 printf '[[1,1]]\n[[0,1]]' | zsat draw \
---styles 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+--styles 'e1: e0{[l:15, c: aqua]}, e2: e0{[l:5, c: red]}' \
 --datum '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 --outputs '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0,0)}) out2)'
 ```
@@ -212,7 +212,7 @@ printf '[[1,1]]\n[[0,1]]' | zsat draw \
 
 By separating vectors with `\n`, we indicate that they should be treated as separate data entities.
 We also defined two styles: `e1` and `e2`, both based on the default style `e0`, setting only the fields we want to overwrite with new values.
-We could also use `e1` to define `e2`: `e1: e0{[lw:15, lc: aqua]}, e2: e1{[ld: [30,30] 5]}`.
+We could also use `e1` to define `e2`: `e1: e0{[l:15, c: aqua]}, e2: e1{[d: [30,30] 5]}`.
 Here, `e2` would have line width `15`, `aqua` color, and be dashed, in contrast to `e1`, which would be continuous.
 So we defined two styles; now in `--datum` we map those styles to data objects.
 `(vec1, vec2)` are handles (one could name them as they want) for data objects as they are delivered in stdin.
@@ -226,7 +226,7 @@ Let's see other capabilities of **POINT** in examples.
 
 ```bash
 printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
--s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-s 'e1: e0{[l:15, c: aqua]}, e2: e0{[l:5, c: red]}' \
 -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0.5,0.5)}) out2)'
 ```
@@ -234,7 +234,7 @@ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 
 ```bash
 printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
--s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-s 'e1: e0{[l:15, c: aqua]}, e2: e0{[l:5, c: red]}' \
 -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (middle out1)) out2)'
 ```
@@ -242,7 +242,7 @@ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 
 ```bash
 printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
--s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-s 'e1: e0{[l:15, c: aqua]}, e2: e0{[l:5, c: red]}' \
 -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (25% out1)) out2)'
 ```
@@ -250,7 +250,7 @@ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 
 ```bash
 printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
--s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-s 'e1: e0{[l:15, c: aqua]}, e2: e0{[l:5, c: red]}' \
 -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (-25% out1)) out2)'
 ```
@@ -258,7 +258,7 @@ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 
 ```bash
 printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
--s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-s 'e1: e0{[l:15, c: aqua]}, e2: e0{[l:5, c: red]}' \
 -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (125% out1)) out2)'
 ```
@@ -270,7 +270,7 @@ As shown below, we have moved the anchor of the red segments even further, and t
 
 ```bash
 printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
--s 'e1: e0{[lw:15, lc: aqua]}, e2: e0{[lw:5, lc: red]}' \
+-s 'e1: e0{[l:15, c: aqua]}, e2: e0{[l:5, c: red]}' \
 -d '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 -o '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor (300% out1)) out2)'
 ```
@@ -279,7 +279,7 @@ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 ## Datum transformation with straightforward composing
 
 Now let's focus on what can be done with data after it is read from stdin.
-As we see above, we deal with vectors, and because of that we always need to pin them in space (through the `anchor` operation).
+As we see above, we deal with vectors, and because of that we al ays need to pin them in space (through the `anchor` operation).
 We do this in `--output`, where we first declare all data handles in a tuple `(out1, ...)` and then apply operations to each.
 For vectors, anchoring is mandatory — it is the minimal required operation.
 Additional operations such as rotation, scaling, or mirroring can be composed on top of anchoring using `&`.
@@ -293,7 +293,7 @@ printf '[[1,1]]' | zsat draw --debug \
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}
+--styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> (anchor {(0,0)}) out
 --panes p0:{size: 600x600, border: none}
@@ -309,7 +309,7 @@ printf '[[1,1]]' | zsat draw --debug \
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}
+--styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out
 --panes p0:{size: 600x600, border: none}
@@ -325,7 +325,7 @@ Note that if we combine three operations using `&`, as shown below:
 (out) -> (op3 & op2 & op1) out
 ```
 
-then we will have the following three intermediate results:
+then we will have the following three intermediate resuls:
 
 ```bash
 (op1) out
@@ -342,7 +342,7 @@ printf '[[1,1]]' | zsat draw --debug \
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed all [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}
+--styles e0:{vec2d xy fixed all [l:10, c: black, o: 100, e:none, j: none, d:none]}}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out
 --panes p0:{size: 600x600, border: none}
@@ -357,7 +357,7 @@ printf '[[1,1]]' | zsat draw --debug \
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed all [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}
+--styles e0:{vec2d xy fixed all [l:10, c: black, o: 100, e:none, j: none, d:none]}}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((r [-90 a (mid self)]) & (rotate [90 a (0% self)]) & (anchor {(0,0)})) out
 --panes p0:{size: 600x600, border: none}
@@ -370,7 +370,7 @@ stdin:
 Point definitions are used inside transformations like `rotate`.
 They can be specified explicitly, e.g., `{(1,2)}`, or by referring to other objects.
 Use `self` to refer to the current object, or name other objects directly.
-To be well-defined, we must also specify which part of the referenced object to point to:
+To be well-defined, we must also specify which part of the referenced object to point o:
 hence `beg`, `mid`, and `end`.
 If that is not enough, percentages can be used instead.
 `0%` is equivalent to the beginning, and `100%` to the end.
@@ -431,7 +431,7 @@ First, projection onto a line (shadow projection):
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
--s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-s 'e0:{all [l:20]}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
 -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)'  \
 -o '(out0, out1) -> ((p (y=0) & a {(1,1)}) out0, (a {(0,0)}) out1)'
 ```
@@ -439,7 +439,7 @@ printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
--s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-s 'e0:{all [l:20]}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
 -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)'  \
 -o '(out0, out1) -> ((p (x=0) & a {(1,1)}) out0, (a {(0,0)}) out1)'
 ```
@@ -447,7 +447,7 @@ printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
--s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-s 'e0:{all [l:20]}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
 -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)'  \
 -o '(out0, out1) -> ((p (y=0.3*x) & a {(1,1)}) out0, (a {(0,0)}) out1)'
 ```
@@ -457,7 +457,7 @@ Unit vectors anchored at a point — parallel (`p`) and orthogonal (`o`) to the 
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
--s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-s 'e0:{all [l:20]}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
 -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)'  \
 -o '(out0, out1) -> ((p {(1,0.8)} & a {(1,1)}) out0, (a {(0,0)}) out1)'
 ```
@@ -465,7 +465,7 @@ printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
--s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-s 'e0:{all [l:20]}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
 -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)'  \
 -o '(out0, out1) -> ((o {(1,0.8)} & a {(1,1)}) out0, (a {(0,0)}) out1)'
 ```
@@ -475,7 +475,7 @@ Decomposition relative to another output. Projection plus orthogonal equals the 
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]\n[[2,0.5]]' | zsat draw \
--s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}, e2: {[lw:30, lc: grey, lo: 50]}' \
+-s 'e0:{all [l:20]}, e1:{[l:5, c: aqua, d: [40,10] 0]}, e2: {[l:30, c: grey, o: 50]}' \
 -d '(vec0, vec1, vec2) -> (vec0 -> e0, vec1 -> e1, vec2 -> e2)' \
 -o '(out0, out1, out2) -> ((o out2 & a {(1,1)}) out0, (a {(0,0)}) out1, (a {(0.5,0.5)}) out2)'
 ```
@@ -483,7 +483,7 @@ printf '[[1,1]]\n[[0,2]],[[2,0]]\n[[2,0.5]]' | zsat draw \
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]\n[[2,0.5]]' | zsat draw \
--s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}, e2: {[lw:30, lc: grey, lo: 50]}' \
+-s 'e0:{all [l:20]}, e1:{[l:5, c: aqua, d: [40,10] 0]}, e2: {[l:30, c: grey, o: 50]}' \
 -d '(vec0, vec1, vec2) -> (vec0 -> e0, vec1 -> e1, vec2 -> e2)' \
 -o '(out0, out1, out2) -> ((p out2 & a {(1,1)}) out0, (a {(0,0)}) out1, (a {(0.5,0.5)}) out2)'
 ```
@@ -493,7 +493,7 @@ Points can also be specified by reference to another output. Here `p (m out2)` p
 
 ```bash
 printf '[[1,1]]\n[[0,2]],[[2,0]]\n[[2,0.5]]' | zsat draw \
--s 'e0:{all [lw:20]}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}, e2: {[lw:30, lc: grey, lo: 50]}' \
+-s 'e0:{all [l:20]}, e1:{[l:5, c: aqua, d: [40,10] 0]}, e2: {[l:30, c: grey, o: 50]}' \
 -d '(vec0, vec1, vec2) -> (vec0 -> e0, vec1 -> e1, vec2 -> e2)' \
 -o '(out0, out1, out2) -> ((p (m out2) & a {(1,1)}) out0, (a {(0,0)}) out1, (a {(0.5,0.5)}) out2)'
 ```
@@ -508,7 +508,7 @@ If **origin** is used, the axes keep the same orientation, but the origin is mov
 
 ```bash
 printf '[[1,0]]\n[[2,2]]' | zsat draw \
--s 'e0:{vec2d all}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-s 'e0:{vec2d all}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
 -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
 -o '(out0, out1) -> ((m (y=x) & a {(1,0)}) out0, (a {(0,0)}) out1)'
 ```
@@ -518,7 +518,7 @@ The dashed line illustrates where the mirror line `y=x` is located for the chose
 
 ```bash
 printf '[[1,0]]\n[[2,2]]' | zsat draw \
--s 'e0:{vec2d all origin}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-s 'e0:{vec2d all origin}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
 -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
 -o '(out0, out1) -> ((m (y=x) & a {(1,0)}) out0, (a {(1,0)}) out1)'
 ```
@@ -531,7 +531,7 @@ Let's look at an example and discuss it to illustrate this mode.
 
 ```bash
 printf '[[1,1]]\n[[2,2]]' | zsat draw \
--s 'e0:{vec2d all coord}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+-s 'e0:{vec2d all coord}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
 -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
 -o '(out0, out1) -> ((a {(1,0)}) out0, (a {(0,0)}) out1)'
 ```
@@ -543,7 +543,7 @@ Here, `y=x` is the vertical line passing through the origin, against which the m
 
 ```bash
 printf '[[1,1]]\n[[0,2]]' | zsat draw \
-  -s 'e0:{vec2d all coord}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+  -s 'e0:{vec2d all coord}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
   -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
   -o '(out0, out1) -> ((m (y=x) & a {(1,0)}) out0, (a {(1,0)}) out1)'
 ```
@@ -585,12 +585,12 @@ printf '[[1,45], [1,10], [2,30]]' | zsat draw \
 <img src="fig32.png" width="332" style="border: 2px solid grey;">
 
 The 3-segment vector is constructed so that the second segment starts where the first ends, and the third starts where the second ends.
-The structure behaves as a whole: it adopts the style and undergoes transformations together.
+The structure behaves as a whoe: it adopts the style and undergoes transformations together.
 See the example below.
 
 ```bash
 printf '[[1,45], [1,10], [2,30]]\n[[3.5,3.5]]' | zsat draw \
-  -s 'e0:{vec2d polar all}, e1:{[lw:5, lc: aqua, ld: [40,10] 0]}' \
+  -s 'e0:{vec2d polar all}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
   -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
   -o '(out0, out1) -> ((m (y=x) & a {(0,0)}) out0, (a {(0,0)}) out1)'
 ```
@@ -606,12 +606,12 @@ Text definitions use the `tN` key and the `txt` (or `t`) keyword:
 
 ```bash
 echo '[[1,1]]' | zsat draw --debug \
-  -s 'e0:{vec2d}, t0: {txt "hello" [tc:red, ts:20]}' \
+  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
   -o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)'
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}, t0: {txt "hello" [tc:red, ts:20, tf:default, to:100]}
+--styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}, t0: {txt "hello" [c:red, s:20, f:default, o:100]}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)
 --panes p0:{size: 600x600, border: none}
@@ -620,12 +620,12 @@ stdin:
 <img src="fig42.png" width="332" style="border: 2px solid grey;">
 
 Text attributes inside `[...]` support both full names and abbreviations:
-- `textColor` / `tc` — any CSS color name
-- `textSize` / `ts` — font size in pixels
-- `textFont` / `tf` — font name
-- `textOpacity` / `to` — opacity from 0 to 100
+- `color` / `c` — any CSS color name
+- `size` / `s` — font size in pixels
+- `font` / `f` — font name
+- `opacity` / `o` — opacity from 0 to 100
 
-Unspecified attributes inherit from defaults (`tc: black`, `ts: 16`, `tf: default`, `to: 100`). This inheritance property means a minimal definition such as `t0: {txt "hello"}` expands automatically.
+Unspecified attributes inherit from defaults (`c: black`, `s: 16`, `f: default`, `o: 100`). This inheritance property means a minimal definition such as `t0: {txt "hello"}` expands automatically.
 
 **Positioning and rotating text**
 
@@ -633,12 +633,12 @@ Text must be anchored in `--outputs` to appear in the pane. The last explicit `a
 
 ```bash
 echo '[[1,1]]' | zsat draw --debug \
-  -s 'e0:{vec2d}, t0: {txt "hello" [tc:red, ts:20]}' \
+  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
   -o '(out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}]) t0)'
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}, t0: {txt "hello" [tc:red, ts:20, tf:default, to:100]}
+--styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}, t0: {txt "hello" [c:red, s:20, f:default, o:100]}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}]) t0)
 --panes p0:{size: 600x600, border: none}
@@ -650,12 +650,12 @@ Here the text is rotated 45 degrees counter-clockwise around the point `(0.5,0.5
 
 ```bash
 echo '[[1,1]]' | zsat draw --debug \
-  -s 'e0:{vec2d}, t0: {txt "hello" [tc:red, ts:20]}' \
+  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
   -o '(out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}] & a {(0.8,0.8)}) t0)'
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}, t0: {txt "hello" [tc:red, ts:20, tf:default, to:100]}
+--styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}, t0: {txt "hello" [c:red, s:20, f:default, o:100]}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}] & a {(0.8,0.8)}) t0)
 --panes p0:{size: 600x600, border: none}
@@ -663,16 +663,16 @@ stdin:
 ```
 <img src="fig44.png" width="332" style="border: 2px solid grey;">
 
-Text can also override its value inline in `--outputs` without redefining the style:
+Text can also override its value inline in `--outputs` without redefining the stye:
 
 ```bash
 echo '[[1,1]]' | zsat draw --debug \
-  -s 'e0:{vec2d}, t0: {txt "hello" [tc:red, ts:20]}' \
+  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
   -o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{"world"})'
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld:none]}}, t0: {txt "hello" [tc:red, ts:20, tf:default, to:100]}
+--styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}, t0: {txt "hello" [c:red, s:20, f:default, o:100]}
 --datum (vec) -> (vec -> e0)
 --outputs (out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{"world"})
 --panes p0:{size: 600x600, border: none}
@@ -696,7 +696,7 @@ For a complete reference on style attributes — coordinate system (`xy`/`polar`
 zsat draw vec2d style --help
 ```
 
-To see how transformations are composed in `--outputs` — `anchor`, `rotate`, `scale`, `mirror`, `project`, `orthogonal` — and the syntax for angles and points:
+To see how transformations are composed in `--outputs` — `anchor`, `rotate`, `scale`, `mirror`, `project`, `orthogonal` — and the syntax for angles and poins:
 
 ```bash
 zsat draw vec2d output --help
@@ -716,7 +716,7 @@ zsat draw line --help
 
 To browse available colors, here are some beginning with the letter **c**:
 `coral`, `crimson`, `cyan`, `chocolate`, `chartreuse`, `cadetblue`, `cornflowerblue`, `cornsilk`.
-You can see the full list with:
+You can see the full list wih:
 
 ```bash
 zsat draw color --help

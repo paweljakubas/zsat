@@ -81,7 +81,7 @@ const style_flag = zli.Flag{
     .shortcut = "s",
     .description = "Style(s) definition to be used in further steps when constructing the figure.",
     .type = .String,
-    .default_value = .{ .String = "e0:{vec2d xy fixed last [lw:10, lc: black, lo: 100, le:none, lj: none, ld: none]}" },
+    .default_value = .{ .String = "e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}" },
 };
 
 const datum_flag = zli.Flag{
