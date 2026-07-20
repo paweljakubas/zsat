@@ -496,7 +496,7 @@ fn resolvePaneBorder(pane: Panes.Pane, borders: []const Border.BorderDefinition)
         .ref => |name| {
             for (borders) |bdef| {
                 if (std.mem.eql(u8, bdef.name, name)) {
-                    return bdef.border;
+                    return bdef.w;
                 }
             }
             return null;

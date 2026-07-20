@@ -1125,7 +1125,7 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
                 if (@hasField(@TypeOf(parsed_data), "borders")) {
                     for (parsed_data.borders) |bdef| {
                         if (std.mem.eql(u8, bdef.name, name)) {
-                            break :blk bdef.border;
+                            break :blk bdef.w;
                         }
                     }
                 }

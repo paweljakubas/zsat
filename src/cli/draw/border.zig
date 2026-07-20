@@ -11,7 +11,7 @@ pub const Border = struct {
 
 pub const BorderDefinition = struct {
     name: []const u8,
-    border: Border,
+    w: Border,
 };
 
 const BorderAttributeUnion = union(enum) {
@@ -20,9 +20,9 @@ const BorderAttributeUnion = union(enum) {
     borderColor: common.ColorName,
 };
 
-// borderWidth / b parser
+// borderWidth / w parser
 const borderWidthParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("border"), mecha.string("b") }).discard(),
+    mecha.oneOf(.{ mecha.string("width"), mecha.string("w") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
@@ -39,10 +39,10 @@ test "borderWidthParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try borderWidthParserRaw.parse(a, "border:30");
+    const r1 = try borderWidthParserRaw.parse(a, "width:30");
     try testing.expectEqual(@as(u16, 30), r1.value.ok);
 
-    const r2 = try borderWidthParserRaw.parse(a, "b: 10");
+    const r2 = try borderWidthParserRaw.parse(a, "w: 10");
     try testing.expectEqual(@as(u16, 10), r2.value.ok);
 }
 
@@ -124,7 +124,7 @@ test "borderAttributesParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try borderAttributesParser.parse(a, "b:30");
+    const r1 = try borderAttributesParser.parse(a, "w:30");
     const b1 = Border{ .width = 30, .opacity = 100, .color = .black };
     try testing.expectEqual(b1, r1.value.ok);
 
@@ -132,7 +132,7 @@ test "borderAttributesParser" {
     const b2 = Border{ .width = 10, .opacity = 50, .color = .red };
     try testing.expectEqual(b2, r2.value.ok);
 
-    const r3 = try borderAttributesParser.parse(a, "b:20, o:75, c:blue");
+    const r3 = try borderAttributesParser.parse(a, "w:20, o:75, c:blue");
     const b3 = Border{ .width = 20, .opacity = 75, .color = .blue };
     try testing.expectEqual(b3, r3.value.ok);
 }
@@ -157,11 +157,11 @@ test "borderParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try borderParser.parse(a, "border [b:30, o:100, c:red]");
+    const r1 = try borderParser.parse(a, "border [w:30, o:100, c:red]");
     const b1 = Border{ .width = 30, .opacity = 100, .color = .red };
     try testing.expectEqual(b1, r1.value.ok);
 
-    const r2 = try borderParser.parse(a, "b [b:10, c:green]");
+    const r2 = try borderParser.parse(a, "b [w:10, c:green]");
     const b2 = Border{ .width = 10, .opacity = 100, .color = .green };
     try testing.expectEqual(b2, r2.value.ok);
 
@@ -179,7 +179,7 @@ const borderDefNumberParser = mecha.combine(.{
 const borderDefNumberParserP = @TypeOf(borderDefNumberParser);
 
 const borderDefBodyParser = mecha.oneOf(.{
-    // border [b:30, c:red]
+    // border [w:30, c:red]
     mecha.combine(.{
         mecha.oneOf(.{ mecha.string("border"), mecha.string("b") }).discard(),
         common.skipWhitespace,
@@ -212,7 +212,7 @@ fn toBorderDef(arena: std.mem.Allocator, res: borderDefParserRawP.T) mecha.Conve
     const number = res[0];
     const border_val = res[2];
     const name = try std.fmt.allocPrint(arena, "b{d}", .{number});
-    return BorderDefinition{ .name = name, .border = border_val };
+    return BorderDefinition{ .name = name, .w = border_val };
 }
 pub const borderDefParser = borderDefParserRaw.convert(toBorderDef);
 
@@ -221,17 +221,17 @@ test "borderDefParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try borderDefParser.parse(a, "b0: {border [b:30, c:red]}");
+    const r1 = try borderDefParser.parse(a, "b0: {border [w:30, c:red]}");
     try testing.expectEqualStrings("b0", r1.value.ok.name);
-    try testing.expectEqual(Border{ .width = 30, .opacity = 100, .color = .red }, r1.value.ok.border);
+    try testing.expectEqual(Border{ .width = 30, .opacity = 100, .color = .red }, r1.value.ok.w);
 
     const r2 = try borderDefParser.parse(a, "b12: {border}");
     try testing.expectEqualStrings("b12", r2.value.ok.name);
-    try testing.expectEqual(Border{ .width = 10, .opacity = 100, .color = .black }, r2.value.ok.border);
+    try testing.expectEqual(Border{ .width = 10, .opacity = 100, .color = .black }, r2.value.ok.w);
 
-    const r3 = try borderDefParser.parse(a, "b1: {b [b:20, o:50]}");
+    const r3 = try borderDefParser.parse(a, "b1: {b [w:20, o:50]}");
     try testing.expectEqualStrings("b1", r3.value.ok.name);
-    try testing.expectEqual(Border{ .width = 20, .opacity = 50, .color = .black }, r3.value.ok.border);
+    try testing.expectEqual(Border{ .width = 20, .opacity = 50, .color = .black }, r3.value.ok.w);
 }
 
 // Parser for pane border field: "border: [b:30, c:red]" (returns Border)
@@ -255,10 +255,10 @@ test "paneBorderInlineParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try paneBorderInlineParser.parse(a, "border: [b:30, c:red]");
+    const r1 = try paneBorderInlineParser.parse(a, "border: [w:30, c:red]");
     try testing.expectEqual(Border{ .width = 30, .opacity = 100, .color = .red }, r1.value.ok);
 
-    const r2 = try paneBorderInlineParser.parse(a, "b: [b:15]");
+    const r2 = try paneBorderInlineParser.parse(a, "b: [w:15]");
     try testing.expectEqual(Border{ .width = 15, .opacity = 100, .color = .black }, r2.value.ok);
 }
 

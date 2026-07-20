@@ -230,8 +230,8 @@ pub const border_help =
     \\  bN: {border [ATTR1, ATTR2, ...]}
     \\  bN: {border}               -- use all defaults
     \\
-    \\Attributes (defaults: b=10, c=black, o=100):
-    \\  border:N  or  b:N   -- border thickness in pixels
+    \\Attributes (defaults: w=10, c=black, o=100):
+    \\  width:N  or  w:N   -- border thickness in pixels
     \\  opacity:N  or  o:N -- opacity from 0 to 100
     \\  color:NAME  or  c:NAME -- any CSS color name
     \\
@@ -244,8 +244,8 @@ pub const border_help =
     \\with a border width of 30 leaves 540 pixels for the plot content.
     \\
     \\Examples:
-    \\  --styles 'b0: {border [b:30, c:red]}' --panes 'p0:{size: 600x600, border: b0}'
-    \\  --panes 'p0:{size: 600x600, border: [b:20, c:blue]}'
+    \\  --styles 'b0: {border [w:30, c:red]}' --panes 'p0:{size: 600x600, border: b0}'
+    \\  --panes 'p0:{size: 600x600, border: [w:20, c:blue]}'
     \\  --styles 'b1: {border}' --panes 'p1:{border: b1}'
 ;
 

@@ -221,7 +221,7 @@ test "paneParser with inline border" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r0 = try paneParser.parse(a, "p0:{size: 100x100, border: [b:30, c:red], view:{(2,1.1), (10.0, 1.2)}}");
+    const r0 = try paneParser.parse(a, "p0:{size: 100x100, border: [w:30, c:red], view:{(2,1.1), (10.0, 1.2)}}");
     const s0 = PaneSize{ .width = 100, .height = 100 };
     const b0 = border.Border{ .width = 30, .opacity = 100, .color = .red };
     const p0a = inputs.Point{ .x = 2.0, .y = 1.1 };
@@ -237,14 +237,14 @@ test "paneParser with inline border" {
     const pane1 = Pane{ .paneNumber = 1, .paneValue = v1 };
     try testing.expectEqual(pane1, r1.value.ok);
 
-    const r2 = try paneParser.parse(a, "p2:{size: 200x200, b: [b:15]}");
+    const r2 = try paneParser.parse(a, "p2:{size: 200x200, b: [w:15]}");
     const s2 = PaneSize{ .width = 200, .height = 200 };
     const b2 = border.Border{ .width = 15, .opacity = 100, .color = .black };
     const v2 = PaneValue{ .paneSize = s2, .border = PaneBorder{ .defined = b2 }, .view = PaneView.defaultPaneView() };
     const pane2 = Pane{ .paneNumber = 2, .paneValue = v2 };
     try testing.expectEqual(pane2, r2.value.ok);
 
-    const r3 = try paneParser.parse(a, "p3:{s: 200x200, b: [b:15]}");
+    const r3 = try paneParser.parse(a, "p3:{s: 200x200, b: [w:15]}");
     const v3 = PaneValue{ .paneSize = s2, .border = PaneBorder{ .defined = b2 }, .view = PaneView.defaultPaneView() };
     const pane3 = Pane{ .paneNumber = 3, .paneValue = v3 };
     try testing.expectEqual(pane3, r3.value.ok);
