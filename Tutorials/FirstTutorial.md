@@ -663,7 +663,7 @@ In general, one should not expect for the composition to be commutative. Indeed,
 
 ```bash
 echo '[[1,1]]' | zsat draw --debug \
-  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
+  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:30]}' \
   -o '(out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}] & a {(0.8,0.8)}) t0)'
 stdin:
 [[1,1]]
@@ -676,7 +676,15 @@ stdin:
 ```
 <img src="fig44.png" width="332" style="border: 2px solid grey;">
 
-Text can also override its value inline in `--outputs` without redefining the stye:
+```bash
+echo '[[1,1]]' | zsat draw \
+  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:30]}' \
+  -o '(out) -> ((a {(0,0)}) out, (a {(0.8,0.8)} & r [45 a {(0.5,0.5)}]) t0)'
+```
+<img src="fig45.png" width="332" style="border: 2px solid grey;">
+
+
+Text can also override its default or previously defined value inline in `--outputs` without redefining the style, just by referencing:
 
 ```bash
 echo '[[1,1]]' | zsat draw --debug \
@@ -691,7 +699,7 @@ stdin:
 --panes p0:{size: 600x600, border: none}
 --frames (out) -> out -> p0
 ```
-<img src="fig45.png" width="332" style="border: 2px solid grey;">
+<img src="fig46.png" width="332" style="border: 2px solid grey;">
 
 ## Exploring the tool through help
 
