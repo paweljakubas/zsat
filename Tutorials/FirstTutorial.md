@@ -602,7 +602,7 @@ Besides vectors, `zsat` can overlay text on the plot. Text is defined in `--styl
 
 **Defining text**
 
-Text definitions use the `tN` key and the `txt` (or `t`) keyword:
+Text definitions use the `txt` (or `t`) keyword:
 
 ```bash
 echo '[[1,1]]' | zsat draw --debug \
@@ -625,11 +625,12 @@ Text attributes inside `[...]` support both full names and abbreviations:
 - `font` / `f` — font name
 - `opacity` / `o` — opacity from 0 to 100
 
-Unspecified attributes inherit from defaults (`c: black`, `s: 16`, `f: default`, `o: 100`). This inheritance property means a minimal definition such as `t0: {txt "hello"}` expands automatically.
+Unspecified attributes inherit from defaults (`c: black`, `s: 16`, `f: default`, `o: 100`). This inheritance property implies a minimal definition to be `t0: {txt "hello"}`.
 
 **Positioning and rotating text**
 
-Text must be anchored in `--outputs` to appear in the pane. The last explicit `anchor` or `rotate` point in the transformation chain sets the text position.
+Like for a vector a text must be anchored in `--outputs` to appear in the pane. This can be done explicitely via 'a' or by operation that assumes pinning.
+The defined text below undergoes rotating operation via `r` around the point `(0.5, 0.5)`.
 
 ```bash
 echo '[[1,1]]' | zsat draw --debug \
@@ -646,7 +647,19 @@ stdin:
 ```
 <img src="fig43.png" width="332" style="border: 2px solid grey;">
 
-Here the text is rotated 45 degrees counter-clockwise around the point `(0.5,0.5)`, which also becomes its anchor position. When both `rotate` and `anchor` are present, the last operation carrying an explicit point determines the final placement. In the example below the text is rotated 45° around `(0.5,0.5)` but ultimately sits at `(0.8,0.8)` because the final `anchor` wins:
+Here the text is anchored at the point `(0.5,0.5)` and rotated 45 degrees counter-clockwise around itself.
+Meaning it is the same as if we compose two operations together:
+
+```bash
+echo '[[1,1]]' | ./zig-out/bin/zsat draw \
+  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
+  -o '(out) -> ((a {(0,0)}) out, (r [45 a (self)] & a {(0.5,0.5)}) t0)'
+```
+
+Please notice that when rotation is done against not itself then the rotation is done to the whole text with internal orientation intact.
+Rotation around itself results in internal rotation. This behaviour is by design and is found intuitive by the author. 
+
+In general, one should not expect for the composition to be commutative. Indeed, rotation followed by anchoring gives another result that the its flipped composition. 
 
 ```bash
 echo '[[1,1]]' | zsat draw --debug \

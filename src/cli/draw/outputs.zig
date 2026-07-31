@@ -164,6 +164,7 @@ const GeneralPoint = union(enum) {
     end: ElementReference,
     middle: ElementReference,
     fraction: ElementFraction,
+    self,
 };
 
 fn anchorOp(p: inputs.Point) OneArgFunctionPartial {
@@ -393,12 +394,23 @@ const pointGPParser = mecha.combine(.{
     }
 }.toPoint);
 
+const selfGPParser = mecha.combine(.{
+    common.skipOpenBracket,
+    mecha.string("self").discard(),
+    common.skipCloseBracket,
+}).convert(struct {
+    fn toSelf(_: std.mem.Allocator, _: anytype) mecha.ConvertError!GeneralPoint {
+        return .self;
+    }
+}.toSelf);
+
 const generalPointParser = mecha.oneOf(.{
     fractionGPParser,
     beginningGPParser,
     endGPParser,
     middleGPParser,
     pointGPParser,
+    selfGPParser,
 });
 
 test "generalPointParser" {
@@ -450,6 +462,9 @@ test "generalPointParser" {
     const p11 = inputs.Point{ .x = -12.0, .y = 2.1 };
     const o11 = GeneralPoint{ .point = p11 };
     try testing.expectEqualDeep(o11, r11.value.ok);
+
+    const r12 = try generalPointParser.parse(fa, "(self)");
+    try testing.expectEqual(.self, r12.value.ok);
 }
 
 const rotationArgParser = mecha.combine(.{
@@ -543,6 +558,11 @@ test "rotationArgParser" {
     const o12 = RotateArg{ .phi = -720.0, .point = p1 };
     try testing.expectApproxEqAbs(@as(f32, o12.phi), r12.value.ok.phi, 0.0001);
     try testing.expectEqualDeep(o12.point, r12.value.ok.point);
+
+    // Rotate around (self)
+    const r13 = try rotationArgParser.parse(fa, "45 around (self)");
+    const o13 = RotateArg{ .phi = 45.0, .point = .self };
+    try testing.expectEqualDeep(o13, r13.value.ok);
 }
 
 const rotatePartialParserRawInner = mecha.combine(.{
@@ -1619,26 +1639,69 @@ test "connectionParser with transformed text" {
 }
 
 /// Extracts the final position and angle from a sequence of one-arg operations
-/// intended for a text overlay. The last explicit anchor or rotate center sets
-/// the position, and rotate angles are accumulated.
+/// intended for a text overlay. Operations are applied right-to-left to match
+/// `&` composition semantics: the last op in the array is applied first.
+///
+/// - `.anchor` sets the text position to the anchor point.
+/// - `.rotate` accumulates the angle. If no explicit anchor has been set yet,
+///   the rotation center is used as the default position (so the text sits at
+///   the center and is rotated around itself). Otherwise, the current position
+///   is rotated around the center.
+/// - `.scale` scales the current position coordinates.
 pub fn extractTextPositionAndAngle(ops: []const OneArgFunctionPartial) struct { x: f32, y: f32, angle: f32 } {
     var x: f32 = 0;
     var y: f32 = 0;
     var angle: f32 = 0;
-    for (ops) |op| {
+    var has_anchor = false;
+
+    // Apply ops in reverse order (right-to-left) matching & composition semantics
+    var i: usize = ops.len;
+    while (i > 0) {
+        i -= 1;
+        const op = ops[i];
         switch (op) {
             .anchor => |a| {
                 if (a.point == .point) {
                     x = a.point.point.x;
                     y = a.point.point.y;
+                    has_anchor = true;
                 }
             },
             .rotate => |r| {
                 if (r.elements.len > 0) {
-                    angle += r.elements[0].phi;
-                    if (r.elements[0].point == .point) {
-                        x = r.elements[0].point.point.x;
-                        y = r.elements[0].point.point.y;
+                    const arg = r.elements[0];
+                    angle += arg.phi;
+                    if (arg.point == .point) {
+                        if (!has_anchor) {
+                            // No explicit anchor yet: use rotation center as default position
+                            x = arg.point.point.x;
+                            y = arg.point.point.y;
+                            has_anchor = true;
+                        } else {
+                            // Rotate the current position around the center
+                            const rad = std.math.degreesToRadians(arg.phi);
+                            const cos = std.math.cos(rad);
+                            const sin = std.math.sin(rad);
+                            const dx = x - arg.point.point.x;
+                            const dy = y - arg.point.point.y;
+                            x = arg.point.point.x + (dx * cos - dy * sin);
+                            y = arg.point.point.y + (dx * sin + dy * cos);
+                        }
+                    } else if (arg.point == .self) {
+                        // Rotating around self: position doesn't change, only angle accumulates.
+                    }
+                }
+            },
+            .scale => |s| {
+                if (s.elements.len > 0) {
+                    const arg = s.elements[0];
+                    if (!has_anchor) {
+                        x = arg.translation.x;
+                        y = arg.translation.y;
+                        has_anchor = true;
+                    } else {
+                        x *= arg.translation.x;
+                        y *= arg.translation.y;
                     }
                 }
             },
@@ -1646,6 +1709,109 @@ pub fn extractTextPositionAndAngle(ops: []const OneArgFunctionPartial) struct { 
         }
     }
     return .{ .x = x, .y = y, .angle = angle };
+}
+
+test "extractTextPositionAndAngle" {
+    // Single anchor
+    const ops1 = [_]OneArgFunctionPartial{
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 2.0 } } } },
+    };
+    const r1 = extractTextPositionAndAngle(&ops1);
+    try testing.expectEqual(@as(f32, 1.0), r1.x);
+    try testing.expectEqual(@as(f32, 2.0), r1.y);
+    try testing.expectEqual(@as(f32, 0.0), r1.angle);
+
+    // Rotate then anchor: execution order is anchor first, then rotate
+    // Start at (0,0) -> anchor to (0.8,0.8) -> rotate 45° around (0.5,0.5)
+    const ops2 = [_]OneArgFunctionPartial{
+        .{ .rotate = .{ .elements = &[_]RotateArg{
+            .{ .phi = 45.0, .point = .{ .point = .{ .x = 0.5, .y = 0.5 } } },
+        } } },
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 0.8, .y = 0.8 } } } },
+    };
+    const r2 = extractTextPositionAndAngle(&ops2);
+    // (0.8,0.8) rotated 45° around (0.5,0.5):
+    // dx=0.3, dy=0.3 -> rotated: (0, 0.42426)
+    // final = (0.5, 0.92426)
+    try testing.expectApproxEqAbs(@as(f32, 0.5), r2.x, 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 0.92426), r2.y, 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 45.0), r2.angle, 0.001);
+
+    // Anchor then rotate: execution order is rotate first, then anchor
+    // Start at (0,0) -> rotate 45° around (0,0) -> anchor to (1,1)
+    const ops3 = [_]OneArgFunctionPartial{
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+        .{ .rotate = .{ .elements = &[_]RotateArg{
+            .{ .phi = 45.0, .point = .{ .point = .{ .x = 0.0, .y = 0.0 } } },
+        } } },
+    };
+    const r3 = extractTextPositionAndAngle(&ops3);
+    // After rotate: (0,0) stays (0,0). Then anchor: (1,1)
+    try testing.expectEqual(@as(f32, 1.0), r3.x);
+    try testing.expectEqual(@as(f32, 1.0), r3.y);
+    try testing.expectApproxEqAbs(@as(f32, 45.0), r3.angle, 0.001);
+
+    // Scale then anchor: execution order is anchor first, then scale
+    const ops4 = [_]OneArgFunctionPartial{
+        .{ .scale = .{ .elements = &[_]ScaleArg{
+            .{ .translation = .{ .x = 2.0, .y = 3.0 } },
+        } } },
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } },
+    };
+    const r4 = extractTextPositionAndAngle(&ops4);
+    try testing.expectEqual(@as(f32, 2.0), r4.x);
+    try testing.expectEqual(@as(f32, 3.0), r4.y);
+    try testing.expectEqual(@as(f32, 0.0), r4.angle);
+
+    // Multiple rotations: angles add, position rotates sequentially
+    const ops5 = [_]OneArgFunctionPartial{
+        .{ .rotate = .{ .elements = &[_]RotateArg{
+            .{ .phi = 90.0, .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } },
+        } } },
+        .{ .rotate = .{ .elements = &[_]RotateArg{
+            .{ .phi = 90.0, .point = .{ .point = .{ .x = 0.0, .y = 0.0 } } },
+        } } },
+    };
+    const r5 = extractTextPositionAndAngle(&ops5);
+    // Start (0,0) -> rotate 90° around (0,0) -> still (0,0)
+    // -> rotate 90° around (1,1): (0,0) -> (2,0)
+    try testing.expectApproxEqAbs(@as(f32, 2.0), r5.x, 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 0.0), r5.y, 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 180.0), r5.angle, 0.001);
+
+    // Non-point anchors are ignored (position stays at origin)
+    const ops6 = [_]OneArgFunctionPartial{
+        .{ .anchor = .{ .point = .{ .fraction = .{ .fromStart = 50, .element = .self } } } },
+    };
+    const r6 = extractTextPositionAndAngle(&ops6);
+    try testing.expectEqual(@as(f32, 0.0), r6.x);
+    try testing.expectEqual(@as(f32, 0.0), r6.y);
+    try testing.expectEqual(@as(f32, 0.0), r6.angle);
+
+    // Rotate around (self): position stays at anchor, angle accumulates
+    const ops7 = [_]OneArgFunctionPartial{
+        .{ .rotate = .{ .elements = &[_]RotateArg{
+            .{ .phi = 45.0, .point = .self },
+        } } },
+        .{ .anchor = .{ .point = .{ .point = .{ .x = 0.5, .y = 0.5 } } } },
+    };
+    const r7 = extractTextPositionAndAngle(&ops7);
+    // anchor first -> (0.5, 0.5), rotate around self -> stays (0.5, 0.5)
+    try testing.expectEqual(@as(f32, 0.5), r7.x);
+    try testing.expectEqual(@as(f32, 0.5), r7.y);
+    try testing.expectApproxEqAbs(@as(f32, 45.0), r7.angle, 0.001);
+
+    // Bare rotate with explicit center and no anchor: center becomes the default position
+    const ops8 = [_]OneArgFunctionPartial{
+        .{ .rotate = .{ .elements = &[_]RotateArg{
+            .{ .phi = 45.0, .point = .{ .point = .{ .x = 0.5, .y = 0.5 } } },
+        } } },
+    };
+    const r8 = extractTextPositionAndAngle(&ops8);
+    // No anchor yet, so rotation center (0.5,0.5) is used as default position
+    try testing.expectEqual(@as(f32, 0.5), r8.x);
+    try testing.expectEqual(@as(f32, 0.5), r8.y);
+    try testing.expectApproxEqAbs(@as(f32, 45.0), r8.angle, 0.001);
 }
 
 pub const OutputError = error{
@@ -3248,6 +3414,7 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                             .end => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .end = .self }, orientation),
                             .middle => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .middle = .self }, orientation),
                             .fraction => |frac| try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation),
+                            .self => ctx_begin orelse inputs.Point{ .x = 0, .y = 0 },
                         };
                         poly = try allocator.alloc(inputs.Point, vectors.len + 1);
                         poly[0] = pt;
@@ -3477,6 +3644,7 @@ fn resolveNonPointReferences(allocator: std.mem.Allocator, inp: inputs.Inputs, o
                             const explicit = try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation);
                             new_point = .{ .point = explicit };
                         },
+                        .self => {},
                     }
                     new_ops[op_idx] = OneArgFunctionPartial{ .anchor = .{ .point = new_point } };
                 },
@@ -3603,6 +3771,7 @@ fn resolveGeneralPoint(
             }
             return getTransformedExplicitPoint(allocator, inp, outputs, frac.element, .{ .fraction = frac }, orientation, coordinate_type, plot_steps);
         },
+        .self => return ctx_begin orelse return ToExplicitPointError.CannotDetermineExplicitPoint,
     }
 }
 
@@ -3743,6 +3912,7 @@ fn getExplicitPoint(inp: inputs.Inputs, outputs: OutputsValidated, ref: ElementR
             const y = end_y * factor;
             return .{ .x = x, .y = y };
         },
+        .self => .{ .x = 0.0, .y = 0.0 },
     };
 }
 
@@ -3857,6 +4027,7 @@ fn getTransformedExplicitPoint(
             const factor = @as(f32, @floatFromInt(frac.fromStart)) / 100.0;
             return .{ .x = b.x + dx * factor, .y = b.y + dy * factor };
         },
+        .self => b,
     };
 }
 
