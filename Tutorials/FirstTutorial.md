@@ -728,6 +728,11 @@ printf '[[1,1]]\n[[2,0.5]]' | ./zig-out/bin/zsat draw
 ```
 <img src="fig48.png" width="332" style="border: 2px solid grey;">
 
+So we have `a1` axis object defined where one can define separately how axis line and what/how ticks look like. And also independetnly what tick values to present and how to present them.
+`line` attribute should not be surprise as it follows pattern already learned for vectors. in `ticks` size one `size` aka `s` determine requested tick line width and `height` aka `h` tick line height. Caller can also choose if the tick is presented above or below line, plus the most important what ticks to display. Here, we requested to display every tick from 0 and 3  with step 0.5. One can also be explicit and enumerate exactly which step to plot. Here, the mirror substitute would be just `0, 0.5, 1, 1.5, 2, 2.5, 3` so we chose shortcut version.
+With regards to values, the pattern is very similar both with style and values. When defined, `a1` axis object is available in later steps, where we can anchor it in the plot by using `fromTo` aka `ft` in outputs. Here we are just providing two points, start and finish ones.
+
+
 ## Exploring the tool through help
 
 `zsat` provides built-in documentation through subcommands. Instead of remembering every detail, you can query the tool directly.
