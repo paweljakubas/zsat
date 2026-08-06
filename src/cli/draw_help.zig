@@ -249,6 +249,64 @@ pub const border_help =
     \\  --styles 'b1: {border}' --panes 'p1:{border: b1}'
 ;
 
+/// Help text for `zsat draw axis --help`
+pub const axis_help =
+    \\Axes are reference lines that can carry ticks and value labels.
+    \\They are defined in --styles and drawn in --outputs between two points.
+    \\
+    \\Defining axes in --styles (reusable):
+    \\  aN: {axis line:[ATTR1, ...], ticks:[...], values:[...]}
+    \\  aN: {axis line:[ATTR1, ...]}     -- only the line
+    \\  aN: {axis}                       -- use all defaults
+    \\
+    \\LINE attributes (defaults: s=2, c=black, o=100):
+    \\  size:N  or  s:N      -- line thickness in pixels
+    \\  color:NAME  or  c:NAME -- any CSS color name
+    \\  opacity:N  or  o:N   -- opacity from 0 to 100
+    \\
+    \\TICKS attributes:
+    \\  pos:LIST  or  p:LIST -- positions along the axis where ticks are drawn
+    \\  style:[ATTR1, ...]   -- tick styling (see below)
+    \\
+    \\VALUES attributes:
+    \\  vals:LIST  or  v:LIST -- values labeled along the axis
+    \\  style:[ATTR1, ...]    -- label styling (see below)
+    \\
+    \\LIST syntax (for pos and vals):
+    \\  2, 4, 6, 8          -- explicit positions
+    \\  2, 4, .., 10        -- range; step is the difference of the first two values
+    \\  10, 8, .., 2        -- descending range
+    \\
+    \\TICK STYLE attributes (defaults: s=1, c=black, o=100, h=5, f=above):
+    \\  size:N  or  s:N      -- tick line width in pixels
+    \\  height:N  or  h:N    -- tick length in pixels
+    \\  form:MODE  or  f:MODE -- above | middle | below | dot | square
+    \\  color:NAME  or  c:NAME
+    \\  opacity:N  or  o:N
+    \\
+    \\VALUE STYLE attributes (defaults: s=12, c=black, o=100, sp=2, f=above):
+    \\  size:N  or  s:N      -- font size in pixels
+    \\  font:PATH            -- font file; "default" uses the built-in font
+    \\  spacing:N  or  sp:N  -- gap between the tick and its label in pixels
+    \\  form:MODE  or  f:MODE -- above | middle | below | dot | square
+    \\  color:NAME  or  c:NAME
+    \\  opacity:N  or  o:N
+    \\
+    \\The form direction is relative to the axis direction from the FROM point
+    \\to the TO point: above lies to the left of the direction, below to the right.
+    \\
+    \\Drawing axes in --outputs:
+    \\  ft (FROM, TO) aN      -- draw axis aN between the two points
+    \\  fromTo (FROM, TO) aN  -- long form
+    \\  POINTS are given as (X, Y) pairs; see `zsat draw point --help`.
+    \\  The referenced aN must be defined in --styles.
+    \\
+    \\Examples:
+    \\  --styles 'a0: {axis line:[c:black, s:2], ticks:[pos:0,1,..,2], values:[vals:0,1,..,2]}'
+    \\  --outputs '(out) -> ((a {(0,0)}) out, ft ((0,0),(2,0)) a0)'
+    \\  --styles 'a1: {a line:[c:grey, o:50]}'
+;
+
 /// Help text for `zsat draw angle --help`
 pub const angle_help =
     \\Angles are used in transformations like `rotate` and in polar coordinates.
@@ -298,6 +356,8 @@ pub const objects_help =
     \\       Available color names for line color
     \\  zsat draw border --help
     \\       How to define pane borders: width, opacity, and color
+    \\  zsat draw axis --help
+    \\       How to define axes: line, ticks, and value labels
 ;
 
 /// Print help text directly (used as execFn for doc-only subcommands).

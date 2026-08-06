@@ -7,6 +7,7 @@
 - [Multiple data](#multiple-data)
 - [Datum transformation with straightforward composing](#datum-transformation-with-straightforward-composing)
 - [Adding text](#adding-text)
+- [Adding axis](#adding-axis)
 - [Exploring the tool through help](#exploring-the-tool-through-help)
 
 ## First try and how to explore the tool
@@ -700,6 +701,24 @@ stdin:
 --frames (out) -> out -> p0
 ```
 <img src="fig46.png" width="332" style="border: 2px solid grey;">
+
+## Adding axis
+
+In one of the previous examples we used additional `aqua` dashed lines as axes. See, below
+
+```bash
+printf '[[1,1]]\n[[0,2.5]],[[2.5,0]]\n[[2,0.5]]' | zsat draw \
+  -s 'e0:{all [l:20]}, e1:{[l:5, c: aqua, d: [40,10] 0]}, e2: {[l:30, c: grey, o: 50]}' \
+  -d '(vec0, vec1, vec2) -> (vec0 -> e0, vec1 -> e1, vec2 -> e2)' \
+  -o '(out0, out1, out2) -> ((p out2 & a {(1,1)}) out0, (a {(0,0)}) out1, (a {(0.5,0.5)}) out2)' \
+  -p 'p0:{size: 600x600, border: [w:25, c:lightgrey]}'
+```
+<img src="fig47.png" width="332" style="border: 2px solid grey;">
+
+Naturally, it is highly unsatisfactory to have **axis** like that, we might use this way as some additional line though.
+We have `axis` object that we can refine in terms of styling (in `--style`) that is designed to help here. Let's jump immediately into an example and comment what happened afterwards.
+
+
 
 ## Exploring the tool through help
 

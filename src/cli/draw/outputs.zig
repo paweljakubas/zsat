@@ -1624,6 +1624,19 @@ test "connectionParser with text items" {
     try testing.expectEqualStrings("hello", r1.value.ok.textOutputs[1].item.override.?.value.?);
 }
 
+test "connectionParser with axis item" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try connectionParser.parse(a, "(out) -> ((anchor {(0,0)}) out, ft ((0,0),(2,0)) a0)");
+    try testing.expectEqual(@as(usize, 1), r1.value.ok.transformationPairs.len);
+    try testing.expectEqual(@as(usize, 1), r1.value.ok.axisOutputs.len);
+    try testing.expectEqualStrings("a0", r1.value.ok.axisOutputs[0].item.name);
+    try testing.expectEqual(@as(f32, 0), r1.value.ok.axisOutputs[0].from.x);
+    try testing.expectEqual(@as(f32, 2), r1.value.ok.axisOutputs[0].to.x);
+}
+
 test "connectionParser with transformed text" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();

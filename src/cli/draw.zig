@@ -212,6 +212,13 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
     }, draw_help.printHelpExec);
     try cmd.addCommand(border_cmd);
 
+    const axis_cmd = try zli.Command.init(init_opts, .{
+        .name = "axis",
+        .description = "How to define axes: line, ticks, and value labels",
+        .help = draw_help.axis_help,
+    }, draw_help.printHelpExec);
+    try cmd.addCommand(axis_cmd);
+
     return cmd;
 }
 
