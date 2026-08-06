@@ -1637,6 +1637,36 @@ test "connectionParser with axis item" {
     try testing.expectEqual(@as(f32, 2), r1.value.ok.axisOutputs[0].to.x);
 }
 
+test "validateConnection relaxes name check with axis overlay" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const pair1 = OutputTransformationPair{ .outputName = "out0", .operation = .{ .ops = &.{} } };
+    const pair2 = OutputTransformationPair{ .outputName = "out2", .operation = .{ .ops = &.{} } };
+    const conn = Connection{
+        .outputs = &[_]Output{ .{ .name = "out0" }, .{ .name = "out1" } },
+        .transformationPairs = &[_]OutputTransformationPair{ pair1, pair2 },
+        .textOutputs = &.{},
+        .axisOutputs = &[_]AxisOutput{ .{
+            .item = .{ .name = "a0" },
+            .from = .{ .x = 0, .y = 0 },
+            .to = .{ .x = 2, .y = 0 },
+        } },
+    };
+    const res = try validateConnection(a, 2, conn);
+    try testing.expectEqual(@as(usize, 2), res.transformationPairs.len);
+
+    // Without overlays the undeclared "out2" must still be rejected.
+    const conn2 = Connection{
+        .outputs = &[_]Output{ .{ .name = "out0" }, .{ .name = "out1" } },
+        .transformationPairs = &[_]OutputTransformationPair{ pair1, pair2 },
+        .textOutputs = &.{},
+        .axisOutputs = &.{},
+    };
+    try testing.expectError(OutputError.ArgumentInPairInvalid, validateConnection(a, 2, conn2));
+}
+
 test "connectionParser with transformed text" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -1843,20 +1873,36 @@ pub const OutputsValidated = struct {
 };
 
 // Validate 'Connection' to get 'OutputsValidated' if
-// (a) outputName's in each transformationPairs of the connection is in 'outputs' (if not `OutputError.ArgumentInPairInvalid` triggered)
-// (b) the number of outputs is the same as the one specified in numberOfOutputs arg (if not `OutputError.WrongNumberOfOutputs` triggered)
-// Otherwise, one of the errors from OutputError is emitted
+// (a) outputName's in each transformationPairs of the connection is in 'outputs'
+//     (if not `OutputError.ArgumentInPairInvalid` triggered)
+// (b) the number of outputs is the same as the one specified in numberOfOutputs arg
+//     (if not `OutputError.WrongNumberOfOutputs` triggered)
+// Otherwise, one of the errors from OutputError is emitted.
+//
+// When the connection carries overlay items (axis `ft` or text overlays), the
+// strict name check is relaxed: a transformation pair may reference an output
+// name that is not listed in the outputs tuple. The overlays are extra items
+// on the right-hand side that do not correspond to declared outputs, so the
+// pair names can be introduced implicitly and are resolved positionally.
 pub fn validateConnection(_: std.mem.Allocator, numberOfOutputs: u8, connection: Connection) !OutputsValidated {
     if (connection.outputs.len != numberOfOutputs) {
         return OutputError.WrongNumberOfOutputs;
     }
 
+    const has_overlays = connection.axisOutputs.len > 0 or connection.textOutputs.len > 0;
+
     for (connection.transformationPairs) |pair| {
-        const found = for (connection.outputs) |output| {
-            if (std.mem.eql(u8, output.name, pair.outputName)) {
-                break true;
+        var found = false;
+        if (has_overlays) {
+            found = true;
+        } else {
+            for (connection.outputs) |output| {
+                if (std.mem.eql(u8, output.name, pair.outputName)) {
+                    found = true;
+                    break;
+                }
             }
-        } else false;
+        }
 
         if (!found) {
             return OutputError.ArgumentInPairInvalid;

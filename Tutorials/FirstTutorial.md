@@ -718,7 +718,15 @@ printf '[[1,1]]\n[[0,2.5]],[[2.5,0]]\n[[2,0.5]]' | zsat draw \
 Naturally, it is highly unsatisfactory to have **axis** like that, we might use this way as some additional line though.
 We have `axis` object that we can refine in terms of styling (in `--style`) that is designed to help here. Let's jump immediately into an example and comment what happened afterwards.
 
-
+```bash
+printf '[[1,1]]\n[[2,0.5]]' | ./zig-out/bin/zsat draw
+  -s 'e0:{all [l:20]}, e1: {[l:30, c: grey, o: 50]}, \
+  a1: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]],values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]}' \
+  -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
+  -o '(out0, out1) -> ((p out2 & a {(1,1)}) out0, (a {(0.5,0.5)}) out2, ft ((0,0),(3.2,0)) a1)' \
+  -p 'p0:{size: 600x600, border: [w:25, c:lightgrey]}'
+```
+<img src="fig48.png" width="332" style="border: 2px solid grey;">
 
 ## Exploring the tool through help
 
