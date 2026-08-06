@@ -362,8 +362,9 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     // Validate axis references from outputs and resolve overlays
     var axis_overlays_list = std.ArrayList(Axis.AxisOverlay).empty;
     if (@hasField(@TypeOf(outputsConnection), "axisOutputs")) {
+        const resolved_axes = try Axis.resolveAxes(alloc, axes);
         for (outputsConnection.axisOutputs) |aout| {
-            if (try Axis.resolveAxisOverlay(alloc, aout.item, axes, aout.from, aout.to)) |overlay| {
+            if (try Axis.resolveAxisOverlay(alloc, aout.item, resolved_axes, aout.from, aout.to)) |overlay| {
                 try axis_overlays_list.append(alloc, overlay);
             } else {
                 return error.AxisReferenceInvalid;
@@ -731,6 +732,7 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
         error.PaneInMappingInvalid => "Error: an invalid pane was referenced in the frames mapping.",
         error.BorderReferenceInvalid => "Error: a pane references a border that was not defined in --styles.",
         error.TextReferenceInvalid => "Error: an output references a text object that was not defined in --styles.",
+        error.AxisBaseInvalid => "Error: an axis definition references a base axis that is not defined in --styles (the base must be declared before the axis that inherits from it).",
         error.AxisReferenceInvalid => "Error: an output references an axis object that was not defined in --styles.",
         else => "Error: an unexpected error occurred.",
     };

@@ -1004,13 +1004,27 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
                 font_set = true;
             }
 
-            // z2d.Context.showText(x, y) places the text top at y, not the baseline.
-            // Precompute tick extensions in the "above" (aby) and "below" (bby)
-            // directions so we can position values with exact visible gaps.
+            // Value labels are placed relative to the tick that precedes them:
+            // "above"/"below" is the side of the axis the tick points to, so the
+            // label always sits beyond the tick tip, offset by `spacing`, no
+            // matter how the axis is oriented. The `angle` attribute rotates the
+            // label counter-clockwise from the axis direction (0 = the label
+            // reads along the axis, which preserves horizontal-axis placement).
             const th = if (overlay.ticks) |ticks| @as(f64, @floatFromInt(ticks.style.height)) else 0.0;
             const tick_form = if (overlay.ticks) |ticks| ticks.style.form else null;
             const font_size = @as(f64, @floatFromInt(vals.style.size));
             const spacing = @as(f64, @floatFromInt(vals.style.spacing));
+
+            // Device-space unit vector along the axis (FROM -> TO); the label
+            // reads in this direction when angle is 0.
+            const adx = pdx / plen;
+            const ady = pdy / plen;
+            const axis_angle = std.math.atan2(ady, adx);
+            // Positive angle rotates the label counter-clockwise on screen.
+            const angle_offset = -switch (vals.style.angle) {
+                .degrees => |d| @as(f64, d) * std.math.pi / 180.0,
+                .radians => |r| @as(f64, r),
+            };
 
             var tick_above_ext: f64 = 0.0;
             var tick_below_ext: f64 = 0.0;
@@ -1038,35 +1052,28 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
                 const val_str = try std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{val});
                 defer std.heap.page_allocator.free(val_str);
 
-                // Center text horizontally around the tick position.
+                // Center the label on the tick along its reading direction.
                 // For monospace fonts, char width ≈ font_size * 0.6.
                 const text_width = font_size * 0.6 * @as(f64, @floatFromInt(val_str.len));
-                const center_shift = -text_width * 0.5;
+                const x_local = -text_width * 0.5;
+                // The label extends away from the axis on the tick side. With
+                // showText placing the text top at y (glyphs grow downward in
+                // the local frame), above labels sit on the negative local y
+                // side and below labels on the positive side.
+                const y_local: f64 = if (vals.style.form == .above) -font_size else 0.0;
 
-                const text_y = if (vals.style.form == .above) blk: {
-                    const tick_y = plot_vy + aby * tick_above_ext;
-                    // When above points up (aby < 0), subtract to move further up.
-                    // When above points down (aby > 0), add to move further down.
-                    // Text bottom must be `spacing` beyond the tick in the above direction.
-                    // showText places the top at y, and text extends downward.
-                    if (aby < 0) {
-                        break :blk tick_y - spacing - font_size;
-                    } else {
-                        break :blk tick_y + spacing;
-                    }
-                } else blk: {
-                    const tick_y = plot_vy + bby * tick_below_ext;
-                    // When below points up (bby < 0), subtract to move further up.
-                    // When below points down (bby > 0), add to move further down.
-                    // Text top must be `spacing` beyond the tick in the below direction.
-                    if (bby < 0) {
-                        break :blk tick_y - spacing;
-                    } else {
-                        break :blk tick_y + spacing;
-                    }
-                };
+                // Anchor point = tick tip + spacing, along the above/below normal.
+                const tick_ext = if (vals.style.form == .above) tick_above_ext else tick_below_ext;
+                const nx = if (vals.style.form == .above) abx else bbx;
+                const ny = if (vals.style.form == .above) aby else bby;
+                const anchor_x = plot_vx + nx * (tick_ext + spacing);
+                const anchor_y = plot_vy + ny * (tick_ext + spacing);
 
-                context.showText(val_str, plot_vx + center_shift, text_y) catch {};
+                const saved_ctm = context.getTransformation();
+                context.translate(anchor_x, anchor_y);
+                context.rotate(axis_angle + angle_offset);
+                context.showText(val_str, x_local, y_local) catch {};
+                context.setTransformation(saved_ctm);
             }
         }
     }

@@ -37,6 +37,28 @@ pub const ValueStyle = struct {
     opacity: u8 = 100,
     spacing: u16 = 2,
     form: TickForm = .above,
+    angle: inputs.Angle = .{ .degrees = 0 },
+};
+
+/// Parse-time partial representation of a ticks style. Fields are null when
+/// not written, so a base axis can fill them in during style resolution.
+const PartialTickStyle = struct {
+    color: ?common.ColorName = null,
+    opacity: ?u8 = null,
+    size: ?u16 = null,
+    height: ?u16 = null,
+    form: ?TickForm = null,
+};
+
+/// Parse-time partial representation of a values style.
+const PartialValueStyle = struct {
+    color: ?common.ColorName = null,
+    size: ?u16 = null,
+    font: ?[]const u8 = null,
+    opacity: ?u8 = null,
+    spacing: ?u16 = null,
+    form: ?TickForm = null,
+    angle: ?inputs.Angle = null,
 };
 
 pub const TickDefinition = struct {
@@ -55,7 +77,37 @@ pub const Axis = struct {
     values: ?ValueDefinition = null,
 };
 
+/// Parse-time partial representation of a ticks section. Fields are null when
+/// not written in the definition body, so a base axis can fill them in.
+const PartialTick = struct {
+    positions: ?[]const f32 = null,
+    style: ?PartialTickStyle = null,
+};
+
+/// Parse-time partial representation of a values section.
+const PartialValue = struct {
+    vals: ?[]const f32 = null,
+    style: ?PartialValueStyle = null,
+};
+
+/// Parse-time partial representation of an axis definition. `base` references
+/// another axis (aM) whose resolved style is used as a starting point, and the
+/// fields present in the body override it following the style update rules.
+const PartialAxis = struct {
+    base: ?u8 = null,
+    line: ?AxisLineStyle = null,
+    ticks: ?PartialTick = null,
+    values: ?PartialValue = null,
+};
+
 pub const AxisDefinition = struct {
+    number: u8,
+    name: []const u8,
+    axis: PartialAxis,
+};
+
+/// Axis with the full inheritance chain resolved into concrete styles.
+pub const ResolvedAxis = struct {
     name: []const u8,
     axis: Axis,
 };
@@ -370,8 +422,8 @@ const tickAttributeUnionParser = mecha.oneOf(.{
 
 const manyTickAttributeUnionParser = mecha.many(tickAttributeUnionParser, .{ .collect = true, .min = 1, .separator = common.skipComma });
 
-fn manyToTickStyle(_: std.mem.Allocator, fields: []TickAttribute) mecha.ConvertError!TickStyle {
-    var res = TickStyle{};
+fn manyToPartialTickStyle(_: std.mem.Allocator, fields: []TickAttribute) mecha.ConvertError!PartialTickStyle {
+    var res = PartialTickStyle{};
     for (fields) |field| switch (field) {
         .color => |v| res.color = v,
         .opacity => |v| res.opacity = v,
@@ -382,7 +434,7 @@ fn manyToTickStyle(_: std.mem.Allocator, fields: []TickAttribute) mecha.ConvertE
     return res;
 }
 
-const tickAttributesParser = manyTickAttributeUnionParser.convert(manyToTickStyle);
+const tickAttributesParser = manyTickAttributeUnionParser.convert(manyToPartialTickStyle);
 
 test "tickAttributesParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
@@ -390,11 +442,11 @@ test "tickAttributesParser" {
     const a = arena.allocator();
 
     const r1 = try tickAttributesParser.parse(a, "c:red, o:80, s:2, h:7, f:above");
-    try testing.expectEqual(common.ColorName.red, r1.value.ok.color);
-    try testing.expectEqual(@as(u8, 80), r1.value.ok.opacity);
-    try testing.expectEqual(@as(u16, 2), r1.value.ok.size);
-    try testing.expectEqual(@as(u16, 7), r1.value.ok.height);
-    try testing.expectEqual(TickForm.above, r1.value.ok.form);
+    try testing.expectEqual(common.ColorName.red, r1.value.ok.color.?);
+    try testing.expectEqual(@as(u8, 80), r1.value.ok.opacity.?);
+    try testing.expectEqual(@as(u16, 2), r1.value.ok.size.?);
+    try testing.expectEqual(@as(u16, 7), r1.value.ok.height.?);
+    try testing.expectEqual(TickForm.above, r1.value.ok.form.?);
 }
 
 // ---- value style parser ----
@@ -406,6 +458,7 @@ const ValueAttribute = union(enum) {
     font: []const u8,
     spacing: u16,
     form: TickForm,
+    angle: inputs.Angle,
 };
 
 const valueColorParserRaw = mecha.combine(.{
@@ -486,6 +539,19 @@ const valueFormUnionParser = valueFormParserRaw.convert(struct {
     }
 }.conv);
 
+const valueAngleParserRaw = mecha.combine(.{
+    mecha.oneOf(.{ mecha.string("angle"), mecha.string("a") }).discard(),
+    common.skipWhitespace,
+    mecha.ascii.char(':').discard(),
+    common.skipWhitespace,
+    inputs.angleParser,
+});
+const valueAngleUnionParser = valueAngleParserRaw.convert(struct {
+    fn conv(_: std.mem.Allocator, res: inputs.Angle) mecha.ConvertError!ValueAttribute {
+        return ValueAttribute{ .angle = res };
+    }
+}.conv);
+
 const valueAttributeUnionParser = mecha.oneOf(.{
     valueColorUnionParser,
     valueOpacityUnionParser,
@@ -493,12 +559,13 @@ const valueAttributeUnionParser = mecha.oneOf(.{
     valueFontUnionParser,
     valueSpacingUnionParser,
     valueFormUnionParser,
+    valueAngleUnionParser,
 });
 
 const manyValueAttributeUnionParser = mecha.many(valueAttributeUnionParser, .{ .collect = true, .min = 1, .separator = common.skipComma });
 
-fn manyToValueStyle(_: std.mem.Allocator, fields: []ValueAttribute) mecha.ConvertError!ValueStyle {
-    var res = ValueStyle{};
+fn manyToPartialValueStyle(_: std.mem.Allocator, fields: []ValueAttribute) mecha.ConvertError!PartialValueStyle {
+    var res = PartialValueStyle{};
     for (fields) |field| switch (field) {
         .color => |v| res.color = v,
         .opacity => |v| res.opacity = v,
@@ -506,23 +573,28 @@ fn manyToValueStyle(_: std.mem.Allocator, fields: []ValueAttribute) mecha.Conver
         .font => |v| res.font = v,
         .spacing => |v| res.spacing = v,
         .form => |v| res.form = v,
+        .angle => |v| res.angle = v,
     };
     return res;
 }
 
-const valueAttributesParser = manyValueAttributeUnionParser.convert(manyToValueStyle);
+const valueAttributesParser = manyValueAttributeUnionParser.convert(manyToPartialValueStyle);
 
 test "valueAttributesParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try valueAttributesParser.parse(a, "c:red, o:80, s:12, sp:4, f:below");
-    try testing.expectEqual(common.ColorName.red, r1.value.ok.color);
-    try testing.expectEqual(@as(u8, 80), r1.value.ok.opacity);
-    try testing.expectEqual(@as(u16, 12), r1.value.ok.size);
-    try testing.expectEqual(@as(u16, 4), r1.value.ok.spacing);
-    try testing.expectEqual(TickForm.below, r1.value.ok.form);
+    const r1 = try valueAttributesParser.parse(a, "c:red, o:80, s:12, sp:4, f:below, a:30");
+    try testing.expectEqual(common.ColorName.red, r1.value.ok.color.?);
+    try testing.expectEqual(@as(u8, 80), r1.value.ok.opacity.?);
+    try testing.expectEqual(@as(u16, 12), r1.value.ok.size.?);
+    try testing.expectEqual(@as(u16, 4), r1.value.ok.spacing.?);
+    try testing.expectEqual(TickForm.below, r1.value.ok.form.?);
+    try testing.expectEqual(inputs.Angle{ .degrees = 30 }, r1.value.ok.angle.?);
+
+    const r2 = try valueAttributesParser.parse(a, "a:1r4p");
+    try testing.expectEqual(inputs.Angle{ .radians = 0.25 * inputs.pi }, r2.value.ok.angle.?);
 }
 
 // ---- import text parser for font value ----
@@ -532,7 +604,7 @@ const Text = @import("text.zig");
 
 const TickBodyAttribute = union(enum) {
     positions: []const f32,
-    style: TickStyle,
+    style: PartialTickStyle,
 };
 
 const tickPositionsParserRaw = mecha.combine(.{
@@ -558,7 +630,7 @@ const tickStyleSectionParser = mecha.combine(.{
     common.skipCloseSquare,
 });
 const tickStyleUnionParser = tickStyleSectionParser.convert(struct {
-    fn conv(_: std.mem.Allocator, res: TickStyle) mecha.ConvertError!TickBodyAttribute {
+    fn conv(_: std.mem.Allocator, res: PartialTickStyle) mecha.ConvertError!TickBodyAttribute {
         return TickBodyAttribute{ .style = res };
     }
 }.conv);
@@ -570,8 +642,8 @@ const tickBodyAttributeParser = mecha.oneOf(.{
 
 const manyTickBodyAttributeParser = mecha.many(tickBodyAttributeParser, .{ .collect = true, .min = 1, .separator = common.skipComma });
 
-fn manyToTickDefinition(arena: std.mem.Allocator, fields: []TickBodyAttribute) mecha.ConvertError!TickDefinition {
-    var res = TickDefinition{ .positions = &.{}, .style = .{} };
+fn manyToPartialTick(arena: std.mem.Allocator, fields: []TickBodyAttribute) mecha.ConvertError!PartialTick {
+    var res = PartialTick{};
     for (fields) |field| switch (field) {
         .positions => |v| res.positions = v,
         .style => |v| res.style = v,
@@ -580,13 +652,13 @@ fn manyToTickDefinition(arena: std.mem.Allocator, fields: []TickBodyAttribute) m
     return res;
 }
 
-const ticksBodyParser = manyTickBodyAttributeParser.convert(manyToTickDefinition);
+const ticksBodyParser = manyTickBodyAttributeParser.convert(manyToPartialTick);
 
 // ---- values body parser ----
 
 const ValueBodyAttribute = union(enum) {
     vals: []const f32,
-    style: ValueStyle,
+    style: PartialValueStyle,
 };
 
 const valueValsParserRaw = mecha.combine(.{
@@ -612,7 +684,7 @@ const valueStyleSectionParser = mecha.combine(.{
     common.skipCloseSquare,
 });
 const valueStyleUnionParser = valueStyleSectionParser.convert(struct {
-    fn conv(_: std.mem.Allocator, res: ValueStyle) mecha.ConvertError!ValueBodyAttribute {
+    fn conv(_: std.mem.Allocator, res: PartialValueStyle) mecha.ConvertError!ValueBodyAttribute {
         return ValueBodyAttribute{ .style = res };
     }
 }.conv);
@@ -624,8 +696,8 @@ const valueBodyAttributeParser = mecha.oneOf(.{
 
 const manyValueBodyAttributeParser = mecha.many(valueBodyAttributeParser, .{ .collect = true, .min = 1, .separator = common.skipComma });
 
-fn manyToValueDefinition(arena: std.mem.Allocator, fields: []ValueBodyAttribute) mecha.ConvertError!ValueDefinition {
-    var res = ValueDefinition{ .vals = &.{}, .style = .{} };
+fn manyToPartialValue(arena: std.mem.Allocator, fields: []ValueBodyAttribute) mecha.ConvertError!PartialValue {
+    var res = PartialValue{};
     for (fields) |field| switch (field) {
         .vals => |v| res.vals = v,
         .style => |v| res.style = v,
@@ -634,14 +706,14 @@ fn manyToValueDefinition(arena: std.mem.Allocator, fields: []ValueBodyAttribute)
     return res;
 }
 
-const valuesBodyParser = manyValueBodyAttributeParser.convert(manyToValueDefinition);
+const valuesBodyParser = manyValueBodyAttributeParser.convert(manyToPartialValue);
 
 // ---- axis body parser ----
 
 const AxisBodyAttribute = union(enum) {
     line: AxisLineStyle,
-    ticks: TickDefinition,
-    values: ValueDefinition,
+    ticks: PartialTick,
+    values: PartialValue,
 };
 
 const lineSectionParser = mecha.combine(.{
@@ -667,7 +739,7 @@ const ticksSectionParser = mecha.combine(.{
     ticksBodyParser,
     common.skipCloseSquare,
 }).convert(struct {
-    fn conv(_: std.mem.Allocator, res: TickDefinition) mecha.ConvertError!AxisBodyAttribute {
+    fn conv(_: std.mem.Allocator, res: PartialTick) mecha.ConvertError!AxisBodyAttribute {
         return AxisBodyAttribute{ .ticks = res };
     }
 }.conv);
@@ -681,7 +753,7 @@ const valuesSectionParser = mecha.combine(.{
     valuesBodyParser,
     common.skipCloseSquare,
 }).convert(struct {
-    fn conv(_: std.mem.Allocator, res: ValueDefinition) mecha.ConvertError!AxisBodyAttribute {
+    fn conv(_: std.mem.Allocator, res: PartialValue) mecha.ConvertError!AxisBodyAttribute {
         return AxisBodyAttribute{ .values = res };
     }
 }.conv);
@@ -692,10 +764,10 @@ const axisBodyAttributeParser = mecha.oneOf(.{
     valuesSectionParser,
 });
 
-const manyAxisBodyAttributeParser = mecha.many(axisBodyAttributeParser, .{ .collect = true, .min = 1, .separator = common.skipComma });
+const manyAxisBodyAttributeParser = mecha.many(axisBodyAttributeParser, .{ .collect = true, .min = 0, .separator = common.skipComma });
 
-fn manyToAxis(arena: std.mem.Allocator, fields: []AxisBodyAttribute) mecha.ConvertError!Axis {
-    var res = Axis{};
+fn manyToAxis(arena: std.mem.Allocator, fields: []AxisBodyAttribute) mecha.ConvertError!PartialAxis {
+    var res = PartialAxis{};
     for (fields) |field| switch (field) {
         .line => |v| res.line = v,
         .ticks => |v| res.ticks = v,
@@ -707,7 +779,7 @@ fn manyToAxis(arena: std.mem.Allocator, fields: []AxisBodyAttribute) mecha.Conve
 
 const axisBodyParser = manyAxisBodyAttributeParser.convert(manyToAxis);
 
-// ---- definition parser: a0: {axis line:[...], ticks:[...], values:[...]} ----
+// ---- definition parser: a0: a1 {axis line:[...], ticks:[...], values:[...]} ----
 
 const axisDefNumberParser = mecha.combine(.{
     common.skipWhitespace,
@@ -717,27 +789,42 @@ const axisDefNumberParser = mecha.combine(.{
 const axisDefNumberParserP = @TypeOf(axisDefNumberParser);
 
 const axisDefBodyParser = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("axis"), mecha.string("a") }).discard(),
+    mecha.opt(mecha.oneOf(.{ mecha.string("axis"), mecha.string("a") })).discard(),
     common.skipWhitespace,
     axisBodyParser,
 });
 const axisDefBodyParserP = @TypeOf(axisDefBodyParser);
 
+const axisDefBodySectionParser = mecha.combine(.{
+    common.skipOpenBrace,
+    axisDefBodyParser,
+    common.skipCloseBrace,
+});
+
 const axisDefParserRaw = mecha.combine(.{
     axisDefNumberParser,
     mecha.opt(mecha.ascii.char(':').discard()),
     common.skipWhitespace,
-    common.skipOpenBrace,
-    axisDefBodyParser,
-    common.skipCloseBrace,
+    mecha.opt(axisDefNumberParser),
+    common.skipWhitespace,
+    mecha.opt(axisDefBodySectionParser),
 });
 const axisDefParserRawP = @TypeOf(axisDefParserRaw);
 
 fn toAxisDef(arena: std.mem.Allocator, res: axisDefParserRawP.T) mecha.ConvertError!AxisDefinition {
     const number = res[0];
-    const body = res[2];
+    const base = res[2];
+    const body = res[3];
     const name = try std.fmt.allocPrint(arena, "a{d}", .{number});
-    return AxisDefinition{ .name = name, .axis = body };
+    var axis = PartialAxis{};
+    if (base) |b| axis.base = b;
+    if (body) |b| {
+        if (b.base) |bb| axis.base = bb;
+        axis.line = b.line;
+        axis.ticks = b.ticks;
+        axis.values = b.values;
+    }
+    return AxisDefinition{ .number = number, .name = name, .axis = axis };
 }
 
 pub const axisDefParser = axisDefParserRaw.convert(toAxisDef);
@@ -758,9 +845,61 @@ pub const axisItemParser = axisItemNumberParser.convert(struct {
     }
 }.conv);
 
-// ---- resolve overlay ----
+// ---- resolve axes (inheritance) and overlays ----
 
-pub fn resolveAxisOverlay(alloc: std.mem.Allocator, item: AxisItem, axes: []const AxisDefinition, from: inputs.Point, to: inputs.Point) !?AxisOverlay {
+/// Resolves a list of axis definitions into concrete styles, following the
+/// style update rules: each definition starts from its base axis (or the
+/// defaults when no base is given) and the fields written in its body override
+/// the corresponding inherited values. A base must be defined before it is
+/// referenced.
+pub fn resolveAxes(arena: std.mem.Allocator, defs: []const AxisDefinition) ![]ResolvedAxis {
+    var map = std.AutoHashMap(u8, Axis).init(arena);
+    defer map.deinit();
+
+    var result = try arena.alloc(ResolvedAxis, defs.len);
+    for (defs, 0..) |def, i| {
+        var resolved: Axis = if (def.axis.base) |base|
+            map.get(base) orelse return error.AxisBaseInvalid
+        else
+            Axis{};
+
+        if (def.axis.line) |l| resolved.line = l;
+
+        if (def.axis.ticks) |t| {
+            var ticks = resolved.ticks orelse TickDefinition{ .positions = &.{} };
+            if (t.positions) |p| ticks.positions = p;
+            if (t.style) |s| {
+                if (s.color) |v| ticks.style.color = v;
+                if (s.opacity) |v| ticks.style.opacity = v;
+                if (s.size) |v| ticks.style.size = v;
+                if (s.height) |v| ticks.style.height = v;
+                if (s.form) |v| ticks.style.form = v;
+            }
+            resolved.ticks = ticks;
+        }
+
+        if (def.axis.values) |v| {
+            var values = resolved.values orelse ValueDefinition{ .vals = &.{} };
+            if (v.vals) |vals| values.vals = vals;
+            if (v.style) |s| {
+                if (s.color) |c| values.style.color = c;
+                if (s.size) |sz| values.style.size = sz;
+                if (s.font) |f| values.style.font = f;
+                if (s.opacity) |o| values.style.opacity = o;
+                if (s.spacing) |sp| values.style.spacing = sp;
+                if (s.form) |fo| values.style.form = fo;
+                if (s.angle) |an| values.style.angle = an;
+            }
+            resolved.values = values;
+        }
+
+        result[i] = ResolvedAxis{ .name = def.name, .axis = resolved };
+        try map.put(def.number, resolved);
+    }
+    return result;
+}
+
+pub fn resolveAxisOverlay(alloc: std.mem.Allocator, item: AxisItem, axes: []const ResolvedAxis, from: inputs.Point, to: inputs.Point) !?AxisOverlay {
     for (axes) |def| {
         if (std.mem.eql(u8, def.name, item.name)) {
             var overlay = AxisOverlay{
@@ -797,16 +936,16 @@ test "axisDefParser full" {
 
     const r1 = try axisDefParser.parse(a, "a0: {axis line:[c:red, o:80, s:2], ticks:[pos:2,4,..,10, style:[c:red, o:80, s:5, h:7, f:above]], values:[vals:2,4,..,10, style:[c:red, o:80, s:12, sp:4, f:below]]}");
     try testing.expectEqualStrings("a0", r1.value.ok.name);
-    try testing.expectEqual(common.ColorName.red, r1.value.ok.axis.line.color);
-    try testing.expectEqual(@as(u8, 80), r1.value.ok.axis.line.opacity);
-    try testing.expectEqual(@as(u16, 2), r1.value.ok.axis.line.size);
+    try testing.expectEqual(common.ColorName.red, r1.value.ok.axis.line.?.color);
+    try testing.expectEqual(@as(u8, 80), r1.value.ok.axis.line.?.opacity);
+    try testing.expectEqual(@as(u16, 2), r1.value.ok.axis.line.?.size);
     try testing.expect(r1.value.ok.axis.ticks != null);
-    try testing.expectEqual(@as(usize, 5), r1.value.ok.axis.ticks.?.positions.len);
-    try testing.expectEqual(common.ColorName.red, r1.value.ok.axis.ticks.?.style.color);
-    try testing.expectEqual(TickForm.above, r1.value.ok.axis.ticks.?.style.form);
+    try testing.expectEqual(@as(usize, 5), r1.value.ok.axis.ticks.?.positions.?.len);
+    try testing.expectEqual(common.ColorName.red, r1.value.ok.axis.ticks.?.style.?.color.?);
+    try testing.expectEqual(TickForm.above, r1.value.ok.axis.ticks.?.style.?.form.?);
     try testing.expect(r1.value.ok.axis.values != null);
-    try testing.expectEqual(@as(usize, 5), r1.value.ok.axis.values.?.vals.len);
-    try testing.expectEqual(TickForm.below, r1.value.ok.axis.values.?.style.form);
+    try testing.expectEqual(@as(usize, 5), r1.value.ok.axis.values.?.vals.?.len);
+    try testing.expectEqual(TickForm.below, r1.value.ok.axis.values.?.style.?.form.?);
 }
 
 test "axisDefParser minimal" {
@@ -816,7 +955,7 @@ test "axisDefParser minimal" {
 
     const r1 = try axisDefParser.parse(a, "a0: {a line:[c:red]}");
     try testing.expectEqualStrings("a0", r1.value.ok.name);
-    try testing.expectEqual(common.ColorName.red, r1.value.ok.axis.line.color);
+    try testing.expectEqual(common.ColorName.red, r1.value.ok.axis.line.?.color);
     try testing.expect(r1.value.ok.axis.ticks == null);
     try testing.expect(r1.value.ok.axis.values == null);
 }
@@ -831,4 +970,67 @@ test "axisItemParser" {
 
     const r2 = try axisItemParser.parse(a, "a12");
     try testing.expectEqualStrings("a12", r2.value.ok.name);
+}
+
+test "resolveAxes inheritance" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try axisDefParser.parse(a, "a1: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey]], values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4]]}");
+    const r2 = try axisDefParser.parse(a, "a0: a1 {values:[vals:1,2,3]}");
+
+    const defs = [_]AxisDefinition{ r1.value.ok, r2.value.ok };
+    const resolved = try resolveAxes(a, &defs);
+
+    try testing.expectEqualStrings("a0", resolved[1].name);
+    try testing.expectEqual(common.ColorName.grey, resolved[1].axis.line.color);
+    try testing.expectEqual(@as(u8, 80), resolved[1].axis.line.opacity);
+    try testing.expectEqual(@as(u16, 5), resolved[1].axis.line.size);
+    try testing.expect(resolved[1].axis.ticks != null);
+    try testing.expectEqual(@as(usize, 7), resolved[1].axis.ticks.?.positions.len);
+    try testing.expectEqual(common.ColorName.lightgrey, resolved[1].axis.ticks.?.style.color);
+    try testing.expect(resolved[1].axis.values != null);
+    try testing.expectEqualSlices(f32, &.{ 1, 2, 3 }, resolved[1].axis.values.?.vals);
+    try testing.expectEqual(common.ColorName.black, resolved[1].axis.values.?.style.color);
+    try testing.expectEqual(@as(u8, 80), resolved[1].axis.values.?.style.opacity);
+    try testing.expectEqual(@as(u16, 25), resolved[1].axis.values.?.style.size);
+}
+
+test "resolveAxes style overrides merge field by field" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try axisDefParser.parse(a, "a1: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12]], values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, a:30]]}");
+    const r2 = try axisDefParser.parse(a, "a0: a1 {values:[vals:1,2,3, style:[f:below]]}");
+
+    const defs = [_]AxisDefinition{ r1.value.ok, r2.value.ok };
+    const resolved = try resolveAxes(a, &defs);
+
+    const vs = resolved[1].axis.values.?.style;
+    try testing.expectEqual(common.ColorName.black, vs.color);
+    try testing.expectEqual(@as(u8, 80), vs.opacity);
+    try testing.expectEqual(@as(u16, 25), vs.size);
+    try testing.expectEqual(@as(u16, 4), vs.spacing);
+    try testing.expectEqual(TickForm.below, vs.form);
+    try testing.expectEqual(inputs.Angle{ .degrees = 30 }, vs.angle);
+
+    const ts = resolved[1].axis.ticks.?.style;
+    try testing.expectEqual(common.ColorName.lightgrey, ts.color);
+    try testing.expectEqual(@as(u8, 80), ts.opacity);
+    try testing.expectEqual(@as(u16, 5), ts.size);
+    try testing.expectEqual(@as(u16, 12), ts.height);
+    try testing.expectEqual(TickForm.above, ts.form);
+}
+
+test "resolveAxes undefined base is an error" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try axisDefParser.parse(a, "a0: a9 {line:[c:red]}");
+
+    const defs = [_]AxisDefinition{r1.value.ok};
+    try testing.expectError(error.AxisBaseInvalid, resolveAxes(a, &defs));
 }

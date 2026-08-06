@@ -719,19 +719,44 @@ Naturally, it is highly unsatisfactory to have **axis** like that, we might use 
 We have `axis` object that we can refine in terms of styling (in `--style`) that is designed to help here. Let's jump immediately into an example and comment what happened afterwards.
 
 ```bash
-printf '[[1,1]]\n[[2,0.5]]' | ./zig-out/bin/zsat draw
+printf '[[1,1]]\n[[2,0.5]]' | zsat draw \
   -s 'e0:{all [l:20]}, e1: {[l:30, c: grey, o: 50]}, \
-  a1: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]],values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]}' \
+  a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]],values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]}' \
   -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
   -o '(out0, out1) -> ((p out2 & a {(1,1)}) out0, (a {(0.5,0.5)}) out2, ft ((0,0),(3.2,0)) a1)' \
   -p 'p0:{size: 600x600, border: [w:25, c:lightgrey]}'
 ```
 <img src="fig48.png" width="332" style="border: 2px solid grey;">
 
-So we have `a1` axis object defined where one can define separately how axis line and what/how ticks look like. And also independetnly what tick values to present and how to present them.
-`line` attribute should not be surprise as it follows pattern already learned for vectors. in `ticks` size one `size` aka `s` determine requested tick line width and `height` aka `h` tick line height. Caller can also choose if the tick is presented above or below line, plus the most important what ticks to display. Here, we requested to display every tick from 0 and 3  with step 0.5. One can also be explicit and enumerate exactly which step to plot. Here, the mirror substitute would be just `0, 0.5, 1, 1.5, 2, 2.5, 3` so we chose shortcut version.
-With regards to values, the pattern is very similar both with style and values. When defined, `a1` axis object is available in later steps, where we can anchor it in the plot by using `fromTo` aka `ft` in outputs. Here we are just providing two points, start and finish ones.
+So we have `a0` axis object defined where one can define separately how axis line and what/how ticks look like. And also independetnly what tick values to present and how to present them.
+`line` attribute should not be surprise as it follows pattern already learned for vectors. in `ticks` size one `size` aka `s` determine requested tick line width and `height` aka `h` tick line height. Caller can also choose if the tick is presented above or below line, the angle with regards to the tick line (counter clockwise movement represented by positive values) plus the most important what ticks to display. Here, we requested to display every tick from 0 and 3  with step 0.5. One can also be explicit and enumerate exactly which step to plot. Here, the mirror substitute would be just `0, 0.5, 1, 1.5, 2, 2.5, 3` so we chose the shortcut version above.
+With regards to values, the pattern is very similar both with style and values. When defined, `a0` axis object is available in later steps, where we can anchor it in the plot by using `fromTo` aka `ft` in outputs. Here we are just providing two points, start and finish ones.
 
+Now when `a0` is defined, we can reuse it with only selected attribute value rewrites. Thanks to that the style characteristic stays the same as in the case of the horizontal axis.
+
+```bash
+printf '[[1,1]]\n[[2,0.5]]' | zsat draw \
+  -s 'e0:{all [l:20]}, e1: {[l:30, c: grey, o: 50]},\
+  a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]],values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]},\
+  a1: a0 {ticks:[style:[f:below]],values:[vals:1,2,3, style: [f:below]]}'\
+  -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
+  -o '(out0, out1) -> ((p out2 & a {(1,1)}) out0, (a {(0.5,0.5)}) out2, ft ((0,0),(3.2,0)) a0, ft ((0,0),(0,3.2)) a1)' \
+  -p 'p0:{size: 600x600, border: [w:25, c:lightgrey]}'
+```
+<img src="fig49.png" width="332" style="border: 2px solid grey;">
+
+The inheritance of `a1` from `a0` is embedded, it is enough to change one of the nested attribute, the rest will stay as in the parent. For example, we might not like how tick values of vertical axis are displayed (they are "lying" and we would like them to be orientated as in the horizontal axis). Then it is enough to do the following change:
+
+```bash
+printf '[[1,1]]\n[[2,0.5]]' | zsat draw \
+  -s 'e0:{all [l:20]}, e1: {[l:30, c: grey, o: 50]}, \
+  a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]],values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]},\
+  a1: a0 {ticks:[style:[f:below]],values:[vals:1,2,3, style: [f:below, a: -90]]}' \
+  -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
+  -o '(out0, out1) -> ((p out2 & a {(1,1)}) out0, (a {(0.5,0.5)}) out2, ft ((0,0),(3.2,0)) a0, ft ((0,0),(0,3.2)) a1)' \
+  -p 'p0:{size: 600x600, border: [w:25, c:lightgrey]}'
+```
+<img src="fig50.png" width="332" style="border: 2px solid grey;">
 
 ## Exploring the tool through help
 

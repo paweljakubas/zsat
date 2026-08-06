@@ -284,16 +284,33 @@ pub const axis_help =
     \\  color:NAME  or  c:NAME
     \\  opacity:N  or  o:N
     \\
-    \\VALUE STYLE attributes (defaults: s=12, c=black, o=100, sp=2, f=above):
+    \\VALUE STYLE attributes (defaults: s=12, c=black, o=100, sp=2, f=above, a=0):
     \\  size:N  or  s:N      -- font size in pixels
     \\  font:PATH            -- font file; "default" uses the built-in font
     \\  spacing:N  or  sp:N  -- gap between the tick and its label in pixels
     \\  form:MODE  or  f:MODE -- above | middle | below | dot | square
+    \\  angle:ANGLE  or  a:ANGLE -- rotation of the label counter-clockwise
+    \\                         from the axis direction; 0 = the label reads
+    \\                         along the axis (horizontal text on a horizontal
+    \\                         axis). ANGLE uses the same syntax as rotate:
+    \\                         90, -45, 1r4p (=pi/4), p (=pi), etc.
     \\  color:NAME  or  c:NAME
     \\  opacity:N  or  o:N
     \\
+    \\Value labels are always placed beyond the tick tip, on the side the tick
+    \\points to (form above/below), offset by the spacing -- regardless of
+    \\whether the axis is horizontal, tilted, or vertical.
+    \\
     \\The form direction is relative to the axis direction from the FROM point
     \\to the TO point: above lies to the left of the direction, below to the right.
+    \\
+    \\Axis inheritance (style update rules):
+    \\  aN: aM {ATTRIBUTES}  -- axis aN copies axis aM, then overrides the given
+    \\                         line/ticks/values attributes. Sections not
+    \\                         mentioned (and fields not written) are inherited.
+    \\  a0: a1 {values:[vals:1,2,3]}  -- reuse a1's line and ticks, relabel values
+    \\  The base aM must be defined before aN in --styles; referencing an
+    \\  undefined base is an error.
     \\
     \\Drawing axes in --outputs:
     \\  ft (FROM, TO) aN      -- draw axis aN between the two points
@@ -305,6 +322,7 @@ pub const axis_help =
     \\  --styles 'a0: {axis line:[c:black, s:2], ticks:[pos:0,1,..,2], values:[vals:0,1,..,2]}'
     \\  --outputs '(out) -> ((a {(0,0)}) out, ft ((0,0),(2,0)) a0)'
     \\  --styles 'a1: {a line:[c:grey, o:50]}'
+    \\  --styles 'a1: {a line:[c:grey, o:50]}, a0: a1 {values:[vals:1,2,3]}'
 ;
 
 /// Help text for `zsat draw angle --help`
