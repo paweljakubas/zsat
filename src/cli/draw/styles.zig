@@ -7,7 +7,7 @@ const common = @import("common.zig");
 // style
 pub const StyleType = enum {
     vec2d,
-    //Point2D,
+    points2d,
 
     pub fn defaultStyleType() StyleType {
         return .vec2d;
@@ -55,7 +55,7 @@ pub const StyleValue = struct {
     coordinateSystem: ?CoordinateType = null,
     coordinateOrientation: ?CoordinateOrientation = null,
     plotSteps: ?PlotSteps = null,
-    attributes: ?Vec2dAttributes = null,
+    attributes: ?Attributes = null,
     baseStyle: ?u8 = null,
 };
 
@@ -64,7 +64,7 @@ const StyleValueUnion = union(enum) {
     coordinateSystem: CoordinateType,
     coordinateOrientation: CoordinateOrientation,
     plotSteps: PlotSteps,
-    attributes: Vec2dAttributes,
+    attributes: Attributes,
 };
 
 pub const ReferenceFrame = enum {
@@ -154,22 +154,53 @@ pub const LineDashingType = struct {
     }
 };
 
-pub const Vec2dAttributes = struct {
+pub const Attributes = struct {
     lineWidth: ?LineWidthType = null,
     lineColor: ?LineColorType = null,
     lineOpacity: ?LineOpacityType = null,
     lineCap: ?LineCapType = null,
     lineJoin: ?LineJoinType = null,
     lineDashing: ?LineDashingType = null,
+    pointShape: ?PointShapeType = null,
+    pointSize: ?PointSizeType = null,
 };
 
-const Vec2dAttributesUnion = union(enum) {
+pub const PointShape = enum {
+    circle,
+    square,
+};
+
+pub const PointShapeType = struct {
+    value: PointShape,
+
+    pub fn defaultPointShapeType() PointShapeType {
+        return PointShapeType{ .value = .circle };
+    }
+};
+
+pub const PointSizeType = struct {
+    value: u16, // diameter/side length in pixels
+
+    pub fn defaultPointSizeType() PointSizeType {
+        return PointSizeType{ .value = 10 };
+    }
+};
+
+fn attributesEmpty(a: Attributes) bool {
+    return a.lineWidth == null and a.lineColor == null and a.lineOpacity == null and
+        a.lineCap == null and a.lineJoin == null and a.lineDashing == null and
+        a.pointShape == null and a.pointSize == null;
+}
+
+const AttributesUnion = union(enum) {
     lineWidth: LineWidthType,
     lineColor: LineColorType,
     lineOpacity: LineOpacityType,
     lineCap: LineCapType,
     lineJoin: LineJoinType,
     lineDashing: ?LineDashingType,
+    pointShape: PointShapeType,
+    pointSize: PointSizeType,
 };
 
 //Parsers
@@ -201,7 +232,7 @@ test "styleNumber" {
 }
 
 const styleTypeParserRaw =
-    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.string("vec2d").asStr(), mecha.toEnum(StyleType)) });
+    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("points2d"), mecha.string("vec2d") }).asStr(), mecha.toEnum(StyleType)) });
 const styleTypeParserRawP = @TypeOf(styleTypeParserRaw);
 fn toElementTypeUnion(_: std.mem.Allocator, res: styleTypeParserRawP.T) mecha.ConvertError!StyleValueUnion {
     return StyleValueUnion{ .styleType = res };
@@ -219,8 +250,11 @@ test "styleType" {
     const r2 = try styleTypeParserRaw.parse(a, " vec2d");
     try testing.expectEqual(.vec2d, r2.value.ok);
 
-    const r3 = try styleTypeParserRaw.parse(a, "dot");
-    try testing.expectEqual(0, r3.index);
+    const r3 = try styleTypeParserRaw.parse(a, "points2d");
+    try testing.expectEqual(.points2d, r3.value.ok);
+
+    const r4 = try styleTypeParserRaw.parse(a, "dot");
+    try testing.expectEqual(0, r4.index);
 }
 
 test "styleTypeUnion" {
@@ -396,7 +430,7 @@ fn toLineWidthType(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.C
     }
 }
 const lineWidthTypeParserTyped = lineWidthTypeParserRaw.convert(toLineWidthType);
-fn toLineWidthUnion(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
+fn toLineWidthUnion(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.ConvertError!AttributesUnion {
     const to = struct {
         fn to(str: []const u8) ?LineWidthT {
             return std.meta.stringToEnum(LineWidthT, str);
@@ -409,7 +443,7 @@ fn toLineWidthUnion(_: std.mem.Allocator, res: lineWidthTypeParserRawP.T) mecha.
             .lG, .lineG => .global,
             .lO, .lineO => .output,
         };
-        return Vec2dAttributesUnion{ .lineWidth = .{
+        return AttributesUnion{ .lineWidth = .{
             .reference = switchRes,
             .value = res[1],
         } };
@@ -465,8 +499,8 @@ fn toLineColorType(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.C
     return .{ .value = res };
 }
 const lineColorTypeParserTyped = lineColorTypeParserRaw.convert(toLineColorType);
-fn toLineColorUnion(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
-    return Vec2dAttributesUnion{ .lineColor = .{ .value = res } };
+fn toLineColorUnion(_: std.mem.Allocator, res: lineColorTypeParserRawP.T) mecha.ConvertError!AttributesUnion {
+    return AttributesUnion{ .lineColor = .{ .value = res } };
 }
 const lineColorUnionParser = lineColorTypeParserRaw.convert(toLineColorUnion);
 
@@ -493,8 +527,8 @@ fn toLineOpacityType(_: std.mem.Allocator, res: lineOpacityTypeParserRawP.T) mec
     return .{ .value = res };
 }
 const lineOpacityTypeParserTyped = lineOpacityTypeParserRaw.convert(toLineOpacityType);
-fn toLineOpacityUnion(_: std.mem.Allocator, res: lineOpacityTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
-    return Vec2dAttributesUnion{ .lineOpacity = .{ .value = res } };
+fn toLineOpacityUnion(_: std.mem.Allocator, res: lineOpacityTypeParserRawP.T) mecha.ConvertError!AttributesUnion {
+    return AttributesUnion{ .lineOpacity = .{ .value = res } };
 }
 const lineOpacityUnionParser = lineOpacityTypeParserRaw.convert(toLineOpacityUnion);
 
@@ -552,7 +586,7 @@ fn toLineCapType(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.Conve
     }
 }
 const lineCapTypeParserTyped = lineCapTypeParserRaw.convert(toLineCapType);
-fn toLineCapUnion(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
+fn toLineCapUnion(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.ConvertError!AttributesUnion {
     const to = struct {
         fn to(str: []const u8) ?LineCapT {
             return std.meta.stringToEnum(LineCapT, str);
@@ -569,7 +603,7 @@ fn toLineCapUnion(_: std.mem.Allocator, res: lineCapTypeParserRawP.T) mecha.Conv
             .square => .square,
             .s => .square,
         };
-        return Vec2dAttributesUnion{ .lineCap = .{
+        return AttributesUnion{ .lineCap = .{
             .value = switchRes,
         } };
     } else {
@@ -632,7 +666,7 @@ fn toLineJoinType(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.Con
     }
 }
 const lineJoinTypeParserTyped = lineJoinTypeParserRaw.convert(toLineJoinType);
-fn toLineJoinUnion(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
+fn toLineJoinUnion(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.ConvertError!AttributesUnion {
     const to = struct {
         fn to(str: []const u8) ?LineJoinT {
             return std.meta.stringToEnum(LineJoinT, str);
@@ -649,7 +683,7 @@ fn toLineJoinUnion(_: std.mem.Allocator, res: lineJoinTypeParserRawP.T) mecha.Co
             .bevel => .bevel,
             .b => .bevel,
         };
-        return Vec2dAttributesUnion{ .lineJoin = .{
+        return AttributesUnion{ .lineJoin = .{
             .value = switchRes,
         } };
     } else {
@@ -712,7 +746,7 @@ fn toLineDashingType(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mec
     }
 }
 const lineDashingTypeParserTyped = lineDashingTypeParserRaw.convert(toLineDashingType);
-fn toLineDashingUnion(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mecha.ConvertError!Vec2dAttributesUnion {
+fn toLineDashingUnion(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) mecha.ConvertError!AttributesUnion {
     const to = struct {
         fn to(str: []const u8) ?LineDashingT {
             return std.meta.stringToEnum(LineDashingT, str);
@@ -725,7 +759,7 @@ fn toLineDashingUnion(_: std.mem.Allocator, res: lineDashingTypeParserRawP.T) me
             .dG, .dashG => .global,
             .dN, .dashN => .normalized,
         };
-        return Vec2dAttributesUnion{ .lineDashing = .{
+        return AttributesUnion{ .lineDashing = .{
             .reference = reference,
             .onOff = res[1],
             .offset = res[2] orelse 0,
@@ -744,10 +778,74 @@ const lineDashingNullParserRaw = mecha.combine(.{
     mecha.oneOf(.{ mecha.string("null"), mecha.string("none") }),
 });
 const lineDashingNullParser = lineDashingNullParserRaw.convert(struct {
-    fn toNull(_: std.mem.Allocator, _: anytype) mecha.ConvertError!Vec2dAttributesUnion {
-        return Vec2dAttributesUnion{ .lineDashing = null };
+    fn toNull(_: std.mem.Allocator, _: anytype) mecha.ConvertError!AttributesUnion {
+        return AttributesUnion{ .lineDashing = null };
     }
 }.toNull);
+
+//PointShape parser
+const pointShapeParserRaw =
+    mecha.combine(.{ mecha.oneOf(.{ mecha.string("shape"), mecha.string("sh") }).discard(), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("circle"), mecha.string("square") }).asStr(), mecha.toEnum(PointShape)) });
+const pointShapeParserRawP = @TypeOf(pointShapeParserRaw);
+fn toPointShape(_: std.mem.Allocator, res: pointShapeParserRawP.T) mecha.ConvertError!PointShapeType {
+    return .{ .value = res };
+}
+const pointShapeParserTyped = pointShapeParserRaw.convert(toPointShape);
+
+//PointSize parser
+const pointSizeParserRaw =
+    mecha.combine(.{ mecha.oneOf(.{ mecha.string("size"), mecha.string("s") }).discard(), common.skipWhitespace, mecha.ascii.char(':').discard(), common.skipWhitespace, mecha.int(u16, .{}) });
+const pointSizeParserRawP = @TypeOf(pointSizeParserRaw);
+fn toPointSize(_: std.mem.Allocator, res: pointSizeParserRawP.T) mecha.ConvertError!PointSizeType {
+    return .{ .value = res };
+}
+const pointSizeParserTyped = pointSizeParserRaw.convert(toPointSize);
+
+fn toPointShapeUnion(_: std.mem.Allocator, res: pointShapeParserRawP.T) mecha.ConvertError!AttributesUnion {
+    return AttributesUnion{ .pointShape = .{ .value = res } };
+}
+const pointShapeUnionParser = pointShapeParserRaw.convert(toPointShapeUnion);
+
+fn toPointSizeUnion(_: std.mem.Allocator, res: pointSizeParserRawP.T) mecha.ConvertError!AttributesUnion {
+    return AttributesUnion{ .pointSize = .{ .value = res } };
+}
+const pointSizeUnionParser = pointSizeParserRaw.convert(toPointSizeUnion);
+
+test "pointShapeParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try pointShapeParserTyped.parse(a, "sh:circle");
+    try testing.expectEqual(PointShapeType{ .value = .circle }, r1.value.ok);
+
+    const r2 = try pointShapeParserTyped.parse(a, "sh  :  square");
+    try testing.expectEqual(PointShapeType{ .value = .square }, r2.value.ok);
+
+    const r3 = try pointShapeParserTyped.parse(a, "shape : circle");
+    try testing.expectEqual(PointShapeType{ .value = .circle }, r3.value.ok);
+
+    const r4 = try pointShapeParserTyped.parse(a, "circle");
+    try testing.expectEqual(0, r4.index);
+}
+
+test "pointSizeParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try pointSizeParserTyped.parse(a, "s:10");
+    try testing.expectEqual(PointSizeType{ .value = 10 }, r1.value.ok);
+
+    const r2 = try pointSizeParserTyped.parse(a, "s  :  5");
+    try testing.expectEqual(PointSizeType{ .value = 5 }, r2.value.ok);
+
+    const r3 = try pointSizeParserTyped.parse(a, "size : 20");
+    try testing.expectEqual(PointSizeType{ .value = 20 }, r3.value.ok);
+
+    const r4 = try pointSizeParserTyped.parse(a, "10");
+    try testing.expectEqual(0, r4.index);
+}
 
 test "LineDashingTypeParserTyped" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
@@ -767,8 +865,8 @@ test "LineDashingTypeParserTyped" {
     try testing.expectEqualDeep(LineDashingType{ .reference = .normalized, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 }, r4.value.ok);
 }
 
-//Vec2dAttributes parser
-const vec2dAttributeUnionParser = mecha.oneOf(.{
+//Attributes parser
+const attributesUnionParser = mecha.oneOf(.{
     lineWidthUnionParser,
     lineColorUnionParser,
     lineOpacityUnionParser,
@@ -776,72 +874,80 @@ const vec2dAttributeUnionParser = mecha.oneOf(.{
     lineJoinUnionParser,
     lineDashingNullParser,
     lineDashingUnionParser,
+    pointShapeUnionParser,
+    pointSizeUnionParser,
 });
 
-test "vec2dAttributeUnionParser" {
+test "attributesUnionParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try vec2dAttributeUnionParser.parse(a, "l:10");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, r1.value.ok);
+    const r1 = try attributesUnionParser.parse(a, "l:10");
+    try testing.expectEqual(AttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, r1.value.ok);
 
-    const r2 = try vec2dAttributeUnionParser.parse(a, "l  :  10");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, r2.value.ok);
+    const r2 = try attributesUnionParser.parse(a, "l  :  10");
+    try testing.expectEqual(AttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, r2.value.ok);
 
-    const r3 = try vec2dAttributeUnionParser.parse(a, "lG  :  6");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineWidth = .{ .reference = .global, .value = 6 } }, r3.value.ok);
+    const r3 = try attributesUnionParser.parse(a, "lG  :  6");
+    try testing.expectEqual(AttributesUnion{ .lineWidth = .{ .reference = .global, .value = 6 } }, r3.value.ok);
 
-    const r4 = try vec2dAttributeUnionParser.parse(a, "c:green");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineColor = .{ .value = .green } }, r4.value.ok);
+    const r4 = try attributesUnionParser.parse(a, "c:green");
+    try testing.expectEqual(AttributesUnion{ .lineColor = .{ .value = .green } }, r4.value.ok);
 
-    const r5 = try vec2dAttributeUnionParser.parse(a, "c :  green");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineColor = .{ .value = .green } }, r5.value.ok);
+    const r5 = try attributesUnionParser.parse(a, "c :  green");
+    try testing.expectEqual(AttributesUnion{ .lineColor = .{ .value = .green } }, r5.value.ok);
 
-    const r6 = try vec2dAttributeUnionParser.parse(a, "c : yellow");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineColor = .{ .value = .yellow } }, r6.value.ok);
+    const r6 = try attributesUnionParser.parse(a, "c : yellow");
+    try testing.expectEqual(AttributesUnion{ .lineColor = .{ .value = .yellow } }, r6.value.ok);
 
-    const r7 = try vec2dAttributeUnionParser.parse(a, "o:10");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineOpacity = .{ .value = 10 } }, r7.value.ok);
+    const r7 = try attributesUnionParser.parse(a, "o:10");
+    try testing.expectEqual(AttributesUnion{ .lineOpacity = .{ .value = 10 } }, r7.value.ok);
 
-    const r8 = try vec2dAttributeUnionParser.parse(a, "o  :  10");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineOpacity = .{ .value = 10 } }, r8.value.ok);
+    const r8 = try attributesUnionParser.parse(a, "o  :  10");
+    try testing.expectEqual(AttributesUnion{ .lineOpacity = .{ .value = 10 } }, r8.value.ok);
 
-    const r9 = try vec2dAttributeUnionParser.parse(a, "o  :  6");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineOpacity = .{ .value = 6 } }, r9.value.ok);
+    const r9 = try attributesUnionParser.parse(a, "o  :  6");
+    try testing.expectEqual(AttributesUnion{ .lineOpacity = .{ .value = 6 } }, r9.value.ok);
 
-    const r10 = try vec2dAttributeUnionParser.parse(a, "e: n");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineCap = .{ .value = .none } }, r10.value.ok);
+    const r10 = try attributesUnionParser.parse(a, "e: n");
+    try testing.expectEqual(AttributesUnion{ .lineCap = .{ .value = .none } }, r10.value.ok);
 
-    const r11 = try vec2dAttributeUnionParser.parse(a, "e  :  none");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineCap = .{ .value = .none } }, r11.value.ok);
+    const r11 = try attributesUnionParser.parse(a, "e  :  none");
+    try testing.expectEqual(AttributesUnion{ .lineCap = .{ .value = .none } }, r11.value.ok);
 
-    const r12 = try vec2dAttributeUnionParser.parse(a, "e  :  b");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineCap = .{ .value = .butt } }, r12.value.ok);
+    const r12 = try attributesUnionParser.parse(a, "e  :  b");
+    try testing.expectEqual(AttributesUnion{ .lineCap = .{ .value = .butt } }, r12.value.ok);
 
-    const r13 = try vec2dAttributeUnionParser.parse(a, "j: n");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineJoin = .{ .value = .none } }, r13.value.ok);
+    const r13 = try attributesUnionParser.parse(a, "j: n");
+    try testing.expectEqual(AttributesUnion{ .lineJoin = .{ .value = .none } }, r13.value.ok);
 
-    const r14 = try vec2dAttributeUnionParser.parse(a, "j  :  none");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineJoin = .{ .value = .none } }, r14.value.ok);
+    const r14 = try attributesUnionParser.parse(a, "j  :  none");
+    try testing.expectEqual(AttributesUnion{ .lineJoin = .{ .value = .none } }, r14.value.ok);
 
-    const r15 = try vec2dAttributeUnionParser.parse(a, "j  :  b");
-    try testing.expectEqual(Vec2dAttributesUnion{ .lineJoin = .{ .value = .bevel } }, r15.value.ok);
+    const r15 = try attributesUnionParser.parse(a, "j  :  b");
+    try testing.expectEqual(AttributesUnion{ .lineJoin = .{ .value = .bevel } }, r15.value.ok);
 
-    const r16 = try vec2dAttributeUnionParser.parse(a, "d: [2 , 3] 1");
-    try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .output, .onOff = &[2]u16{ 2, 3 }, .offset = 1 } }, r16.value.ok);
+    const r16 = try attributesUnionParser.parse(a, "d: [2 , 3] 1");
+    try testing.expectEqualDeep(AttributesUnion{ .lineDashing = .{ .reference = .output, .onOff = &[2]u16{ 2, 3 }, .offset = 1 } }, r16.value.ok);
 
-    const r17 = try vec2dAttributeUnionParser.parse(a, "d  :  [2   ,    3]    1");
-    try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .output, .onOff = &[_]u16{ 2, 3 }, .offset = 1 } }, r17.value.ok);
+    const r17 = try attributesUnionParser.parse(a, "d  :  [2   ,    3]    1");
+    try testing.expectEqualDeep(AttributesUnion{ .lineDashing = .{ .reference = .output, .onOff = &[_]u16{ 2, 3 }, .offset = 1 } }, r17.value.ok);
 
-    const r18 = try vec2dAttributeUnionParser.parse(a, "dG  :  [ 2,3,10] 0");
-    try testing.expectEqualDeep(Vec2dAttributesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, r18.value.ok);
+    const r18 = try attributesUnionParser.parse(a, "dG  :  [ 2,3,10] 0");
+    try testing.expectEqualDeep(AttributesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, r18.value.ok);
+
+    const r19 = try attributesUnionParser.parse(a, "sh:square");
+    try testing.expectEqual(AttributesUnion{ .pointShape = .{ .value = .square } }, r19.value.ok);
+
+    const r20 = try attributesUnionParser.parse(a, "s:5");
+    try testing.expectEqual(AttributesUnion{ .pointSize = .{ .value = 5 } }, r20.value.ok);
 }
 
-const vec2dAttributeSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
-const many_vec2dAttributeUnionParser = mecha.many(vec2dAttributeUnionParser, .{ .separator = vec2dAttributeSeparatorParser });
-fn manyToVec2dAttributes(arena: std.mem.Allocator, fields: []Vec2dAttributesUnion) mecha.ConvertError!Vec2dAttributes {
-    var res = Vec2dAttributes{};
+const attributeSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
+const many_attributesUnionParser = mecha.many(attributesUnionParser, .{ .separator = attributeSeparatorParser });
+fn manyToAttributes(arena: std.mem.Allocator, fields: []AttributesUnion) mecha.ConvertError!Attributes {
+    var res = Attributes{};
     for (fields) |field| switch (field) {
         .lineWidth => |f| res.lineWidth = f,
         .lineColor => |f| res.lineColor = f,
@@ -849,47 +955,53 @@ fn manyToVec2dAttributes(arena: std.mem.Allocator, fields: []Vec2dAttributesUnio
         .lineCap => |f| res.lineCap = f,
         .lineJoin => |f| res.lineJoin = f,
         .lineDashing => |f| res.lineDashing = f,
+        .pointShape => |f| res.pointShape = f,
+        .pointSize => |f| res.pointSize = f,
     };
 
     arena.free(fields);
     return res;
 }
-const vec2dAttributesParser = many_vec2dAttributeUnionParser.convert(manyToVec2dAttributes);
-const vec2dAttributesParserBracketed = mecha.combine(.{ skipOpenRecBracket, vec2dAttributesParser, skipCloseRecBracket });
-const vec2dAttributesParserBracketedP = @TypeOf(vec2dAttributesParserBracketed);
-fn toVec2dAttributesParserBracketedUnion(_: std.mem.Allocator, res: vec2dAttributesParserBracketedP.T) mecha.ConvertError!StyleValueUnion {
+const attributesParser = many_attributesUnionParser.convert(manyToAttributes);
+
+const attributesParserBracketed = mecha.combine(.{ skipOpenRecBracket, attributesParser, skipCloseRecBracket });
+const attributesParserBracketedP = @TypeOf(attributesParserBracketed);
+fn toAttributesUnion(_: std.mem.Allocator, res: attributesParserBracketedP.T) mecha.ConvertError!StyleValueUnion {
     return StyleValueUnion{ .attributes = res };
 }
-const vec2dAttributesParserBracketedUnion = vec2dAttributesParserBracketed.convert(toVec2dAttributesParserBracketedUnion);
+const attributesParserBracketedUnion = attributesParserBracketed.convert(toAttributesUnion);
 
-test "many_vec2dAttributeUnionParser" {
+test "many_attributesUnionParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try many_vec2dAttributeUnionParser.parse(a, "l:10");
-    try testing.expectEqualDeep(&[1]Vec2dAttributesUnion{Vec2dAttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }}, r1.value.ok);
+    const r1 = try many_attributesUnionParser.parse(a, "l:10");
+    try testing.expectEqualDeep(&[1]AttributesUnion{AttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }}, r1.value.ok);
 
-    const r2 = try many_vec2dAttributeUnionParser.parse(a, "o  :  6");
-    try testing.expectEqualDeep(&[1]Vec2dAttributesUnion{Vec2dAttributesUnion{ .lineOpacity = .{ .value = 6 } }}, r2.value.ok);
+    const r2 = try many_attributesUnionParser.parse(a, "o  :  6");
+    try testing.expectEqualDeep(&[1]AttributesUnion{AttributesUnion{ .lineOpacity = .{ .value = 6 } }}, r2.value.ok);
 
-    const r3 = try many_vec2dAttributeUnionParser.parse(a, "l:10 , o  :  6");
-    try testing.expectEqualDeep(&[2]Vec2dAttributesUnion{ Vec2dAttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, Vec2dAttributesUnion{ .lineOpacity = .{ .value = 6 } } }, r3.value.ok);
+    const r3 = try many_attributesUnionParser.parse(a, "l:10 , o  :  6");
+    try testing.expectEqualDeep(&[2]AttributesUnion{ AttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, AttributesUnion{ .lineOpacity = .{ .value = 6 } } }, r3.value.ok);
 
-    const r4 = try many_vec2dAttributeUnionParser.parse(a, "dG  :  [ 2,3,10] 0");
-    try testing.expectEqualDeep(&[1]Vec2dAttributesUnion{Vec2dAttributesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }}, r4.value.ok);
+    const r4 = try many_attributesUnionParser.parse(a, "dG  :  [ 2,3,10] 0");
+    try testing.expectEqualDeep(&[1]AttributesUnion{AttributesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }}, r4.value.ok);
 
-    const r5 = try many_vec2dAttributeUnionParser.parse(a, "l:10 ,dG  :  [ 2,3,10] 0, o  :  6");
-    try testing.expectEqualDeep(&[3]Vec2dAttributesUnion{ Vec2dAttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, Vec2dAttributesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, Vec2dAttributesUnion{ .lineOpacity = .{ .value = 6 } } }, r5.value.ok);
+    const r5 = try many_attributesUnionParser.parse(a, "l:10 ,dG  :  [ 2,3,10] 0, o  :  6");
+    try testing.expectEqualDeep(&[3]AttributesUnion{ AttributesUnion{ .lineWidth = .{ .reference = .normalized, .value = 10 } }, AttributesUnion{ .lineDashing = .{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 } }, AttributesUnion{ .lineOpacity = .{ .value = 6 } } }, r5.value.ok);
+
+    const r6 = try many_attributesUnionParser.parse(a, "sh:circle, s:5");
+    try testing.expectEqualDeep(&[2]AttributesUnion{ AttributesUnion{ .pointShape = .{ .value = .circle } }, AttributesUnion{ .pointSize = .{ .value = 5 } } }, r6.value.ok);
 }
 
-test "vec2dAttributesParser" {
+test "attributesParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try vec2dAttributesParser.parse(a, "l:10");
-    const styles1 = Vec2dAttributes{
+    const r1 = try attributesParser.parse(a, "l:10");
+    const styles1 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = null,
@@ -899,8 +1011,8 @@ test "vec2dAttributesParser" {
     };
     try testing.expectEqual(styles1, r1.value.ok);
 
-    const r2 = try vec2dAttributesParser.parse(a, "l:10, o  :  6");
-    const styles2 = Vec2dAttributes{
+    const r2 = try attributesParser.parse(a, "l:10, o  :  6");
+    const styles2 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -910,8 +1022,8 @@ test "vec2dAttributesParser" {
     };
     try testing.expectEqual(styles2, r2.value.ok);
 
-    const r3 = try vec2dAttributesParser.parse(a, "dG  :  [ 2,3,10] 0,l:10, o  :  6");
-    const styles3 = Vec2dAttributes{
+    const r3 = try attributesParser.parse(a, "dG  :  [ 2,3,10] 0,l:10, o  :  6");
+    const styles3 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -920,15 +1032,22 @@ test "vec2dAttributesParser" {
         .lineDashing = LineDashingType{ .reference = .global, .onOff = &[_]u16{ 2, 3, 10 }, .offset = 0 },
     };
     try testing.expectEqualDeep(styles3, r3.value.ok);
+
+    const r4 = try attributesParser.parse(a, "sh:circle, s:5");
+    const styles4 = Attributes{
+        .pointShape = PointShapeType{ .value = .circle },
+        .pointSize = PointSizeType{ .value = 5 },
+    };
+    try testing.expectEqualDeep(styles4, r4.value.ok);
 }
 
-test "vec2dAttributesParserUnion" {
+test "attributesParserBracketedUnion" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try vec2dAttributesParserBracketedUnion.parse(a, "[l:10]");
-    const styles1 = Vec2dAttributes{
+    const r1 = try attributesParserBracketedUnion.parse(a, "[l:10]");
+    const styles1 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = null,
@@ -939,8 +1058,8 @@ test "vec2dAttributesParserUnion" {
     const exp_value1 = StyleValueUnion{ .attributes = styles1 };
     try testing.expectEqual(exp_value1, r1.value.ok);
 
-    const r2 = try vec2dAttributesParserBracketedUnion.parse(a, "[l:10, o  :  6]");
-    const styles2 = Vec2dAttributes{
+    const r2 = try attributesParserBracketedUnion.parse(a, "[l:10, o  :  6]");
+    const styles2 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -951,8 +1070,8 @@ test "vec2dAttributesParserUnion" {
     const exp_value2 = StyleValueUnion{ .attributes = styles2 };
     try testing.expectEqual(exp_value2, r2.value.ok);
 
-    const r3 = try vec2dAttributesParserBracketedUnion.parse(a, "[dG  :  [ 2,3,10] 0,l:10, o  :  6]");
-    const styles3 = Vec2dAttributes{
+    const r3 = try attributesParserBracketedUnion.parse(a, "[dG  :  [ 2,3,10] 0,l:10, o  :  6]");
+    const styles3 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -962,6 +1081,24 @@ test "vec2dAttributesParserUnion" {
     };
     const exp_value3 = StyleValueUnion{ .attributes = styles3 };
     try testing.expectEqualDeep(exp_value3, r3.value.ok);
+
+    const r4 = try attributesParserBracketedUnion.parse(a, "[sh:circle, s:5]");
+    const styles4 = Attributes{
+        .pointShape = PointShapeType{ .value = .circle },
+        .pointSize = PointSizeType{ .value = 5 },
+    };
+    const exp_value4 = StyleValueUnion{ .attributes = styles4 };
+    try testing.expectEqual(exp_value4, r4.value.ok);
+
+    const r5 = try attributesParserBracketedUnion.parse(a, "[c: red, o: 50, sh:square, s: 5]");
+    const styles5 = Attributes{
+        .lineColor = LineColorType{ .value = .red },
+        .lineOpacity = LineOpacityType{ .value = 50 },
+        .pointShape = PointShapeType{ .value = .square },
+        .pointSize = PointSizeType{ .value = 5 },
+    };
+    const exp_value5 = StyleValueUnion{ .attributes = styles5 };
+    try testing.expectEqual(exp_value5, r5.value.ok);
 }
 
 //Style parser
@@ -970,7 +1107,7 @@ const styleValueUnionParser = mecha.oneOf(.{
     coordinateTypeUnionParser,
     coordinateOrientationUnionParser,
     plotStepsUnionParser,
-    vec2dAttributesParserBracketedUnion,
+    attributesParserBracketedUnion,
 });
 const many_styleValueUnionParser = mecha.many(styleValueUnionParser, .{ .separator = common.skipWhitespace });
 fn manyToStyleValue(arena: std.mem.Allocator, fields: []StyleValueUnion) mecha.ConvertError!StyleValue {
@@ -980,7 +1117,9 @@ fn manyToStyleValue(arena: std.mem.Allocator, fields: []StyleValueUnion) mecha.C
         .coordinateSystem => |f| res.coordinateSystem = f,
         .coordinateOrientation => |f| res.coordinateOrientation = f,
         .plotSteps => |f| res.plotSteps = f,
-        .attributes => |f| res.attributes = f,
+        .attributes => |f| {
+            if (!attributesEmpty(f)) res.attributes = f;
+        },
     };
 
     arena.free(fields);
@@ -1001,7 +1140,7 @@ test "styleValueParser" {
     try testing.expectEqual(exp_value0, r0.value.ok);
 
     const r1 = try styleValueParser.parse(a, "vec2d [l:10, o  :  6]");
-    const styles1 = Vec2dAttributes{
+    const styles1 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -1016,7 +1155,7 @@ test "styleValueParser" {
     try testing.expectEqual(exp_value1, r1.value.ok);
 
     const r2 = try styleValueParser.parse(a, "vec2d  [l:10, o  :  6]");
-    const styles2 = Vec2dAttributes{
+    const styles2 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -1031,7 +1170,7 @@ test "styleValueParser" {
     try testing.expectEqual(exp_value2, r2.value.ok);
 
     const r3 = try styleValueParser.parse(a, "vec2d polar [dG  :  [ 2,3,10] 0,l:10, o  :  6]");
-    const styles3 = Vec2dAttributes{
+    const styles3 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -1045,6 +1184,17 @@ test "styleValueParser" {
         .attributes = styles3,
     };
     try testing.expectEqualDeep(exp_value3, r3.value.ok);
+
+    const r4 = try styleValueParser.parse(a, "points2d [sh:square, s:5]");
+    const styles4 = Attributes{
+        .pointShape = PointShapeType{ .value = .square },
+        .pointSize = PointSizeType{ .value = 5 },
+    };
+    const exp_value4 = StyleValue{
+        .styleType = .points2d,
+        .attributes = styles4,
+    };
+    try testing.expectEqualDeep(exp_value4, r4.value.ok);
 }
 
 const bodyParser = mecha.combine(.{ common.skipOpenBrace, many_styleValueUnionParser, common.skipCloseBrace });
@@ -1072,7 +1222,9 @@ fn toStyle(_: std.mem.Allocator, res: styleParserRawP.T) mecha.ConvertError!Styl
             .coordinateSystem => |f| styleValue.coordinateSystem = f,
             .coordinateOrientation => |f| styleValue.coordinateOrientation = f,
             .plotSteps => |f| styleValue.plotSteps = f,
-            .attributes => |f| styleValue.attributes = f,
+            .attributes => |f| {
+                if (!attributesEmpty(f)) styleValue.attributes = f;
+            },
         };
     }
     return Style{ .styleNumber = styleNumber, .styleValue = styleValue };
@@ -1096,7 +1248,7 @@ test "styleParser" {
     try testing.expectEqual(exp_element0, r0.value.ok);
 
     const r1 = try styleParser.parse(a, "e8: {vec2d [l:10]}");
-    const styles1 = Vec2dAttributes{
+    const styles1 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = null,
@@ -1115,7 +1267,7 @@ test "styleParser" {
     try testing.expectEqual(exp_element1, r1.value.ok);
 
     const r2 = try styleParser.parse(a, " e8: {  vec2d  [l:10, o  :  6]}");
-    const styles2 = Vec2dAttributes{
+    const styles2 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -1134,7 +1286,7 @@ test "styleParser" {
     try testing.expectEqual(exp_element2, r2.value.ok);
 
     const r3 = try styleParser.parse(a, "e11: { vec2d polar [dG  :  [ 2,3,10] 0,l:10, o  :  6]}");
-    const styles3 = Vec2dAttributes{
+    const styles3 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -1177,7 +1329,7 @@ test "styleParser" {
 
     // Test partial style without vec2d (should use defaults)
     const r6 = try styleParser.parse(a, "e0:{[l:15, c: red]}");
-    const styles6 = Vec2dAttributes{
+    const styles6 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 15 },
         .lineColor = LineColorType{ .value = .red },
         .lineOpacity = null,
@@ -1235,13 +1387,15 @@ pub const defaultStyleValue = StyleValue{
     .coordinateSystem = .xy,
     .coordinateOrientation = .fixed,
     .plotSteps = .last,
-    .attributes = Vec2dAttributes{
+    .attributes = Attributes{
         .lineWidth = LineWidthType{ .reference = .output, .value = 10 },
         .lineColor = LineColorType{ .value = .black },
         .lineOpacity = LineOpacityType{ .value = 100 },
         .lineCap = LineCapType{ .value = .none },
         .lineJoin = LineJoinType{ .value = .none },
         .lineDashing = null,
+        .pointShape = PointShapeType{ .value = .circle },
+        .pointSize = PointSizeType{ .value = 10 },
     },
 };
 
@@ -1266,13 +1420,15 @@ pub fn resolveStyles(arena: std.mem.Allocator, styles: []const Style) ![]Style {
         };
 
         if (style.styleValue.attributes) |override_attrs| {
-            var resolved_attrs = resolved.attributes orelse Vec2dAttributes{};
+            var resolved_attrs = resolved.attributes orelse Attributes{};
             if (override_attrs.lineWidth) |l| resolved_attrs.lineWidth = l;
             if (override_attrs.lineColor) |lc| resolved_attrs.lineColor = lc;
             if (override_attrs.lineOpacity) |lo| resolved_attrs.lineOpacity = lo;
             if (override_attrs.lineCap) |le| resolved_attrs.lineCap = le;
             if (override_attrs.lineJoin) |lj| resolved_attrs.lineJoin = lj;
             if (override_attrs.lineDashing) |ld| resolved_attrs.lineDashing = ld;
+            if (override_attrs.pointShape) |ps| resolved_attrs.pointShape = ps;
+            if (override_attrs.pointSize) |psz| resolved_attrs.pointSize = psz;
             resolved.attributes = resolved_attrs;
         }
 
@@ -1311,7 +1467,7 @@ test "stylesParser" {
         .styleValue = exp_value0,
     };
 
-    const styles1 = Vec2dAttributes{
+    const styles1 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = null,
@@ -1331,7 +1487,7 @@ test "stylesParser" {
     try testing.expectEqualDeep(&exp_styles0, r0.value.ok);
 
     const r1 = try stylesParser.parse(a, " e8: {  vec2d  [l:10, o  :  6]}, e11: { vec2d polar [dG  :  [ 2,3,10] 0,l:10, o  :  6]}");
-    const styles2 = Vec2dAttributes{
+    const styles2 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -1348,7 +1504,7 @@ test "stylesParser" {
         .styleValue = exp_value2,
     };
 
-    const styles3 = Vec2dAttributes{
+    const styles3 = Attributes{
         .lineWidth = LineWidthType{ .reference = .normalized, .value = 10 },
         .lineColor = null,
         .lineOpacity = LineOpacityType{ .value = 6 },
@@ -1368,6 +1524,64 @@ test "stylesParser" {
 
     const exp_styles1 = [2]Style{ exp_element2, exp_element3 };
     try testing.expectEqualDeep(&exp_styles1, r1.value.ok);
+}
+
+test "styleParser points2d" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try styleParser.parse(a, "e0:{points2d [sh:square, s:5, c: red, o: 50]}");
+    const styles1 = Attributes{
+        .pointShape = PointShapeType{ .value = .square },
+        .pointSize = PointSizeType{ .value = 5 },
+        .lineColor = LineColorType{ .value = .red },
+        .lineOpacity = LineOpacityType{ .value = 50 },
+    };
+    const exp_value1 = StyleValue{
+        .styleType = .points2d,
+        .attributes = styles1,
+    };
+    const exp_element1 = Style{
+        .styleNumber = 0,
+        .styleValue = exp_value1,
+    };
+    try testing.expectEqualDeep(exp_element1, r1.value.ok);
+
+    const r2 = try styleParser.parse(a, "e1: e0");
+    const exp_element2 = Style{
+        .styleNumber = 1,
+        .styleValue = StyleValue{ .baseStyle = 0 },
+    };
+    try testing.expectEqualDeep(exp_element2, r2.value.ok);
+}
+
+test "resolveStyles points2d" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try stylesParser.parse(a, "e0:{points2d [sh:square]}, e1: e0{[s:5]}");
+    const resolved = try resolveStyles(a, r1.value.ok);
+    try testing.expectEqual(StyleType.points2d, resolved[0].styleValue.styleType);
+    try testing.expectEqual(PointShape.square, resolved[0].styleValue.attributes.?.pointShape.?.value);
+    // e1 inherits shape from e0 and overrides size
+    try testing.expectEqual(PointShape.square, resolved[1].styleValue.attributes.?.pointShape.?.value);
+    try testing.expectEqual(@as(u16, 5), resolved[1].styleValue.attributes.?.pointSize.?.value);
+    // defaults for color/opacity fill in
+    try testing.expectEqual(LineColorType{ .value = .black }, resolved[1].styleValue.attributes.?.lineColor.?);
+    try testing.expectEqual(LineOpacityType{ .value = 100 }, resolved[1].styleValue.attributes.?.lineOpacity.?);
+}
+
+test "serializeStyle points2d" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try stylesParser.parse(a, "e0:{points2d [sh:square, s:5]}");
+    const resolved = try resolveStyles(a, r1.value.ok);
+    const s = try serializeStyle(a, resolved[0]);
+    try testing.expectEqualStrings("e0:{points2d xy fixed last [sh:square, s:5, c: black, o: 100]}", s);
 }
 
 /// Serializes a resolved Style to its string representation, filling in defaults.
@@ -1401,7 +1615,24 @@ pub fn serializeStyle(allocator: std.mem.Allocator, style: Style) ![]const u8 {
     try parts.append(allocator, try std.fmt.allocPrint(allocator, " {s}", .{@tagName(ps)}));
 
     // Attributes
-    const attrs = sv.attributes orelse Vec2dAttributes{};
+    if (st == .points2d) {
+        const attrs = sv.attributes orelse Attributes{};
+        const psh = attrs.pointShape orelse PointShapeType.defaultPointShapeType();
+        const psz = attrs.pointSize orelse PointSizeType.defaultPointSizeType();
+        const pc = attrs.lineColor orelse LineColorType.defaultLineColorType();
+        const po = attrs.lineOpacity orelse LineOpacityType.defaultLineOpacityType();
+
+        try parts.append(allocator, try std.fmt.allocPrint(allocator, " [sh:{s}, s:{}, c: {s}, o: {}]}}", .{
+            @tagName(psh.value),
+            psz.value,
+            @tagName(pc.value),
+            po.value,
+        }));
+
+        return try std.mem.join(allocator, "", parts.items);
+    }
+
+    const attrs = sv.attributes orelse Attributes{};
     const l = attrs.lineWidth orelse LineWidthType.defaultLineWidthType();
     const lc = attrs.lineColor orelse LineColorType.defaultLineColorType();
     const lo = attrs.lineOpacity orelse LineOpacityType.defaultLineOpacityType();
