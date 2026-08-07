@@ -29,7 +29,7 @@ pub const PointShape = enum {
 /// // ps.?.shape == .circle, ps.?.size == 10
 /// ```
 pub fn resolvePointStyle(styles: anytype, mappings: anytype, row_idx: usize) ?PointStyle {
-    var style_idx: usize = 0;
+    var style_idx: ?usize = null;
     for (mappings) |mapping| {
         if (mapping.from == row_idx) {
             style_idx = mapping.to;
@@ -37,8 +37,9 @@ pub fn resolvePointStyle(styles: anytype, mappings: anytype, row_idx: usize) ?Po
         }
     }
 
-    if (style_idx >= styles.len) return null;
-    const style = styles[style_idx];
+    const idx = style_idx orelse return null;
+    if (idx >= styles.len) return null;
+    const style = styles[idx];
     if (style.styleValue.styleType != .points2d) return null;
     const attrs = style.styleValue.attributes orelse return null;
 
@@ -153,7 +154,7 @@ test "resolvePointStyle defaults" {
 test "resolvePointStyle no attributes" {
     const TestStyleValue = struct {
         styleType: enum { vec2d, points2d },
-        attributes: ?void,
+        attributes: ?struct { pointShape: ?struct { value: enum { circle, square } }, pointSize: ?struct { value: u16 } },
     };
     const TestStyle = struct { styleValue: TestStyleValue };
     const TestMapping = struct { from: usize, to: usize };

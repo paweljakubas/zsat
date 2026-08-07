@@ -132,6 +132,7 @@ pub fn build(b: *std.Build) void {
             });
             cli_test_mod.addImport("mecha", mecha_dep.module("mecha"));
             cli_test_mod.addImport("cli", inputs_mod);
+            cli_test_mod.addImport("z2d", z2d_dep.module("z2d"));
             const cli_tests = b.addTest(.{
                 .root_module = cli_test_mod,
             });

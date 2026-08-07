@@ -271,6 +271,14 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
             return error.ParseStylesFailed;
         },
     };
+    if (elements_parse_result.index < styles_str.len) {
+        const rest = styles_str[elements_parse_result.index..];
+        for (rest) |c| {
+            if (c != ' ' and c != '\n' and c != '\r' and c != '\t') {
+                return error.ParseStylesFailed;
+            }
+        }
+    }
 
     var styles_list = std.ArrayList(Styles.Style).empty;
     var borders_list = std.ArrayList(Border.BorderDefinition).empty;
