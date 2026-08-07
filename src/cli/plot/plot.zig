@@ -507,9 +507,9 @@ test "computeBounds" {
     try testing.expectApproxEqAbs(@as(f32, 1.4142), r8.y[1], 0.001);
 }
 
-/// Resolves the coordinate orientation for a given input row from styles and datum mappings.
-/// Looks up the style index via mappings, then extracts coordinateOrientation (default .fixed).
-fn resolveCoordOrientation(styles: anytype, mappings: anytype, row_idx: usize) @TypeOf(.fixed) {
+/// Finds the style index for a given input row via datum mappings. Rows without
+/// a matching mapping fall back to style 0, matching `resolveStyle`.
+fn styleIndexForRow(mappings: anytype, row_idx: usize) usize {
     var style_idx: usize = 0;
     for (mappings) |mapping| {
         if (mapping.from == row_idx) {
@@ -517,12 +517,7 @@ fn resolveCoordOrientation(styles: anytype, mappings: anytype, row_idx: usize) @
             break;
         }
     }
-    if (style_idx < styles.len) {
-        if (styles[style_idx].styleValue.coordinateOrientation) |orientation| {
-            return orientation;
-        }
-    }
-    return @as(@TypeOf(.fixed), .fixed);
+    return style_idx;
 }
 
 /// Computes the bounding box (min/max x/y) across all outputs, respecting each
@@ -651,13 +646,7 @@ fn computeBounds(styles: anytype, outputs: anytype, input_data: anytype, coord_o
 /// // style.width, style.r/g/b/a, style.cap_mode, style.join_mode
 /// ```
 fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_idx: usize, height: i32) !LineStyle {
-    var style_idx: usize = 0;
-    for (mappings) |mapping| {
-        if (mapping.from == row_idx) {
-            style_idx = mapping.to;
-            break;
-        }
-    }
+    const style_idx = styleIndexForRow(mappings, row_idx);
 
     var ls = LineStyle{
         .width = 10.0,
@@ -1141,7 +1130,8 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
 /// 3. Coordinate transform: compute scale and origin from bounds + margin
 /// 4. Drawing loop: for each input row:
 ///    a. Resolve line style (width, color, dashing, caps) via resolveStyle
-///    b. Draw data based on orientation:
+///    b. Points2d rows: draw each input point as a marker via points2d.drawPoints
+///    c. Draw data based on orientation:
 ///       - coord: drawCoordPolylines (multiple polyline steps)
 ///       - origin: drawPolylineFromAnchor (input polyline at last anchor)
 ///       - fixed: drawFixedPairs ((begin, end) segments)
@@ -1225,8 +1215,9 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
     const coord_orientations = try std.heap.page_allocator.alloc(CoordOrientation, outputs.transformationPairs.len);
     defer std.heap.page_allocator.free(coord_orientations);
     for (0..outputs.transformationPairs.len) |idx| {
-        coord_orientations[idx] = if (parsed_data.styles.len > idx and parsed_data.styles[idx].styleValue.coordinateOrientation != null)
-            parsed_data.styles[idx].styleValue.coordinateOrientation.?
+        const style_idx = styleIndexForRow(parsed_data.datum.mappings, idx);
+        coord_orientations[idx] = if (style_idx < parsed_data.styles.len and parsed_data.styles[style_idx].styleValue.coordinateOrientation != null)
+            parsed_data.styles[style_idx].styleValue.coordinateOrientation.?
         else
             .fixed;
     }
@@ -1235,8 +1226,9 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
     const coord_types = try std.heap.page_allocator.alloc(StyleCoordType, outputs.transformationPairs.len);
     defer std.heap.page_allocator.free(coord_types);
     for (0..outputs.transformationPairs.len) |idx| {
-        coord_types[idx] = if (parsed_data.styles.len > idx and parsed_data.styles[idx].styleValue.coordinateSystem != null)
-            parsed_data.styles[idx].styleValue.coordinateSystem.?
+        const style_idx = styleIndexForRow(parsed_data.datum.mappings, idx);
+        coord_types[idx] = if (style_idx < parsed_data.styles.len and parsed_data.styles[style_idx].styleValue.coordinateSystem != null)
+            parsed_data.styles[style_idx].styleValue.coordinateSystem.?
         else
             .xy;
     }
