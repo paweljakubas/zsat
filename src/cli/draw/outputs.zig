@@ -1408,15 +1408,18 @@ const textTransformationPairParser = textTransformationPairParserRaw.convert(str
     }
 }.toTransformed);
 
+const pointInBraceParser = mecha.combine(.{
+    common.skipOpenBrace,
+    inputs.pointParser,
+    common.skipCloseBrace,
+});
+
 const axisFromToParserRaw = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{ mecha.string("fromTo"), mecha.string("ft") }).discard(),
     common.skipWhitespace,
-    common.skipOpenBracket,
-    inputs.pointParser,
-    common.skipComma,
-    inputs.pointParser,
-    common.skipCloseBracket,
+    pointInBraceParser,
+    pointInBraceParser,
 });
 
 const axisOutputParserRaw = mecha.combine(.{
@@ -1629,7 +1632,7 @@ test "connectionParser with axis item" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try connectionParser.parse(a, "(out) -> ((anchor {(0,0)}) out, ft ((0,0),(2,0)) a0)");
+    const r1 = try connectionParser.parse(a, "(out) -> ((anchor {(0,0)}) out, ft {(0,0)} {(2,0)} a0)");
     try testing.expectEqual(@as(usize, 1), r1.value.ok.transformationPairs.len);
     try testing.expectEqual(@as(usize, 1), r1.value.ok.axisOutputs.len);
     try testing.expectEqualStrings("a0", r1.value.ok.axisOutputs[0].item.name);

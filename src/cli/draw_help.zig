@@ -313,14 +313,14 @@ pub const axis_help =
     \\  undefined base is an error.
     \\
     \\Drawing axes in --outputs:
-    \\  ft (FROM, TO) aN      -- draw axis aN between the two points
-    \\  fromTo (FROM, TO) aN  -- long form
-    \\  POINTS are given as (X, Y) pairs; see `zsat draw point --help`.
+    \\  ft {FROM} {TO} aN      -- draw axis aN between the two points
+    \\  fromTo {FROM} {TO} aN  -- long form
+    \\  POINTS are given as {(X, Y)} pairs; see `zsat draw point --help`.
     \\  The referenced aN must be defined in --styles.
     \\
     \\Examples:
     \\  --styles 'a0: {axis line:[c:black, s:2], ticks:[pos:0,1,..,2], values:[vals:0,1,..,2]}'
-    \\  --outputs '(out) -> ((a {(0,0)}) out, ft ((0,0),(2,0)) a0)'
+    \\  --outputs '(out) -> ((a {(0,0)}) out, ft {(0,0)} {(2,0)} a0)'
     \\  --styles 'a1: {a line:[c:grey, o:50]}'
     \\  --styles 'a1: {a line:[c:grey, o:50]}, a0: a1 {values:[vals:1,2,3]}'
 ;

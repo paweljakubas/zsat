@@ -723,7 +723,7 @@ printf '[[1,1]]\n[[2,0.5]]' | zsat draw \
   -s 'e0:{all [l:20]}, e1: {[l:30, c: grey, o: 50]}, \
   a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]],values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]}' \
   -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
-  -o '(out0, out1) -> ((p out2 & a {(1,1)}) out0, (a {(0.5,0.5)}) out2, ft ((0,0),(3.2,0)) a1)' \
+  -o '(out0, out1) -> ((p out2 & a {(1,1)}) out0, (a {(0.5,0.5)}) out2, ft {(0,0)} {(3.2,0)} a1)' \
   -p 'p0:{size: 600x600, border: [w:25, c:lightgrey]}'
 ```
 <img src="fig48.png" width="332" style="border: 2px solid grey;">
@@ -740,7 +740,7 @@ printf '[[1,1]]\n[[2,0.5]]' | zsat draw \
   a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]],values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]},\
   a1: a0 {ticks:[style:[f:below]],values:[vals:1,2,3, style: [f:below]]}'\
   -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
-  -o '(out0, out1) -> ((p out2 & a {(1,1)}) out0, (a {(0.5,0.5)}) out2, ft ((0,0),(3.2,0)) a0, ft ((0,0),(0,3.2)) a1)' \
+  -o '(out0, out1) -> ((p out2 & a {(1,1)}) out0, (a {(0.5,0.5)}) out2, ft {(0,0)} {(3.2,0)} a0, ft {(0,0)} {(0,3.2)} a1)' \
   -p 'p0:{size: 600x600, border: [w:25, c:lightgrey]}'
 ```
 <img src="fig49.png" width="332" style="border: 2px solid grey;">
@@ -753,7 +753,7 @@ printf '[[1,1]]\n[[2,0.5]]' | zsat draw \
   a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]],values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]},\
   a1: a0 {ticks:[style:[f:below]],values:[vals:1,2,3, style: [f:below, a: -90]]}' \
   -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
-  -o '(out0, out1) -> ((p out2 & a {(1,1)}) out0, (a {(0.5,0.5)}) out2, ft ((0,0),(3.2,0)) a0, ft ((0,0),(0,3.2)) a1)' \
+  -o '(out0, out1) -> ((p out2 & a {(1,1)}) out0, (a {(0.5,0.5)}) out2, ft {(0,0)} {(3.2,0)} a0, ft {(0,0)} {(0,3.2)} a1)' \
   -p 'p0:{size: 600x600, border: [w:25, c:lightgrey]}'
 ```
 <img src="fig50.png" width="332" style="border: 2px solid grey;">
