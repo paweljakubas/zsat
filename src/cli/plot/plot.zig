@@ -2,6 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const z2d = @import("z2d");
 const inputs = @import("plot_types");
+const points2d = @import("points2d");
 
 const Vector = inputs.Vector;
 const InputElement = inputs.InputElement;
@@ -392,6 +393,7 @@ test "computeBounds" {
     const TestElem = union(enum) { point: TestVec, vector: TestVec, vectors: []const TestVec };
     const TestRow = struct { row: []const TestElem };
     const TestInputs = struct { input: []const TestRow };
+    const TestMapping = struct { from: usize, to: usize };
 
     // Fixed mode: one begin/end pair (1,1)->(5,5)
     const op_fixed = [_]TestOp{
@@ -401,7 +403,7 @@ test "computeBounds" {
     const pair_fixed = TestPair{ .operation = .{ .ops = &op_fixed } };
     const outputs_fixed = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_fixed} };
     const inputs_empty = TestInputs{ .input = &[0]TestRow{} };
-    const r1 = computeBounds(&outputs_fixed, &inputs_empty, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.xy});
+    const r1 = computeBounds(&[0]u8{}, &outputs_fixed, &inputs_empty, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.xy}, &[0]TestMapping{});
     try testing.expectEqual(@as(f32, 1.0), r1.x[0]);
     try testing.expectEqual(@as(f32, 5.0), r1.x[1]);
     try testing.expectEqual(@as(f32, 1.0), r1.y[0]);
@@ -414,7 +416,7 @@ test "computeBounds" {
     };
     const pair_coord = TestPair{ .operation = .{ .ops = &op_coord } };
     const outputs_coord = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_coord} };
-    const r2 = computeBounds(&outputs_coord, &inputs_empty, &[1]enum { coord, origin, fixed }{.coord}, &[1]CoordinateType{.xy});
+    const r2 = computeBounds(&[0]u8{}, &outputs_coord, &inputs_empty, &[1]enum { coord, origin, fixed }{.coord}, &[1]CoordinateType{.xy}, &[0]TestMapping{});
     try testing.expectEqual(@as(f32, 2.0), r2.x[0]);
     try testing.expectEqual(@as(f32, 7.0), r2.x[1]);
     try testing.expectEqual(@as(f32, 1.0), r2.y[0]);
@@ -429,7 +431,7 @@ test "computeBounds" {
     };
     const pair_origin = TestPair{ .operation = .{ .ops = &op_origin } };
     const outputs_origin = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_origin} };
-    const r3 = computeBounds(&outputs_origin, &test_inputs, &[1]enum { coord, origin, fixed }{.origin}, &[1]CoordinateType{.xy});
+    const r3 = computeBounds(&[0]u8{}, &outputs_origin, &test_inputs, &[1]enum { coord, origin, fixed }{.origin}, &[1]CoordinateType{.xy}, &[0]TestMapping{});
     // begin=(100,100), end=(103,104), bounds cover (100,100) and (103,104)
     try testing.expectEqual(@as(f32, 100.0), r3.x[0]);
     try testing.expectEqual(@as(f32, 103.0), r3.x[1]);
@@ -438,7 +440,7 @@ test "computeBounds" {
 
     // Empty outputs -> default bounds (0,0)-(1,1)
     const outputs_empty = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[0]TestPair{} };
-    const r4 = computeBounds(&outputs_empty, &inputs_empty, &[0]enum { coord, origin, fixed }{}, &[0]CoordinateType{});
+    const r4 = computeBounds(&[0]u8{}, &outputs_empty, &inputs_empty, &[0]enum { coord, origin, fixed }{}, &[0]CoordinateType{}, &[0]TestMapping{});
     try testing.expectEqual(@as(f32, 0.0), r4.x[0]);
     try testing.expectEqual(@as(f32, 1.0), r4.x[1]);
     try testing.expectEqual(@as(f32, 0.0), r4.y[0]);
@@ -450,7 +452,7 @@ test "computeBounds" {
     };
     const pair_single = TestPair{ .operation = .{ .ops = &op_single } };
     const outputs_single = struct { transformationPairs: []const TestPair }{ .transformationPairs = &[1]TestPair{pair_single} };
-    const r5 = computeBounds(&outputs_single, &test_inputs, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.xy});
+    const r5 = computeBounds(&[0]u8{}, &outputs_single, &test_inputs, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.xy}, &[0]TestMapping{});
     // start=(5,5), vector=(3,4) -> end=(8,9), bounds cover (5,5) and (8,9)
     try testing.expectEqual(@as(f32, 5.0), r5.x[0]);
     try testing.expectEqual(@as(f32, 8.0), r5.x[1]);
@@ -465,13 +467,44 @@ test "computeBounds" {
     };
     const polar_row = TestRow{ .row = &[1]TestElem{.{ .vectors = polar_vs }} };
     const polar_inputs = TestInputs{ .input = &[1]TestRow{polar_row} };
-    const r6 = computeBounds(&outputs_single, &polar_inputs, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.polar});
+    const r6 = computeBounds(&[0]u8{}, &outputs_single, &polar_inputs, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.polar}, &[0]TestMapping{});
     // start=(5,5), polar vectors with cumulative heading 45, 55, 65
     // end ~ (5+2.126, 5+3.339) = (7.126, 8.339)
     try testing.expectApproxEqAbs(@as(f32, 5.0), r6.x[0], 0.001);
     try testing.expectApproxEqAbs(@as(f32, 7.126), r6.x[1], 0.001);
     try testing.expectApproxEqAbs(@as(f32, 5.0), r6.y[0], 0.001);
     try testing.expectApproxEqAbs(@as(f32, 8.339), r6.y[1], 0.001);
+
+    // Points2d: input points contribute their bounds directly (ops ignored)
+    const TestPointShape = struct { value: enum { circle, square } };
+    const TestPointSize = struct { value: u16 };
+    const TestAttrs = struct { pointShape: ?TestPointShape, pointSize: ?TestPointSize };
+    const TestStyleValue = struct { styleType: enum { vec2d, points2d }, attributes: ?TestAttrs };
+    const TestStyle = struct { styleValue: TestStyleValue };
+    const p_styles = [_]TestStyle{
+        .{ .styleValue = .{ .styleType = .points2d, .attributes = .{ .pointShape = .{ .value = .circle }, .pointSize = .{ .value = 10 } } } },
+    };
+    const p_mappings = [_]TestMapping{.{ .from = 0, .to = 0 }};
+    const p_row = TestRow{ .row = &[2]TestElem{
+        .{ .point = .{ .x = 3.0, .y = 4.0 } },
+        .{ .point = .{ .x = -1.0, .y = 2.0 } },
+    } };
+    const p_inputs = TestInputs{ .input = &[1]TestRow{p_row} };
+    const r7 = computeBounds(&p_styles, &outputs_single, &p_inputs, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.xy}, &p_mappings);
+    // points (3,4) and (-1,2)
+    try testing.expectEqual(@as(f32, -1.0), r7.x[0]);
+    try testing.expectEqual(@as(f32, 3.0), r7.x[1]);
+    try testing.expectEqual(@as(f32, 2.0), r7.y[0]);
+    try testing.expectEqual(@as(f32, 4.0), r7.y[1]);
+
+    // Points2d polar: point (2,45) -> (2cos45, 2sin45) ~ (1.414, 1.414)
+    const polar_p_row = TestRow{ .row = &[1]TestElem{.{ .point = .{ .x = 2.0, .y = 45.0 } }} };
+    const polar_p_inputs = TestInputs{ .input = &[1]TestRow{polar_p_row} };
+    const r8 = computeBounds(&p_styles, &outputs_single, &polar_p_inputs, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.polar}, &p_mappings);
+    try testing.expectApproxEqAbs(@as(f32, 1.4142), r8.x[0], 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 1.4142), r8.x[1], 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 1.4142), r8.y[0], 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 1.4142), r8.y[1], 0.001);
 }
 
 /// Resolves the coordinate orientation for a given input row from styles and datum mappings.
@@ -493,20 +526,22 @@ fn resolveCoordOrientation(styles: anytype, mappings: anytype, row_idx: usize) @
 }
 
 /// Computes the bounding box (min/max x/y) across all outputs, respecting each
-/// output's coordinate orientation mode.
+/// output's coordinate orientation mode. Points2d output rows contribute their
+/// input point elements directly (with polar-to-Cartesian conversion).
 ///
 /// Steps per orientation:
 /// - coord: all anchor points from all polylines
 /// - origin: last anchor's begin point + input polyline walk
 /// - fixed: (begin, end) pairs from all anchors
 /// - single anchor: anchor point + input polyline walk
+/// - points2d: all point elements of the input row
 ///
 /// Example:
 /// ```
-/// const bounds = computeBounds(&outputs, &input_data, &coord_orientations);
+/// const bounds = computeBounds(&styles, &outputs, &input_data, &coord_orientations, &coord_types, &mappings);
 /// // bounds.x = {min_x, max_x}, bounds.y = {min_y, max_y}
 /// ```
-fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anytype, coord_types: anytype) ValsRange {
+fn computeBounds(styles: anytype, outputs: anytype, input_data: anytype, coord_orientations: anytype, coord_types: anytype, mappings: anytype) ValsRange {
     var minX: f32 = 0.0;
     var maxX: f32 = 0.0;
     var minY: f32 = 0.0;
@@ -515,6 +550,24 @@ fn computeBounds(outputs: anytype, input_data: anytype, coord_orientations: anyt
 
     for (outputs.transformationPairs, 0..) |pair, row_idx| {
         const ops = pair.operation.ops;
+        if (points2d.resolvePointStyle(styles, mappings, row_idx)) |_| {
+            if (row_idx < input_data.input.len) {
+                for (input_data.input[row_idx].row) |elem| {
+                    switch (elem) {
+                        .point => |p| {
+                            if (row_idx < coord_types.len and coord_types[row_idx] == .polar) {
+                                const angle_rad = p.y * pi / 180.0;
+                                updateBounds(p.x * @cos(angle_rad), p.x * @sin(angle_rad), &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                            } else {
+                                updateBounds(p.x, p.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                            }
+                        },
+                        else => {},
+                    }
+                }
+            }
+            continue;
+        }
         const orientation = if (row_idx < coord_orientations.len) coord_orientations[row_idx] else .fixed;
         if (row_idx >= coord_types.len) continue;
         const coord_type = coord_types[row_idx];
@@ -1188,7 +1241,7 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
             .xy;
     }
 
-    var bounds = computeBounds(outputs, input_data, coord_orientations, coord_types);
+    var bounds = computeBounds(parsed_data.styles, outputs, input_data, coord_orientations, coord_types, parsed_data.datum.mappings);
     if (@hasField(@TypeOf(parsed_data), "textOverlays")) {
         for (parsed_data.textOverlays) |txt| {
             if (txt.x < bounds.x[0]) bounds.x[0] = txt.x;
@@ -1236,6 +1289,13 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
             context.setLineWidth(style.width);
             context.setLineCapMode(style.cap_mode);
             context.setLineJoinMode(style.join_mode);
+
+            if (row_idx < coord_types.len) {
+                if (points2d.resolvePointStyle(parsed_data.styles, parsed_data.datum.mappings, row_idx)) |ps| {
+                    try points2d.drawPoints(&context, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y, coord_types[row_idx], ps.shape, ps.size);
+                    continue;
+                }
+            }
 
             const orientation = if (row_idx < coord_orientations.len) coord_orientations[row_idx] else .fixed;
             if (row_idx >= coord_types.len) continue;
