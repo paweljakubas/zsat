@@ -177,20 +177,20 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
     try vec2d_cmd.addCommand(vec2d_output_cmd);
     try cmd.addCommand(vec2d_cmd);
 
-    const points2d_cmd = try zli.Command.init(init_opts, .{
-        .name = "points2d",
+    const pt2d_cmd = try zli.Command.init(init_opts, .{
+        .name = "pt2d",
         .description = "2D point data format: input shape, markers, and style attributes",
-        .help = draw_help.points2d_help,
+        .help = draw_help.pt2d_help,
     }, draw_help.printHelpExec);
 
-    const points2d_style_cmd = try zli.Command.init(init_opts, .{
+    const pt2d_style_cmd = try zli.Command.init(init_opts, .{
         .name = "style",
         .description = "Point style attributes: shape, size, color, opacity",
-        .help = draw_help.points2d_style_help,
+        .help = draw_help.pt2d_style_help,
     }, draw_help.printHelpExec);
 
-    try points2d_cmd.addCommand(points2d_style_cmd);
-    try cmd.addCommand(points2d_cmd);
+    try pt2d_cmd.addCommand(pt2d_style_cmd);
+    try cmd.addCommand(pt2d_cmd);
 
     const point_cmd = try zli.Command.init(init_opts, .{
         .name = "point",

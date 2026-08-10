@@ -30,10 +30,10 @@ pub fn build(b: *std.Build) void {
     });
     panes_mod.addImport("inputs", inputs_mod);
 
-    const points2d_mod = b.createModule(.{
-        .root_source_file = b.path("src/cli/plot/points2d.zig"),
+    const pt2d_mod = b.createModule(.{
+        .root_source_file = b.path("src/cli/plot/pt2d.zig"),
     });
-    points2d_mod.addImport("z2d", z2d_dep.module("z2d"));
+    pt2d_mod.addImport("z2d", z2d_dep.module("z2d"));
 
     {
         const git_argv = [_][]const u8{ "git", "rev-parse", "--short", "HEAD" };
@@ -75,7 +75,7 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/cli/plot/plot_types.zig"),
         }));
         plot_mod.addImport("styles", styles_mod);
-        plot_mod.addImport("points2d", points2d_mod);
+        plot_mod.addImport("pt2d", pt2d_mod);
         exe.root_module.addImport("plot", plot_mod);
 
         b.installArtifact(exe);
@@ -152,7 +152,7 @@ pub fn build(b: *std.Build) void {
                 .root_source_file = b.path("src/cli/plot/plot_types.zig"),
             }));
             plot_test_mod.addImport("draw_styles", styles_mod);
-            plot_test_mod.addImport("points2d", points2d_mod);
+            plot_test_mod.addImport("pt2d", pt2d_mod);
             const plot_unit_tests = b.addTest(.{
                 .root_module = plot_test_mod,
             });

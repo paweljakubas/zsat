@@ -2,7 +2,7 @@ const std = @import("std");
 const testing = std.testing;
 const z2d = @import("z2d");
 const inputs = @import("plot_types");
-const points2d = @import("points2d");
+const pt2d = @import("pt2d");
 
 const Vector = inputs.Vector;
 const InputElement = inputs.InputElement;
@@ -475,14 +475,14 @@ test "computeBounds" {
     try testing.expectApproxEqAbs(@as(f32, 5.0), r6.y[0], 0.001);
     try testing.expectApproxEqAbs(@as(f32, 8.339), r6.y[1], 0.001);
 
-    // Points2d: input points contribute their bounds directly (ops ignored)
+    // Pt2d: input points contribute their bounds directly (ops ignored)
     const TestPointShape = struct { value: enum { circle, square } };
     const TestPointSize = struct { value: u16 };
     const TestAttrs = struct { pointShape: ?TestPointShape, pointSize: ?TestPointSize };
-    const TestStyleValue = struct { styleType: enum { vec2d, points2d }, attributes: ?TestAttrs };
+    const TestStyleValue = struct { styleType: enum { vec2d, pt2d }, attributes: ?TestAttrs };
     const TestStyle = struct { styleValue: TestStyleValue };
     const p_styles = [_]TestStyle{
-        .{ .styleValue = .{ .styleType = .points2d, .attributes = .{ .pointShape = .{ .value = .circle }, .pointSize = .{ .value = 10 } } } },
+        .{ .styleValue = .{ .styleType = .pt2d, .attributes = .{ .pointShape = .{ .value = .circle }, .pointSize = .{ .value = 10 } } } },
     };
     const p_mappings = [_]TestMapping{.{ .from = 0, .to = 0 }};
     const p_row = TestRow{ .row = &[2]TestElem{
@@ -497,7 +497,7 @@ test "computeBounds" {
     try testing.expectEqual(@as(f32, 2.0), r7.y[0]);
     try testing.expectEqual(@as(f32, 4.0), r7.y[1]);
 
-    // Points2d polar: point (2,45) -> (2cos45, 2sin45) ~ (1.414, 1.414)
+    // Pt2d polar: point (2,45) -> (2cos45, 2sin45) ~ (1.414, 1.414)
     const polar_p_row = TestRow{ .row = &[1]TestElem{.{ .point = .{ .x = 2.0, .y = 45.0 } }} };
     const polar_p_inputs = TestInputs{ .input = &[1]TestRow{polar_p_row} };
     const r8 = computeBounds(&p_styles, &outputs_single, &polar_p_inputs, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.polar}, &p_mappings);
@@ -521,7 +521,7 @@ fn styleIndexForRow(mappings: anytype, row_idx: usize) usize {
 }
 
 /// Computes the bounding box (min/max x/y) across all outputs, respecting each
-/// output's coordinate orientation mode. Points2d output rows contribute their
+/// output's coordinate orientation mode. Pt2d output rows contribute their
 /// input point elements directly (with polar-to-Cartesian conversion).
 ///
 /// Steps per orientation:
@@ -529,7 +529,7 @@ fn styleIndexForRow(mappings: anytype, row_idx: usize) usize {
 /// - origin: last anchor's begin point + input polyline walk
 /// - fixed: (begin, end) pairs from all anchors
 /// - single anchor: anchor point + input polyline walk
-/// - points2d: all point elements of the input row
+/// - pt2d: all point elements of the input row
 ///
 /// Example:
 /// ```
@@ -545,7 +545,7 @@ fn computeBounds(styles: anytype, outputs: anytype, input_data: anytype, coord_o
 
     for (outputs.transformationPairs, 0..) |pair, row_idx| {
         const ops = pair.operation.ops;
-        if (points2d.resolvePointStyle(styles, mappings, row_idx)) |_| {
+        if (pt2d.resolvePointStyle(styles, mappings, row_idx)) |_| {
             if (row_idx < input_data.input.len) {
                 for (input_data.input[row_idx].row) |elem| {
                     switch (elem) {
@@ -1130,7 +1130,7 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
 /// 3. Coordinate transform: compute scale and origin from bounds + margin
 /// 4. Drawing loop: for each input row:
 ///    a. Resolve line style (width, color, dashing, caps) via resolveStyle
-///    b. Points2d rows: draw each input point as a marker via points2d.drawPoints
+///    b. Pt2d rows: draw each input point as a marker via pt2d.drawPoints
 ///    c. Draw data based on orientation:
 ///       - coord: drawCoordPolylines (multiple polyline steps)
 ///       - origin: drawPolylineFromAnchor (input polyline at last anchor)
@@ -1283,8 +1283,8 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
             context.setLineJoinMode(style.join_mode);
 
             if (row_idx < coord_types.len) {
-                if (points2d.resolvePointStyle(parsed_data.styles, parsed_data.datum.mappings, row_idx)) |ps| {
-                    try points2d.drawPoints(&context, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y, coord_types[row_idx], ps.shape, ps.size);
+                if (pt2d.resolvePointStyle(parsed_data.styles, parsed_data.datum.mappings, row_idx)) |ps| {
+                    try pt2d.drawPoints(&context, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y, coord_types[row_idx], ps.shape, ps.size);
                     continue;
                 }
             }

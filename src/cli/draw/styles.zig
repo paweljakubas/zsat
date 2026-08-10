@@ -7,7 +7,7 @@ const common = @import("common.zig");
 // style
 pub const StyleType = enum {
     vec2d,
-    points2d,
+    pt2d,
 
     pub fn defaultStyleType() StyleType {
         return .vec2d;
@@ -232,7 +232,7 @@ test "styleNumber" {
 }
 
 const styleTypeParserRaw =
-    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("points2d"), mecha.string("vec2d") }).asStr(), mecha.toEnum(StyleType)) });
+    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("pt2d"), mecha.string("vec2d") }).asStr(), mecha.toEnum(StyleType)) });
 const styleTypeParserRawP = @TypeOf(styleTypeParserRaw);
 fn toElementTypeUnion(_: std.mem.Allocator, res: styleTypeParserRawP.T) mecha.ConvertError!StyleValueUnion {
     return StyleValueUnion{ .styleType = res };
@@ -250,8 +250,8 @@ test "styleType" {
     const r2 = try styleTypeParserRaw.parse(a, " vec2d");
     try testing.expectEqual(.vec2d, r2.value.ok);
 
-    const r3 = try styleTypeParserRaw.parse(a, "points2d");
-    try testing.expectEqual(.points2d, r3.value.ok);
+    const r3 = try styleTypeParserRaw.parse(a, "pt2d");
+    try testing.expectEqual(.pt2d, r3.value.ok);
 
     const r4 = try styleTypeParserRaw.parse(a, "dot");
     try testing.expectEqual(0, r4.index);
@@ -1185,13 +1185,13 @@ test "styleValueParser" {
     };
     try testing.expectEqualDeep(exp_value3, r3.value.ok);
 
-    const r4 = try styleValueParser.parse(a, "points2d [sh:square, s:5]");
+    const r4 = try styleValueParser.parse(a, "pt2d [sh:square, s:5]");
     const styles4 = Attributes{
         .pointShape = PointShapeType{ .value = .square },
         .pointSize = PointSizeType{ .value = 5 },
     };
     const exp_value4 = StyleValue{
-        .styleType = .points2d,
+        .styleType = .pt2d,
         .attributes = styles4,
     };
     try testing.expectEqualDeep(exp_value4, r4.value.ok);
@@ -1526,12 +1526,12 @@ test "stylesParser" {
     try testing.expectEqualDeep(&exp_styles1, r1.value.ok);
 }
 
-test "styleParser points2d" {
+test "styleParser pt2d" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try styleParser.parse(a, "e0:{points2d [sh:square, s:5, c: red, o: 50]}");
+    const r1 = try styleParser.parse(a, "e0:{pt2d [sh:square, s:5, c: red, o: 50]}");
     const styles1 = Attributes{
         .pointShape = PointShapeType{ .value = .square },
         .pointSize = PointSizeType{ .value = 5 },
@@ -1539,7 +1539,7 @@ test "styleParser points2d" {
         .lineOpacity = LineOpacityType{ .value = 50 },
     };
     const exp_value1 = StyleValue{
-        .styleType = .points2d,
+        .styleType = .pt2d,
         .attributes = styles1,
     };
     const exp_element1 = Style{
@@ -1556,14 +1556,14 @@ test "styleParser points2d" {
     try testing.expectEqualDeep(exp_element2, r2.value.ok);
 }
 
-test "resolveStyles points2d" {
+test "resolveStyles pt2d" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try stylesParser.parse(a, "e0:{points2d [sh:square]}, e1: e0{[s:5]}");
+    const r1 = try stylesParser.parse(a, "e0:{pt2d [sh:square]}, e1: e0{[s:5]}");
     const resolved = try resolveStyles(a, r1.value.ok);
-    try testing.expectEqual(StyleType.points2d, resolved[0].styleValue.styleType);
+    try testing.expectEqual(StyleType.pt2d, resolved[0].styleValue.styleType);
     try testing.expectEqual(PointShape.square, resolved[0].styleValue.attributes.?.pointShape.?.value);
     // e1 inherits shape from e0 and overrides size
     try testing.expectEqual(PointShape.square, resolved[1].styleValue.attributes.?.pointShape.?.value);
@@ -1573,15 +1573,15 @@ test "resolveStyles points2d" {
     try testing.expectEqual(LineOpacityType{ .value = 100 }, resolved[1].styleValue.attributes.?.lineOpacity.?);
 }
 
-test "serializeStyle points2d" {
+test "serializeStyle pt2d" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try stylesParser.parse(a, "e0:{points2d [sh:square, s:5]}");
+    const r1 = try stylesParser.parse(a, "e0:{pt2d [sh:square, s:5]}");
     const resolved = try resolveStyles(a, r1.value.ok);
     const s = try serializeStyle(a, resolved[0]);
-    try testing.expectEqualStrings("e0:{points2d xy fixed last [sh:square, s:5, c: black, o: 100]}", s);
+    try testing.expectEqualStrings("e0:{pt2d xy fixed last [sh:square, s:5, c: black, o: 100]}", s);
 }
 
 /// Serializes a resolved Style to its string representation, filling in defaults.
@@ -1615,7 +1615,7 @@ pub fn serializeStyle(allocator: std.mem.Allocator, style: Style) ![]const u8 {
     try parts.append(allocator, try std.fmt.allocPrint(allocator, " {s}", .{@tagName(ps)}));
 
     // Attributes
-    if (st == .points2d) {
+    if (st == .pt2d) {
         const attrs = sv.attributes orelse Attributes{};
         const psh = attrs.pointShape orelse PointShapeType.defaultPointShapeType();
         const psz = attrs.pointSize orelse PointSizeType.defaultPointSizeType();

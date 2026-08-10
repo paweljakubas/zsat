@@ -4,7 +4,7 @@ const z2d = @import("z2d");
 
 const pi: f64 = std.math.pi;
 
-/// Point marker style resolved from a points2d style value.
+/// Point marker style resolved from a pt2d style value.
 pub const PointStyle = struct {
     shape: PointShape,
     size: u16, // diameter (circle) / side length (square) in pixels
@@ -18,7 +18,7 @@ pub const PointShape = enum {
 
 /// Resolves the point marker style (shape, size) for a given input row from
 /// the parsed style definitions. Returns `null` when the resolved style is not
-/// a points2d style or carries no attributes.
+/// a pt2d style or carries no attributes.
 ///
 /// Color and opacity are handled by the caller via the shared `lineColor` and
 /// `lineOpacity` attributes.
@@ -40,7 +40,7 @@ pub fn resolvePointStyle(styles: anytype, mappings: anytype, row_idx: usize) ?Po
     const idx = style_idx orelse return null;
     if (idx >= styles.len) return null;
     const style = styles[idx];
-    if (style.styleValue.styleType != .points2d) return null;
+    if (style.styleValue.styleType != .pt2d) return null;
     const attrs = style.styleValue.attributes orelse return null;
 
     return .{
@@ -108,14 +108,14 @@ pub fn drawPoints(context: *z2d.Context, input_data: anytype, row_idx: usize, or
 
 test "resolvePointStyle" {
     const TestStyleValue = struct {
-        styleType: enum { vec2d, points2d },
+        styleType: enum { vec2d, pt2d },
         attributes: ?struct { pointShape: ?struct { value: enum { circle, square } }, pointSize: ?struct { value: u16 } },
     };
     const TestStyle = struct { styleValue: TestStyleValue };
     const TestMapping = struct { from: usize, to: usize };
 
     const styles = [_]TestStyle{
-        .{ .styleValue = .{ .styleType = .points2d, .attributes = .{ .pointShape = .{ .value = .square }, .pointSize = .{ .value = 5 } } } },
+        .{ .styleValue = .{ .styleType = .pt2d, .attributes = .{ .pointShape = .{ .value = .square }, .pointSize = .{ .value = 5 } } } },
         .{ .styleValue = .{ .styleType = .vec2d, .attributes = .{ .pointShape = null, .pointSize = null } } },
     };
     const mappings = [_]TestMapping{
@@ -134,14 +134,14 @@ test "resolvePointStyle" {
 
 test "resolvePointStyle defaults" {
     const TestStyleValue = struct {
-        styleType: enum { vec2d, points2d },
+        styleType: enum { vec2d, pt2d },
         attributes: ?struct { pointShape: ?struct { value: enum { circle, square } }, pointSize: ?struct { value: u16 } },
     };
     const TestStyle = struct { styleValue: TestStyleValue };
     const TestMapping = struct { from: usize, to: usize };
 
     const styles = [_]TestStyle{
-        .{ .styleValue = .{ .styleType = .points2d, .attributes = .{ .pointShape = null, .pointSize = null } } },
+        .{ .styleValue = .{ .styleType = .pt2d, .attributes = .{ .pointShape = null, .pointSize = null } } },
     };
     const mappings = [_]TestMapping{.{ .from = 0, .to = 0 }};
 
@@ -153,14 +153,14 @@ test "resolvePointStyle defaults" {
 
 test "resolvePointStyle no attributes" {
     const TestStyleValue = struct {
-        styleType: enum { vec2d, points2d },
+        styleType: enum { vec2d, pt2d },
         attributes: ?struct { pointShape: ?struct { value: enum { circle, square } }, pointSize: ?struct { value: u16 } },
     };
     const TestStyle = struct { styleValue: TestStyleValue };
     const TestMapping = struct { from: usize, to: usize };
 
     const styles = [_]TestStyle{
-        .{ .styleValue = .{ .styleType = .points2d, .attributes = null } },
+        .{ .styleValue = .{ .styleType = .pt2d, .attributes = null } },
     };
     const mappings = [_]TestMapping{.{ .from = 0, .to = 0 }};
 

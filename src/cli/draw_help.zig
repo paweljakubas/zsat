@@ -141,8 +141,8 @@ pub const vec2d_output_help =
     \\  (out) -> (p (beg out2) & a {(1,1)}) out  -- unit vector anchored at out2's start
 ;
 
-/// Help text for `zsat draw points2d --help`
-pub const points2d_help =
+/// Help text for `zsat draw pt2d --help`
+pub const pt2d_help =
     \\Points are an input format for `zsat draw`. Each point is drawn as a
     \\marker (circle or square) at its coordinates, using the point's style.
     \\
@@ -162,27 +162,27 @@ pub const points2d_help =
     \\  polar  -- values are (r, phi) where phi is an angle
     \\
     \\Every point in a row shares the same style and is drawn as a marker.
-    \\  See `zsat draw points2d style --help` for the available attributes.
+    \\  See `zsat draw pt2d style --help` for the available attributes.
     \\
     \\Output:
     \\  Use the identity output `(pt) -> pt` to draw the raw input points.
     \\
     \\Examples:
-    \\  printf '{(1,1)}' | zsat draw -s 'e0:{points2d [sh:circle, s:10]}' -o '(pt) -> pt'
+    \\  printf '{(1,1)}' | zsat draw -s 'e0:{pt2d [sh:circle, s:10]}' -o '(pt) -> pt'
     \\  printf '{(0,0), (1,0), (0,1)}' | zsat draw \\
-    \\    -s 'e0:{points2d [sh:square, s:5, c: red]}' -o '(pt) -> pt'
+    \\    -s 'e0:{pt2d [sh:square, s:5, c: red]}' -o '(pt) -> pt'
 ;
 
-/// Help text for `zsat draw points2d style --help`
-pub const points2d_style_help =
+/// Help text for `zsat draw pt2d style --help`
+pub const pt2d_style_help =
     \\Style definition syntax:
-    \\  eN:{points2d COORDINATE-SYSTEM [ATTRIBUTES]}
+    \\  eN:{pt2d COORDINATE-SYSTEM [ATTRIBUTES]}
     \\
     \\  eN     -- style key (e0, e1, ...) used for referencing in --datum
     \\  {...}  -- style body; all fields are optional and inherit from defaults
     \\
     \\TYPE:
-    \\  points2d  -- input is parsed as 2D points and drawn as markers
+    \\  pt2d  -- input is parsed as 2D points and drawn as markers
     \\
     \\COORDINATE SYSTEM (default: xy):
     \\  xy     -- values are (x, y) Cartesian coordinates
@@ -196,9 +196,9 @@ pub const points2d_style_help =
     \\  o:N      -- marker opacity, 0..100 (default: 100)
     \\
     \\Examples:
-    \\  e0:{points2d [sh:square, s:5]}
-    \\  e0:{points2d [sh:circle, s:8, c: red, o: 50]}
-    \\  e0:{points2d polar [sh:circle, s:8]}
+    \\  e0:{pt2d [sh:square, s:5]}
+    \\  e0:{pt2d [sh:circle, s:8, c: red, o: 50]}
+    \\  e0:{pt2d polar [sh:circle, s:8]}
 ;
 
 /// Help text for `zsat draw point --help`
@@ -424,9 +424,9 @@ pub const objects_help =
     \\       Style attributes: coordinate system, orientation, steps, line properties
     \\  zsat draw vec2d output --help
     \\       Output transformations: anchor, rotate, scale, mirror
-    \\  zsat draw points2d --help
+    \\  zsat draw pt2d --help
     \\       Point input format, markers, and style attributes
-    \\  zsat draw points2d style --help
+    \\  zsat draw pt2d style --help
     \\       Point style attributes: shape, size, color, opacity
     \\  zsat draw point --help
     \\       How to define points: explicit coordinates or references
