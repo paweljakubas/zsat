@@ -1111,9 +1111,18 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
                 const anchor_x = plot_vx + nx * (tick_ext + spacing);
                 const anchor_y = plot_vy + ny * (tick_ext + spacing);
 
+                // Rotate the label about the middle of its text box (not about
+                // its top-left corner), so applying `angle` keeps the middle of
+                // the value in place instead of swinging it sideways/downwards.
+                // showText grows glyphs downward from the box top; for digit
+                // labels the ink middle sits roughly 0.6 * font_size below it.
+                const text_cx = x_local + text_width * 0.5;
+                const text_cy = y_local + font_size * 0.6;
                 const saved_ctm = context.getTransformation();
                 context.translate(anchor_x, anchor_y);
+                context.translate(text_cx, text_cy);
                 context.rotate(axis_angle + angle_offset);
+                context.translate(-text_cx, -text_cy);
                 context.showText(val_str, x_local, y_local) catch {};
                 context.setTransformation(saved_ctm);
             }
