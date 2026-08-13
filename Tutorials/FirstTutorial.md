@@ -8,6 +8,7 @@
 - [Datum transformation with straightforward composing](#datum-transformation-with-straightforward-composing)
 - [Adding text](#adding-text)
 - [Adding axis](#adding-axis)
+- [Point2d data and its characteristic](#point2d-data-and-its-characteristic)
 - [Exploring the tool through help](#exploring-the-tool-through-help)
 
 ## First try and how to explore the tool
@@ -758,9 +759,28 @@ printf '[[1,1]]\n[[2,0.5]]' | zsat draw \
 ```
 <img src="fig50.png" width="332" style="border: 2px solid grey;">
 
+## Point2d data and its characteristic
+
+Point 2D is also available.
+
+```bash
+printf '{(0,0), (1,0), (0,1), (1,1)}' | zsat draw  \
+-s 'e0:{pt2d [sh:square, s:15, c: grey]}' \
+-o '(pt) -> pt'
+```
+<img src="fig51.png" width="332" style="border: 2px solid grey;">
+
+
+
 ## Exploring the tool through help
 
 `zsat` provides built-in documentation through subcommands. Instead of remembering every detail, you can query the tool directly.
+
+The high level information, aka an entry point to dive deeper, is the following
+
+```bash
+zsat draw objects --help
+```
 
 To learn about the `vec2d` data format — input shapes, coordinate systems, and how vectors compose:
 
@@ -778,6 +798,11 @@ To see how transformations are composed in `--outputs` — `anchor`, `rotate`, `
 
 ```bash
 zsat draw vec2d output --help
+```
+
+`pt2d` is documented in the same fashion
+```bash
+zsat draw pt2d --help
 ```
 
 For the syntax of points, both explicit `{(x,y)}` and by reference (`beg self`, `mid out0`, `25% self`):
