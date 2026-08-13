@@ -750,8 +750,8 @@ The inheritance of `a1` from `a0` is embedded, it is enough to change one of the
 ```bash
 printf '[[1,1]]\n[[2,0.5]]' | zsat draw \
   -s 'e0:{all [l:20]}, e1: {[l:30, c: grey, o: 50]}, \
-  a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]],values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]},\
-  a1: a0 {ticks:[style:[f:below]],values:[vals:1,2,3, style: [f:below, a: -90]]}' \
+  a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]],values:[vals:1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]},\
+  a1: a0 {ticks:[style:[f:below]],values:[style: [f:below, a: -90]]}' \
   -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
   -o '(out0, out1) -> ((p out2 & a {(1,1)}) out0, (a {(0.5,0.5)}) out2, ft {(0,0)} {(3.2,0)} a0, ft {(0,0)} {(0,3.2)} a1)' \
   -p 'p0:{size: 600x600, border: [w:25, c:lightgrey]}'
