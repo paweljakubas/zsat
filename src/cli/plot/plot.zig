@@ -642,14 +642,14 @@ fn computeBounds(styles: anytype, outputs: anytype, input_data: anytype, coord_o
 ///
 /// Example:
 /// ```
-/// const style = try resolveStyle(&ctx, styles, mappings, 0, height);
+/// const style = try resolveStyle(&ctx, styles, mappings, 0, height, pixel_scale);
 /// // style.width, style.r/g/b/a, style.cap_mode, style.join_mode
 /// ```
-fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_idx: usize, height: i32) !LineStyle {
+fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_idx: usize, height: i32, pixel_scale: f64) !LineStyle {
     const style_idx = styleIndexForRow(mappings, row_idx);
 
     var ls = LineStyle{
-        .width = 10.0,
+        .width = 10.0 * pixel_scale,
         .r = 0,
         .g = 0,
         .b = 0,
@@ -670,15 +670,15 @@ fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_i
                     },
                     .global => {
                         const v: f64 = @floatFromInt(lw.value);
-                        ls.width = v / 10.0;
+                        ls.width = v / 10.0 * pixel_scale;
                     },
                     .output => {
                         const v: f64 = @floatFromInt(lw.value);
-                        ls.width = v;
+                        ls.width = v * pixel_scale;
                     },
                     .local => {
                         const v: f64 = @floatFromInt(lw.value);
-                        ls.width = v / 10.0;
+                        ls.width = v / 10.0 * pixel_scale;
                     },
                 }
             }
@@ -702,18 +702,18 @@ fn resolveStyle(context: *z2d.Context, styles: anytype, mappings: anytype, row_i
                     const v: f64 = @floatFromInt(val);
                     dashes[i] = switch (ld.reference) {
                         .normalized => v * @as(f64, @floatFromInt(height)) / 1000.0,
-                        .global => v / 10.0,
-                        .output => v,
-                        .local => v / 10.0,
+                        .global => v / 10.0 * pixel_scale,
+                        .output => v * pixel_scale,
+                        .local => v / 10.0 * pixel_scale,
                     };
                 }
                 context.setDashes(dashes);
                 const offset_v: f64 = @floatFromInt(ld.offset);
                 const offset_px = switch (ld.reference) {
                     .normalized => offset_v * @as(f64, @floatFromInt(height)) / 1000.0,
-                    .global => offset_v / 10.0,
-                    .output => offset_v,
-                    .local => offset_v / 10.0,
+                    .global => offset_v / 10.0 * pixel_scale,
+                    .output => offset_v * pixel_scale,
+                    .local => offset_v / 10.0 * pixel_scale,
                 };
                 context.setDashOffset(-offset_px);
             } else {
@@ -923,7 +923,7 @@ fn drawFixedPairs(context: *z2d.Context, ops: anytype, origin_x: f64, origin_y: 
 }
 
 /// Draws all axis overlays (lines, ticks, and value labels).
-fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64) !void {
+fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64, pixel_scale: f64) !void {
     var font_set = false;
     defer if (font_set) context.deinitFont();
 
@@ -944,7 +944,7 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
         const b_line: u8 = @intCast(@as(u16, rgb_line.b) * alpha_line / 255);
         const a_line: u8 = @intCast(alpha_line);
         context.setSourceToPixel(.{ .rgba = .{ .r = r_line, .g = g_line, .b = b_line, .a = a_line } });
-        context.setLineWidth(@as(f64, @floatFromInt(overlay.line.size)));
+        context.setLineWidth(@as(f64, @floatFromInt(overlay.line.size)) * pixel_scale);
         context.resetPath();
         try context.moveTo(ax, ay_clamped);
         try context.lineTo(bx, by_clamped);
@@ -978,9 +978,9 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
             const b_tick: u8 = @intCast(@as(u16, rgb_tick.b) * alpha_tick / 255);
             const a_tick: u8 = @intCast(alpha_tick);
             context.setSourceToPixel(.{ .rgba = .{ .r = r_tick, .g = g_tick, .b = b_tick, .a = a_tick } });
-            context.setLineWidth(@as(f64, @floatFromInt(ticks.style.size)));
+            context.setLineWidth(@as(f64, @floatFromInt(ticks.style.size)) * pixel_scale);
 
-            const th = @as(f64, @floatFromInt(ticks.style.height));
+            const th = @as(f64, @floatFromInt(ticks.style.height)) * pixel_scale;
 
             for (ticks.positions) |pos| {
                 const p_ax = overlay.from.x + dux * pos;
@@ -1035,7 +1035,7 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
             const b_val: u8 = @intCast(@as(u16, rgb_val.b) * alpha_val / 255);
             const a_val: u8 = @intCast(alpha_val);
             context.setSourceToPixel(.{ .rgba = .{ .r = r_val, .g = g_val, .b = b_val, .a = a_val } });
-            context.setFontSize(@as(f64, @floatFromInt(vals.style.size)));
+            context.setFontSize(@as(f64, @floatFromInt(vals.style.size)) * pixel_scale);
 
             if (!font_set) {
                 const font_path = if (std.mem.eql(u8, vals.style.font, "default"))
@@ -1052,10 +1052,10 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
             // matter how the axis is oriented. The `angle` attribute rotates the
             // label counter-clockwise from the axis direction (0 = the label
             // reads along the axis, which preserves horizontal-axis placement).
-            const th = if (overlay.ticks) |ticks| @as(f64, @floatFromInt(ticks.style.height)) else 0.0;
+            const th = if (overlay.ticks) |ticks| @as(f64, @floatFromInt(ticks.style.height)) * pixel_scale else 0.0;
             const tick_form = if (overlay.ticks) |ticks| ticks.style.form else null;
-            const font_size = @as(f64, @floatFromInt(vals.style.size));
-            const spacing = @as(f64, @floatFromInt(vals.style.spacing));
+            const font_size = @as(f64, @floatFromInt(vals.style.size)) * pixel_scale;
+            const spacing = @as(f64, @floatFromInt(vals.style.spacing)) * pixel_scale;
 
             // Device-space unit vector along the axis (FROM -> TO); the label
             // reads in this direction when angle is 0.
@@ -1158,6 +1158,12 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
         height = @intCast(s.height);
     }
 
+    // All pixel dimensions (line widths, marker sizes, tick sizes, font sizes,
+    // spacing, margins, borders) are expressed for the default 600x600 pane.
+    // Scaling them linearly with the pane size keeps the whole figure looking
+    // identical when the rendered image is rescaled (e.g. terminal display).
+    const pixel_scale: f64 = @min(@as(f64, @floatFromInt(width)), @as(f64, @floatFromInt(height))) / 600.0;
+
     var surface = try z2d.Surface.init(.image_surface_rgba, std.heap.page_allocator, width, height);
     defer surface.deinit(std.heap.page_allocator);
 
@@ -1192,11 +1198,11 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
             },
         }
     };
-    const border_width: f64 = if (pane_border) |b| @floatFromInt(b.width) else 0.0;
+    const border_width: f64 = if (pane_border) |b| @as(f64, @floatFromInt(b.width)) * pixel_scale else 0.0;
 
     // Draw border if present
     if (pane_border) |border_val| {
-        const bw = @as(f64, @floatFromInt(border_val.width));
+        const bw = @as(f64, @floatFromInt(border_val.width)) * pixel_scale;
         const rgb = colorNameToRGB(border_val.color);
         const alpha: u16 = @intCast(@as(u16, border_val.opacity) * 255 / 100);
         const r: u8 = @intCast(@as(u16, rgb.r) * alpha / 255);
@@ -1267,7 +1273,7 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
     const x_range = bounds.x[1] - bounds.x[0];
     const y_range = bounds.y[1] - bounds.y[0];
 
-    const margin: f64 = 20.0;
+    const margin: f64 = 20.0 * pixel_scale;
     const effective_margin = margin + border_width;
     const draw_width = @as(f64, @floatFromInt(width)) - 2 * effective_margin;
     const draw_height = @as(f64, @floatFromInt(height)) - 2 * effective_margin;
@@ -1285,7 +1291,7 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
         const max_y = @as(f64, @floatFromInt(height)) - effective_margin;
 
         for (parsed_data.inputs.input, 0..) |_, row_idx| {
-            const style = try resolveStyle(&context, parsed_data.styles, parsed_data.datum.mappings, row_idx, height);
+            const style = try resolveStyle(&context, parsed_data.styles, parsed_data.datum.mappings, row_idx, height, pixel_scale);
             context.setSourceToPixel(.{ .rgba = .{ .r = style.r, .g = style.g, .b = style.b, .a = style.a } });
             context.setLineWidth(style.width);
             context.setLineCapMode(style.cap_mode);
@@ -1293,7 +1299,8 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
 
             if (row_idx < coord_types.len) {
                 if (pt2d.resolvePointStyle(parsed_data.styles, parsed_data.datum.mappings, row_idx)) |ps| {
-                    try pt2d.drawPoints(&context, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y, coord_types[row_idx], ps.shape, ps.size);
+                    const marker_size: u16 = @intFromFloat(@as(f64, @floatFromInt(ps.size)) * pixel_scale);
+                    try pt2d.drawPoints(&context, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y, coord_types[row_idx], ps.shape, marker_size);
                     continue;
                 }
             }
@@ -1358,7 +1365,7 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
                 const b: u8 = @intCast(@as(u16, rgb.b) * alpha / 255);
                 const a: u8 = @intCast(alpha);
                 context.setSourceToPixel(.{ .rgba = .{ .r = r, .g = g, .b = b, .a = a } });
-                context.setFontSize(@as(f64, @floatFromInt(txt.size)));
+                context.setFontSize(@as(f64, @floatFromInt(txt.size)) * pixel_scale);
 
                 if (txt.angle != 0) {
                     const saved = context.transformation;
@@ -1376,7 +1383,7 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
 
         // Draw axis overlays
         if (@hasField(@TypeOf(parsed_data), "axisOverlays") and parsed_data.axisOverlays.len > 0) {
-            try drawAxisOverlays(&context, parsed_data.axisOverlays, origin_x, origin_y, x_scale, y_scale, min_y, max_y);
+            try drawAxisOverlays(&context, parsed_data.axisOverlays, origin_x, origin_y, x_scale, y_scale, min_y, max_y, pixel_scale);
         }
     }
 
