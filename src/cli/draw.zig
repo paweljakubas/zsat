@@ -63,7 +63,7 @@ const drawElementParser = mecha.oneOf(.{
     }.toElem),
 });
 
-const styleSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
+const styleSeparatorParser = mecha.combine(.{ common.skipAnyWhitespace, mecha.ascii.char(',').discard(), common.skipAnyWhitespace });
 const drawElementsParserRaw = mecha.many(drawElementParser, .{ .collect = true, .separator = styleSeparatorParser });
 const drawElementsParserRawP = @TypeOf(drawElementsParserRaw);
 fn toDrawElementsSlice(arena: std.mem.Allocator, raw: drawElementsParserRawP.T) mecha.ConvertError![]DrawElement {

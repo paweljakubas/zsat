@@ -116,6 +116,16 @@ test "zsat draw with style copy" {
     try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
 }
 
+test "zsat draw with multiline styles" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{vec2d},\n  e1:{vec2d polar}" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
 test "zsat draw with two styles" {
     defer cleanupOutputFiles();
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{vec2d}, e8:{vec2d polar}", "--datum", "(vec) -> (vec -> e0)" };

@@ -474,6 +474,8 @@ pub const colorNameParserTyped = colorNameParserRaw.convert(toColorNameType);
 //Parsers
 pub const skipWhitespace =
     mecha.ascii.char(' ').many(.{ .collect = false }).discard();
+pub const skipAnyWhitespace =
+    mecha.oneOf(.{ mecha.ascii.char(' '), mecha.ascii.char('\t'), mecha.ascii.char('\n'), mecha.ascii.char('\r') }).many(.{ .collect = false }).discard();
 pub const skipOpenBracket =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('(').discard(), skipWhitespace });
 pub const skipCloseBracket =
