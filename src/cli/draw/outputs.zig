@@ -1326,7 +1326,24 @@ fn toOutputTransformationPair(_: std.mem.Allocator, args: outputTransformationPa
         .operation = args[0],
     };
 }
-const outputTransformationPairParser = outputTransformationPairParserRaw.convert(toOutputTransformationPair);
+const outputTransformationPairSingleOpParserRaw = mecha.combine(.{
+    oneArgFunctionPartialParser,
+    common.skipWhitespace,
+    outputNameStrParser,
+});
+const outputTransformationPairSingleOpParserRawP = @TypeOf(outputTransformationPairSingleOpParserRaw);
+fn toOutputTransformationPairSingleOp(arena: std.mem.Allocator, args: outputTransformationPairSingleOpParserRawP.T) mecha.ConvertError!OutputTransformationPair {
+    const ops = try arena.alloc(OneArgFunctionPartial, 1);
+    ops[0] = args[0];
+    return OutputTransformationPair{
+        .outputName = args[1],
+        .operation = Compose{ .ops = ops },
+    };
+}
+const outputTransformationPairParser = mecha.oneOf(.{
+    outputTransformationPairParserRaw.convert(toOutputTransformationPair),
+    outputTransformationPairSingleOpParserRaw.convert(toOutputTransformationPairSingleOp),
+});
 
 test "outputTransformationPairParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
@@ -1458,6 +1475,15 @@ const outputItemParser = mecha.oneOf(.{
             return OutputItem{ .text = item };
         }
     }.toItem),
+    outputNameStrParser.map(struct {
+        const identityOps = [_]OneArgFunctionPartial{.{ .none = {} }};
+        fn toIdentityItem(name: []const u8) mecha.ConvertError!OutputItem {
+            return OutputItem{ .transformation = OutputTransformationPair{
+                .outputName = name,
+                .operation = Compose{ .ops = &identityOps },
+            } };
+        }
+    }.toIdentityItem),
 });
 
 const outputItemsSeparatorParser = mecha.combine(.{common.skipComma});
@@ -1670,6 +1696,28 @@ test "connectionParser identity multiple" {
     try testing.expectEqual(@as(usize, 2), r2.value.ok.outputs.len);
     try testing.expectEqualStrings("out1", r2.value.ok.transformationPairs[0].outputName);
     try testing.expectEqualStrings("out2", r2.value.ok.transformationPairs[1].outputName);
+}
+
+test "connectionParser bare single op and mixed items" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try connectionParser.parse(a, "(out1, out2, out3) -> (out1, out2, a {(0,0)} out3)");
+    try testing.expectEqual(@as(usize, 3), r1.value.ok.outputs.len);
+    try testing.expectEqual(@as(usize, 3), r1.value.ok.transformationPairs.len);
+    try testing.expectEqualStrings("out1", r1.value.ok.transformationPairs[0].outputName);
+    try testing.expectEqualStrings("out2", r1.value.ok.transformationPairs[1].outputName);
+    try testing.expectEqualStrings("out3", r1.value.ok.transformationPairs[2].outputName);
+    try testing.expectEqual(.none, r1.value.ok.transformationPairs[0].operation.ops[0]);
+    try testing.expectEqual(@as(f32, 0.0), r1.value.ok.transformationPairs[2].operation.ops[0].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 0.0), r1.value.ok.transformationPairs[2].operation.ops[0].anchor.point.point.y);
+
+    const r2 = try connectionParser.parse(a, "(out) -> a {(1,2)} out");
+    try testing.expectEqual(@as(usize, 1), r2.value.ok.transformationPairs.len);
+    try testing.expectEqualStrings("out", r2.value.ok.transformationPairs[0].outputName);
+    try testing.expectEqual(@as(f32, 1.0), r2.value.ok.transformationPairs[0].operation.ops[0].anchor.point.point.x);
+    try testing.expectEqual(@as(f32, 2.0), r2.value.ok.transformationPairs[0].operation.ops[0].anchor.point.point.y);
 }
 
 test "connectionParser with text items" {
