@@ -1300,7 +1300,20 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
             if (row_idx < coord_types.len) {
                 if (pt2d.resolvePointStyle(parsed_data.styles, parsed_data.datum.mappings, row_idx)) |ps| {
                     const marker_size: u16 = @intFromFloat(@as(f64, @floatFromInt(ps.size)) * pixel_scale);
-                    try pt2d.drawPoints(&context, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y, coord_types[row_idx], ps.shape, marker_size);
+                    var has_anchor_points = false;
+                    if (row_idx < outputs.transformationPairs.len) {
+                        for (outputs.transformationPairs[row_idx].operation.ops) |op| {
+                            if (op == .anchor and op.anchor.point == .point) {
+                                has_anchor_points = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (has_anchor_points) {
+                        try pt2d.drawOutputPoints(&context, outputs.transformationPairs[row_idx].operation.ops, origin_x, origin_y, x_scale, y_scale, min_y, max_y, coord_types[row_idx], ps.shape, marker_size);
+                    } else {
+                        try pt2d.drawPoints(&context, input_data, row_idx, origin_x, origin_y, x_scale, y_scale, min_y, max_y, coord_types[row_idx], ps.shape, marker_size);
+                    }
                     continue;
                 }
             }

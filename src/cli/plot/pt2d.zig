@@ -106,6 +106,47 @@ pub fn drawPoints(context: *z2d.Context, input_data: anytype, row_idx: usize, or
     }
 }
 
+/// Draws a marker at each explicit anchor point of an output transformation.
+/// Used when the output transform (e.g. mirror) repositions the input points:
+/// the markers follow the transformed anchor coordinates instead of the raw
+/// input points. Polar conversion matches `drawPoints`.
+pub fn drawOutputPoints(context: *z2d.Context, ops: anytype, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64, coordinate_type: anytype, shape: anytype, size: u16) !void {
+    const half: f64 = @as(f64, @floatFromInt(size)) / 2.0;
+
+    for (ops) |op| {
+        if (op == .anchor and op.anchor.point == .point) {
+            const p = op.anchor.point.point;
+            var px = @as(f64, p.x);
+            var py = @as(f64, p.y);
+            if (coordinate_type == .polar) {
+                const angle_rad = @as(f64, p.y) * pi / 180.0;
+                px = @as(f64, p.x) * @cos(angle_rad);
+                py = @as(f64, p.x) * @sin(angle_rad);
+            }
+            const plot_x = origin_x + px * x_scale;
+            var plot_y = origin_y - py * y_scale;
+            if (plot_y < min_y) plot_y = min_y;
+            if (plot_y > max_y) plot_y = max_y;
+
+            context.resetPath();
+            switch (shape) {
+                .circle => {
+                    try context.arc(plot_x, plot_y, half, 0, 2 * pi);
+                    try context.closePath();
+                },
+                .square => {
+                    try context.moveTo(plot_x - half, plot_y - half);
+                    try context.lineTo(plot_x + half, plot_y - half);
+                    try context.lineTo(plot_x + half, plot_y + half);
+                    try context.lineTo(plot_x - half, plot_y + half);
+                    try context.closePath();
+                },
+            }
+            try context.fill();
+        }
+    }
+}
+
 test "resolvePointStyle" {
     const TestStyleValue = struct {
         styleType: enum { vec2d, pt2d },

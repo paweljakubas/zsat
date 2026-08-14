@@ -127,9 +127,9 @@ pub const ScalePartial = struct {
     elements: []const ScaleArg, //each scale arg works on each element of [elem1, elem2,...]
 };
 
-//Mirror over line
+//Mirror over line, vector, point or element
 pub const MirrorPartial = struct {
-    line: inputs.Line,
+    target: ProjectTarget,
 };
 
 //Project onto line or vector
@@ -814,7 +814,7 @@ const mirrorPartialParserRawInner = mecha.combine(.{
         mecha.string("m"),
     }).discard(),
     common.skipWhitespace,
-    mirrorLineParser,
+    projectTargetParser,
 });
 const mirrorPartialParserRawWithout = mirrorPartialParserRawInner;
 const mirrorPartialParserRawWith = mecha.combine(.{
@@ -828,7 +828,7 @@ const mirrorPartialParserRaw = mecha.oneOf(.{
 });
 const mirrorPartialParserRawP = @TypeOf(mirrorPartialParserRaw);
 fn toMirrorPartial(_: std.mem.Allocator, res: mirrorPartialParserRawP.T) mecha.ConvertError!MirrorPartial {
-    return MirrorPartial{ .line = res };
+    return MirrorPartial{ .target = try res };
 }
 const mirrorPartialParser = mirrorPartialParserRaw.convert(toMirrorPartial);
 
@@ -837,18 +837,26 @@ test "mirrorPartialParser" {
 
     const r1 = try mirrorPartialParser.parse(fa, "mirror (y=2x+1)");
     const l1 = inputs.Line{ .a = 1.0, .b = 2.0, .c = 1.0 };
-    const m1 = MirrorPartial{ .line = l1 };
+    const m1 = MirrorPartial{ .target = .{ .line = l1 } };
     try testing.expectEqualDeep(m1, r1.value.ok);
 
     const r2 = try mirrorPartialParser.parse(fa, "mirror ( y=2x+1 )");
     const l2 = inputs.Line{ .a = 1.0, .b = 2.0, .c = 1.0 };
-    const m2 = MirrorPartial{ .line = l2 };
+    const m2 = MirrorPartial{ .target = .{ .line = l2 } };
     try testing.expectEqualDeep(m2, r2.value.ok);
 
     const r3 = try mirrorPartialParser.parse(fa, "m (y=12x+1.1)");
     const l3 = inputs.Line{ .a = 1.0, .b = 12.0, .c = 1.1 };
-    const m3 = MirrorPartial{ .line = l3 };
+    const m3 = MirrorPartial{ .target = .{ .line = l3 } };
     try testing.expectEqualDeep(m3, r3.value.ok);
+
+    const r4 = try mirrorPartialParser.parse(fa, "m out2");
+    const m4 = MirrorPartial{ .target = .{ .element = ElementReference{ .other = "out2" } } };
+    try testing.expectEqualDeep(m4, r4.value.ok);
+
+    const r5 = try mirrorPartialParser.parse(fa, "mirror {(1,2)}");
+    const m5 = MirrorPartial{ .target = .{ .point = GeneralPoint{ .point = inputs.Point{ .x = 1.0, .y = 2.0 } } } };
+    try testing.expectEqualDeep(m5, r5.value.ok);
 }
 
 const vectorParserLocal = mecha.combine(.{
@@ -1088,7 +1096,7 @@ test "oneArgFunctionPartialParser" {
 
     const r5 = try oneArgFunctionPartialParser.parse(a, "(m (y=12x+1.1))");
     const l5 = inputs.Line{ .a = 1.0, .b = 12.0, .c = 1.1 };
-    const m5 = MirrorPartial{ .line = l5 };
+    const m5 = MirrorPartial{ .target = .{ .line = l5 } };
     const o5 = OneArgFunctionPartial{ .mirror = m5 };
     try testing.expectEqualDeep(o5, r5.value.ok);
 }
@@ -1718,6 +1726,50 @@ test "connectionParser bare single op and mixed items" {
     try testing.expectEqualStrings("out", r2.value.ok.transformationPairs[0].outputName);
     try testing.expectEqual(@as(f32, 1.0), r2.value.ok.transformationPairs[0].operation.ops[0].anchor.point.point.x);
     try testing.expectEqual(@as(f32, 2.0), r2.value.ok.transformationPairs[0].operation.ops[0].anchor.point.point.y);
+
+    const r3 = try connectionParser.parse(a, "(out1, out2, out3) -> (out1, (m out3) out2, a {(0,0)} out3)");
+    try testing.expectEqual(@as(usize, 3), r3.value.ok.transformationPairs.len);
+    try testing.expectEqual(.none, r3.value.ok.transformationPairs[0].operation.ops[0]);
+    try testing.expectEqual(@as(usize, 1), r3.value.ok.transformationPairs[1].operation.ops.len);
+    try testing.expect(r3.value.ok.transformationPairs[1].operation.ops[0] == .mirror);
+    try testing.expectEqualDeep(
+        ElementReference{ .other = "out3" },
+        r3.value.ok.transformationPairs[1].operation.ops[0].mirror.target.element,
+    );
+    try testing.expectEqual(
+        inputs.Line{ .a = 1.0, .b = 1.0, .c = 0.0 },
+        (try mirrorPartialParser.parse(a, "m (y=x)")).value.ok.target.line,
+    );
+}
+
+test "toExplicitPoint bare mirror against element output" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const p1 = inputs.InputElement{ .point = .{ .x = 0.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{p1} };
+    const v = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 1.0 } };
+    const vrow = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ row, vrow } };
+
+    const r = try connectionParser.parse(a, "(out1, out2) -> ((m out2) out1, a {(0,0)} out2)");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .all, 0, .xy);
+
+    // out1 = point (0,1) mirrored over the line through (0,0) along [1,1] (y=x).
+    // Mirror of (0,1) over y=x is (1,0).
+    const ops = transformed.transformationPairs[0].operation.ops;
+    var found: ?inputs.Point = null;
+    for (ops) |op| {
+        if (op == .anchor and op.anchor.point == .point) {
+            const p = op.anchor.point.point;
+            if (@abs(p.x - 1.0) < 0.0001 and @abs(p.y - 0.0) < 0.0001) {
+                found = p;
+            }
+        }
+    }
+    try testing.expect(found != null);
 }
 
 test "connectionParser with text items" {
@@ -2269,6 +2321,34 @@ fn collectVectors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize, 
     return vectors;
 }
 
+/// Builds the base polyline for a compose that contains no anchor op: the
+/// element's own geometry. Point elements become a polyline through their
+/// points; otherwise vectors are accumulated from the origin.
+fn collectBasePolyline(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize, vectors: []const inputs.Vector) ![]inputs.Point {
+    if (idx < inp.input.len) {
+        var points = std.ArrayList(inputs.Point).empty;
+        errdefer points.deinit(allocator);
+        for (inp.input[idx].row) |elem| {
+            switch (elem) {
+                .point => |p| try points.append(allocator, p),
+                else => {},
+            }
+        }
+        if (points.items.len > 0) {
+            return points.toOwnedSlice(allocator);
+        }
+        points.deinit(allocator);
+    }
+    var poly = try allocator.alloc(inputs.Point, vectors.len + 1);
+    poly[0] = inputs.Point{ .x = 0, .y = 0 };
+    var cur = poly[0];
+    for (vectors, 0..) |v, j| {
+        cur = inputs.Point{ .x = cur.x + v.x, .y = cur.y + v.y };
+        poly[j + 1] = cur;
+    }
+    return poly;
+}
+
 test "collectVectors" {
     const v1 = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 2.0 } };
     const v2 = inputs.InputElement{ .vector = .{ .x = 3.0, .y = 4.0 } };
@@ -2313,6 +2393,44 @@ test "collectVectors" {
     try testing.expectApproxEqAbs(@as(f32, 0.0), polar_coord[0].y, 0.0001);
     try testing.expectApproxEqAbs(@as(f32, 0.0), polar_coord[1].x, 0.0001);
     try testing.expectApproxEqAbs(@as(f32, 1.0), polar_coord[1].y, 0.0001);
+}
+
+test "collectBasePolyline" {
+    const row = inputs.InputElementRow{ .row = &[3]inputs.InputElement{
+        inputs.InputElement{ .point = .{ .x = 5.0, .y = 6.0 } },
+        inputs.InputElement{ .point = .{ .x = 7.0, .y = 8.0 } },
+        inputs.InputElement{ .vector = .{ .x = 1.0, .y = 2.0 } },
+    } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const vectors = try collectVectors(a, inp, 0, .xy, .fixed);
+    defer a.free(vectors);
+
+    const base = try collectBasePolyline(a, inp, 0, vectors);
+    defer a.free(base);
+    try testing.expectEqual(@as(usize, 2), base.len);
+    try testing.expectEqual(@as(f32, 5.0), base[0].x);
+    try testing.expectEqual(@as(f32, 6.0), base[0].y);
+    try testing.expectEqual(@as(f32, 7.0), base[1].x);
+    try testing.expectEqual(@as(f32, 8.0), base[1].y);
+
+    const empty_row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{
+        inputs.InputElement{ .vector = .{ .x = 1.0, .y = 2.0 } },
+    } };
+    const empty_inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{empty_row} };
+    const v2 = try collectVectors(a, empty_inp, 0, .xy, .fixed);
+    defer a.free(v2);
+    const base2 = try collectBasePolyline(a, empty_inp, 0, v2);
+    defer a.free(base2);
+    try testing.expectEqual(@as(usize, 2), base2.len);
+    try testing.expectEqual(@as(f32, 0.0), base2[0].x);
+    try testing.expectEqual(@as(f32, 0.0), base2[0].y);
+    try testing.expectEqual(@as(f32, 1.0), base2[1].x);
+    try testing.expectEqual(@as(f32, 2.0), base2[1].y);
 }
 
 /// Counts explicit point anchors in a composition and returns them in reverse order.
@@ -3567,13 +3685,23 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 var ctx_begin: ?inputs.Point = null;
                 var ctx_end: ?inputs.Point = null;
 
-                var polylines = try allocator.alloc([]inputs.Point, num_ops);
+                // +1 slot to accommodate a synthesized base polyline when the
+                // compose contains no anchor op.
+                var polylines = try allocator.alloc([]inputs.Point, num_ops + 1);
                 var poly_count: usize = 0;
 
                 var i: usize = num_ops;
                 while (i > 0) {
                     i -= 1;
                     const op = ops[i];
+
+                    if (op != .anchor and poly_count == 0) {
+                        const base = try collectBasePolyline(allocator, inp, idx, vectors);
+                        polylines[poly_count] = base;
+                        ctx_begin = base[0];
+                        ctx_end = base[base.len - 1];
+                        poly_count += 1;
+                    }
 
                     var poly: []inputs.Point = undefined;
                     if (op == .anchor) {
@@ -3603,7 +3731,25 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                         poly = try processScaleOp(allocator, prev_poly, arg, vectors, orientation, ctx_begin);
                     } else if (op == .mirror) {
                         const prev_poly = polylines[poly_count - 1];
-                        poly = try processMirrorOp(allocator, prev_poly, op.mirror.line, orientation, ctx_begin);
+                        switch (op.mirror.target) {
+                            .line => |l| {
+                                poly = try processMirrorOp(allocator, prev_poly, l, orientation, ctx_begin);
+                            },
+                            .vector => |v| {
+                                poly = try processMirrorOp(allocator, prev_poly, inputs.Line{ .a = v.x, .b = v.y, .c = 0 }, orientation, ctx_begin);
+                            },
+                            .element => |eref| {
+                                const line = try resolveElementToLine(allocator, inp, outputs, eref, idx, coordinate_type, orientation, plot_steps);
+                                poly = try processMirrorOp(allocator, prev_poly, line, orientation, ctx_begin);
+                            },
+                            .point => |gp| {
+                                const pt = try resolveGeneralPoint(allocator, gp, ctx_begin, ctx_end, inp, outputs, orientation, coordinate_type, plot_steps);
+                                poly = try allocator.alloc(inputs.Point, prev_poly.len);
+                                for (prev_poly, 0..) |p, j| {
+                                    poly[j] = inputs.Point{ .x = 2 * pt.x - p.x, .y = 2 * pt.y - p.y };
+                                }
+                            },
+                        }
                     } else if (op == .project) {
                         const prev_poly = polylines[poly_count - 1];
                         switch (op.project.target) {
@@ -5693,7 +5839,7 @@ test "toExplicitPoint fixed - compose with anchor and mirror 1" {
     // (a) anchor at (1,1) with vector [1,0]: polyline from (1,1) to (2,1)
     // (b) mirror (y=x) reflects vector wrt to y=x: polyline from (1, 1) to (1, 2)
     const l1 = inputs.Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
-    const m1 = MirrorPartial{ .line = l1 };
+    const m1 = MirrorPartial{ .target = .{ .line = l1 } };
     const tp = OutputTransformationPair{
         .outputName = "out",
         .operation = Compose{
@@ -5734,7 +5880,7 @@ test "toExplicitPoint origin - compose with anchor and mirror 1" {
     // (a) anchor at (1,0) with vector [1,0]: polyline from (1,0) to (2,0)
     // (b) mirror (y=x) reflects vector wrt to y=x, but with local frame having origin at (1,0): polyline from (1, 0) to (1, 1)
     const l1 = inputs.Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
-    const m1 = MirrorPartial{ .line = l1 };
+    const m1 = MirrorPartial{ .target = .{ .line = l1 } };
     const tp = OutputTransformationPair{
         .outputName = "out",
         .operation = Compose{
@@ -5775,7 +5921,7 @@ test "toExplicitPoint coord - compose with anchor and mirror 1" {
     // (a) anchor at (1,1) with vector [1,1]: polyline from (1,1) to (2,2)
     // (b) mirror (y=x) reflects vector wrt to y=x, but with local frame having origin at (1,1) and x axis along vector from step (a). Result: polyline from (1, 1) to (0, 2)
     const l1 = inputs.Line{ .a = 1.0, .b = 1.0, .c = 0.0 };
-    const m1 = MirrorPartial{ .line = l1 };
+    const m1 = MirrorPartial{ .target = .{ .line = l1 } };
     const tp = OutputTransformationPair{
         .outputName = "out",
         .operation = Compose{

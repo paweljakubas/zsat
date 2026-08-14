@@ -791,6 +791,17 @@ printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}\n[[1,0.7
 ```
 <img src="fig53.png" width="332" style="border: 2px solid grey;">
 
+And transformations work for points and vectors can be part of that (notice that `all` is added to `e1` and we mirrored `aqua` points against vector):
+
+```bash
+printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}\n[[1,0.75]]' | zsat draw \
+  -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d all [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
+  -d '(pt0, pt1, vec0) -> (pt0 -> e0, pt1 -> e1, vec0 -> e2)' \
+  -o '(out1, out2, out3) -> (out1, (m out3) out2, a {(0,0)} out3)'
+```
+<img src="fig54.png" width="332" style="border: 2px solid grey;">
+
+
 ## Exploring the tool through help
 
 `zsat` provides built-in documentation through subcommands. Instead of remembering every detail, you can query the tool directly.
