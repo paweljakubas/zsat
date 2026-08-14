@@ -770,6 +770,15 @@ printf '{(0,0), (1,0), (0,1), (1,1)}' | zsat draw  \
 ```
 <img src="fig51.png" width="332" style="border: 2px solid grey;">
 
+If two sets of points are provided on the input, one can use two point styles for each set:
+
+```bash
+printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}' | zsat draw \
+  -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d [sh:circle, s:25, c:aqua]}' \
+  -d '(pt0, pt1) -> (pt0 -> e0, pt1 -> e1)' \
+  -o '(out1, out2) -> (out1, out2)'
+```
+<img src="fig52.png" width="332" style="border: 2px solid grey;">
 
 
 ## Exploring the tool through help

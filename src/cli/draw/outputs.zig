@@ -1544,9 +1544,47 @@ const connectionParserRawIdentity = mecha.combine(.{
         };
     }
 }.toIdentity);
+const identityTransformationMultipleParserRaw = mecha.combine(.{
+    common.skipOpenBracket,
+    mecha.many(outputNameStrParser, .{ .collect = true, .separator = outputSeparatorParser }),
+    common.skipCloseBracket,
+});
+const identityTransformationMultipleParserRawP = @TypeOf(identityTransformationMultipleParserRaw);
+fn toIdentityTransformationMultiple(arena: std.mem.Allocator, names: identityTransformationMultipleParserRawP.T) mecha.ConvertError![]OutputTransformationPair {
+    var arr = try arena.alloc(OutputTransformationPair, names.len);
+    for (names, 0..) |name, i| {
+        const identityOp = OneArgFunctionPartial{ .none = {} };
+        const ops = try arena.alloc(OneArgFunctionPartial, 1);
+        ops[0] = identityOp;
+        arr[i] = OutputTransformationPair{
+            .outputName = name,
+            .operation = Compose{ .ops = ops },
+        };
+    }
+    arena.free(names);
+    return arr;
+}
+const identityTransformationMultipleParser = identityTransformationMultipleParserRaw.convert(toIdentityTransformationMultiple);
+const connectionParserRawIdentityMultiple = mecha.combine(.{
+    outputsParser,
+    common.skipWhitespace,
+    common.skipArrow,
+    common.skipWhitespace,
+    identityTransformationMultipleParser,
+}).convert(struct {
+    fn toIdentityMultiple(_: std.mem.Allocator, args: anytype) mecha.ConvertError!Connection {
+        return Connection{
+            .outputs = args[0],
+            .transformationPairs = args[1],
+            .textOutputs = &.{},
+            .axisOutputs = &.{},
+        };
+    }
+}.toIdentityMultiple);
 pub const connectionParser = mecha.oneOf(.{
     connectionParserRawMultiple,
     connectionParserRawSingle,
+    connectionParserRawIdentityMultiple,
     connectionParserRawIdentity,
 });
 
@@ -1611,6 +1649,27 @@ test "connectionParser" {
         .axisOutputs = &.{},
     };
     try testing.expectEqualDeep(exp2, r2.value.ok);
+}
+
+test "connectionParser identity multiple" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try connectionParser.parse(a, "(out1, out2) -> (out1, out2)");
+    try testing.expectEqual(@as(usize, 2), r1.value.ok.outputs.len);
+    try testing.expectEqualStrings("out1", r1.value.ok.outputs[0].name);
+    try testing.expectEqualStrings("out2", r1.value.ok.outputs[1].name);
+    try testing.expectEqual(@as(usize, 2), r1.value.ok.transformationPairs.len);
+    try testing.expectEqualStrings("out1", r1.value.ok.transformationPairs[0].outputName);
+    try testing.expectEqualStrings("out2", r1.value.ok.transformationPairs[1].outputName);
+    try testing.expectEqual(@as(usize, 1), r1.value.ok.transformationPairs[0].operation.ops.len);
+    try testing.expectEqual(.none, r1.value.ok.transformationPairs[0].operation.ops[0]);
+
+    const r2 = try connectionParser.parse(a, " ( out1 , out2 ) -> ( out1 , out2 ) ");
+    try testing.expectEqual(@as(usize, 2), r2.value.ok.outputs.len);
+    try testing.expectEqualStrings("out1", r2.value.ok.transformationPairs[0].outputName);
+    try testing.expectEqualStrings("out2", r2.value.ok.transformationPairs[1].outputName);
 }
 
 test "connectionParser with text items" {
