@@ -166,6 +166,8 @@ pub const pt2d_help =
     \\
     \\Output:
     \\  Use the identity output `(pt) -> pt` to draw the raw input points.
+    \\  Points can also be anchored, rotated, mirrored and projected before
+    \\  drawing. See `zsat draw pt2d output --help` for the available operations.
     \\
     \\Examples:
     \\  printf '{(1,1)}' | zsat draw -s 'e0:{pt2d [sh:circle, s:10]}' -o '(pt) -> pt'
@@ -199,6 +201,58 @@ pub const pt2d_style_help =
     \\  e0:{pt2d [sh:square, s:5]}
     \\  e0:{pt2d [sh:circle, s:8, c: red, o: 50]}
     \\  e0:{pt2d polar [sh:circle, s:8]}
+;
+
+/// Help text for `zsat draw pt2d output --help`
+pub const pt2d_output_help =
+    \\The --outputs expression defines how each point row is transformed and anchored.
+    \\
+    \\Syntax:
+    \\  (pt0, pt1, ...) -> (EXPR0, EXPR1, ...)
+    \\
+    \\Each EXPR is a composition of operations applied right-to-left:
+    \\  (op3 & op2 & op1) pt   means   op3( op2( op1( pt ) ) )
+    \\
+    \\Available operations for points:
+    \\
+    \\  anchor POINT      -- pins the point(s) at the given position
+    \\  rotate ANGLE around POINT  -- rotate counter-clockwise by ANGLE degrees
+    \\  mirror (LINE)     -- reflect the point(s) across LINE
+    \\  project TARGET    -- project the point(s) onto a line or direction
+    \\  center            -- replace the point(s) with their centroid (average position)
+    \\
+    \\Operations that do NOT make sense for points and are rejected:
+    \\  scale SX,SY       -- a point carries no magnitude to scale
+    \\  orthogonal TARGET -- a point carries no direction for an orthogonal component
+    \\
+    \\Shorthand forms:
+    \\  a   -- anchor
+    \\  r   -- rotate
+    \\  m   -- mirror
+    \\  p   -- project
+    \\  c   -- center
+    \\
+    \\ANGLE syntax:
+    \\  90        -- 90 degrees
+    \\  -45       -- negative 45 degrees (clockwise)
+    \\  1r4p      -- pi/4  = 45 degrees
+    \\  -1r6p     -- -pi/6 = -30 degrees
+    \\  p         -- pi    = 180 degrees
+    \\
+    \\POINT syntax:  see `zsat draw point --help`
+    \\LINE syntax:   see `zsat draw line --help`
+    \\
+    \\TARGET for project:
+    \\  (LINE)            -- a line, e.g. (y=0) or (y=2x+1)
+    \\  outN              -- reference to another output's direction
+    \\
+    \\Examples:
+    \\  (pt) -> pt                          -- draw raw input points
+    \\  (pt) -> (a {(0,0)}) pt              -- move all points to (0,0)
+    \\  (pt) -> (r [90 a (0% self)] & a {(0,0)}) pt  -- rotate 90 degrees
+    \\  (pt) -> (m (y=x) & a {(0,0)}) pt    -- mirror across y=x
+    \\  (pt) -> (p (y=0) & a {(0,0)}) pt    -- project onto the line y=0
+    \\  (pt) -> (c) pt                      -- collapse all points to their centroid
 ;
 
 /// Help text for `zsat draw point --help`

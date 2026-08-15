@@ -373,6 +373,26 @@ test "zsat draw pt2d --help" {
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "polar"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "(pt) -> pt"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "pt2d style --help"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "pt2d output --help"));
+}
+
+test "zsat draw pt2d output --help" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "pt2d", "output", "--help" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "anchor POINT"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "rotate"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "mirror"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "project"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "scale"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "orthogonal"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "1r4p"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "-1r6p"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "point --help"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "line --help"));
 }
 
 test "zsat draw pt2d style --help" {
@@ -492,6 +512,37 @@ test "zsat draw pt2d orthogonal rejected" {
     defer result.deinit();
 
     try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "orthogonal"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "point"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "pt2d"));
+}
+
+test "zsat draw pt2d center works" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-s", "e0:{pt2d [sh:circle, s:10]}", "-o", "(pt) -> (center) pt" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "{(0,0), (2,0)}" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw pt2d center shorthand works" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-s", "e0:{pt2d [sh:circle, s:10]}", "-o", "(pt) -> (c) pt" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "{(0,0), (2,0)}" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw pt2d center rejected for vec2d" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-s", "e0:{vec2d [l:5]}", "-o", "(out) -> (center) out" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "center"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "point"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "pt2d"));
 }

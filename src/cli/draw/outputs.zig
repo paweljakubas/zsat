@@ -98,6 +98,7 @@ pub const OneArgFunctionPartial = union(enum) {
     mirror: MirrorPartial,
     project: ProjectPartial,
     orthogonal: OrthogonalPartial,
+    center: CenterPartial,
 };
 
 //Anchor obj to point
@@ -147,6 +148,9 @@ pub const ProjectPartial = struct {
 pub const OrthogonalPartial = struct {
     target: ProjectTarget,
 };
+
+//Replaces the current set of points with their center (centroid)
+pub const CenterPartial = struct {};
 
 pub const ElementReference = union(enum) {
     self,
@@ -1051,6 +1055,72 @@ fn toOrthogonalPartialUnion(_: std.mem.Allocator, res: OrthogonalPartial) mecha.
 }
 const orthogonalPartialUnionParser = orthogonalPartialParser.convert(toOrthogonalPartialUnion);
 
+const centerPartialParserRawInner = mecha.combine(.{
+    common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("center"),
+        mecha.string("c"),
+    }).discard(),
+    common.skipWhitespace,
+});
+const centerPartialParserRawWithout = centerPartialParserRawInner;
+const centerPartialParserRawWith = mecha.combine(.{
+    common.skipOpenBracket,
+    centerPartialParserRawInner,
+    common.skipCloseBracket,
+});
+
+const centerPartialParserRaw = mecha.oneOf(.{
+    centerPartialParserRawWith,
+    centerPartialParserRawWithout,
+});
+const centerPartialParserRawP = @TypeOf(centerPartialParserRaw);
+fn toCenterPartial(_: std.mem.Allocator, _: centerPartialParserRawP.T) mecha.ConvertError!CenterPartial {
+    return CenterPartial{};
+}
+const centerPartialParser = centerPartialParserRaw.convert(toCenterPartial);
+
+fn toCenterPartialUnion(_: std.mem.Allocator, res: CenterPartial) mecha.ConvertError!OneArgFunctionPartial {
+    return OneArgFunctionPartial{ .center = res };
+}
+const centerPartialUnionParser = centerPartialParser.convert(toCenterPartialUnion);
+
+test "centerPartialParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try centerPartialParser.parse(a, "center");
+    try testing.expectEqual(CenterPartial{}, r1.value.ok);
+    try testing.expectEqual(@as(usize, "center".len), r1.index);
+
+    const r2 = try centerPartialParser.parse(a, " c ");
+    try testing.expectEqual(CenterPartial{}, r2.value.ok);
+
+    const r3 = try centerPartialParser.parse(a, "(center)");
+    try testing.expectEqual(CenterPartial{}, r3.value.ok);
+    try testing.expectEqual(@as(usize, "(center)".len), r3.index);
+
+    const r4 = try centerPartialParser.parse(a, "(c)");
+    try testing.expectEqual(CenterPartial{}, r4.value.ok);
+
+    const r5 = try oneArgFunctionPartialParser.parse(a, "(c)");
+    try testing.expectEqual(OneArgFunctionPartial{ .center = CenterPartial{} }, r5.value.ok);
+
+    const r6 = try outputTransformationPairParser.parse(a, "(center) pt");
+    try testing.expectEqual(@as(usize, "(center) pt".len), r6.index);
+    try testing.expectEqual(OneArgFunctionPartial{ .center = CenterPartial{} }, r6.value.ok.operation.ops[0]);
+
+    const r7 = try connectionParser.parse(a, "(pt) -> (center) pt");
+    try testing.expectEqual(@as(usize, "(pt) -> (center) pt".len), r7.index);
+    try testing.expectEqual(@as(usize, 1), r7.value.ok.transformationPairs.len);
+    try testing.expectEqual(OneArgFunctionPartial{ .center = CenterPartial{} }, r7.value.ok.transformationPairs[0].operation.ops[0]);
+
+    const r8 = try connectionParser.parse(a, "(pt) -> (c) pt");
+    try testing.expectEqual(@as(usize, "(pt) -> (c) pt".len), r8.index);
+    try testing.expectEqual(OneArgFunctionPartial{ .center = CenterPartial{} }, r8.value.ok.transformationPairs[0].operation.ops[0]);
+}
+
 const oneArgFunctionPartialParser = mecha.oneOf(.{
     anchorPartialUnionParser,
     rotatePartialUnionParser,
@@ -1058,6 +1128,7 @@ const oneArgFunctionPartialParser = mecha.oneOf(.{
     mirrorPartialUnionParser,
     projectPartialUnionParser,
     orthogonalPartialUnionParser,
+    centerPartialUnionParser,
 });
 
 test "oneArgFunctionPartialParser" {
@@ -1615,9 +1686,25 @@ const connectionParserRawIdentityMultiple = mecha.combine(.{
         };
     }
 }.toIdentityMultiple);
-pub const connectionParser = mecha.oneOf(.{
-    connectionParserRawMultiple,
+const endOfInputParser = mecha.Parser(void){
+    .parse = struct {
+        fn parse(_: std.mem.Allocator, str: []const u8) mecha.Error!mecha.Result(void) {
+            if (str.len == 0) return mecha.Result(void).ok(0, {});
+            return mecha.Result(void).err(0);
+        }
+    }.parse,
+};
+// A single transformation pair that must consume the whole input. This is tried
+// first so that a single-pair expression like `(pt) -> (center) pt` is not
+// mis-parsed as an items-list (e.g. `(center)` matching the bare identity name
+// `center`) by `connectionParserRawMultiple`.
+const connectionParserRawSingleFull = mecha.combine(.{
     connectionParserRawSingle,
+    endOfInputParser,
+});
+pub const connectionParser = mecha.oneOf(.{
+    connectionParserRawSingleFull,
+    connectionParserRawMultiple,
     connectionParserRawIdentityMultiple,
     connectionParserRawIdentity,
 });
@@ -3801,6 +3888,17 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                                 poly = try processOrthogonalOp(allocator, prev_poly, target, orientation, ctx_begin, false);
                             },
                         }
+                    } else if (op == .center) {
+                        const prev_poly = polylines[poly_count - 1];
+                        var cx: f32 = 0;
+                        var cy: f32 = 0;
+                        for (prev_poly) |p| {
+                            cx += p.x;
+                            cy += p.y;
+                        }
+                        const count: f32 = @floatFromInt(prev_poly.len);
+                        poly = try allocator.alloc(inputs.Point, 1);
+                        poly[0] = inputs.Point{ .x = cx / count, .y = cy / count };
                     } else continue;
                     polylines[poly_count] = poly;
                     ctx_begin = poly[0];

@@ -189,7 +189,14 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
         .help = draw_help.pt2d_style_help,
     }, draw_help.printHelpExec);
 
+    const pt2d_output_cmd = try zli.Command.init(init_opts, .{
+        .name = "output",
+        .description = "Output transformations: anchor, rotate, mirror, project",
+        .help = draw_help.pt2d_output_help,
+    }, draw_help.printHelpExec);
+
     try pt2d_cmd.addCommand(pt2d_style_cmd);
+    try pt2d_cmd.addCommand(pt2d_output_cmd);
     try cmd.addCommand(pt2d_cmd);
 
     const point_cmd = try zli.Command.init(init_opts, .{
@@ -410,14 +417,16 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
 
     // The scale and orthogonal transformations do not make sense for point
     // (pt2d) output: a point carries no magnitude to scale nor a direction
-    // whose orthogonal component could be taken. Reject them explicitly.
+    // whose orthogonal component could be taken. The center transformation
+    // is currently only supported for point output. Reject these explicitly.
     for (0..inputs.input.len) |row_idx| {
         if (row_idx >= outputsValidated.transformationPairs.len) continue;
-        if (!isPt2dRow(styles, datumValidated.mappings, row_idx)) continue;
+        const is_pt2d = isPt2dRow(styles, datumValidated.mappings, row_idx);
         for (outputsValidated.transformationPairs[row_idx].operation.ops) |op| {
             switch (op) {
-                .scale => return error.PointScaleNotSupported,
-                .orthogonal => return error.PointOrthogonalNotSupported,
+                .scale => if (is_pt2d) return error.PointScaleNotSupported,
+                .orthogonal => if (is_pt2d) return error.PointOrthogonalNotSupported,
+                .center => if (!is_pt2d) return error.CenterNotSupportedForVec2d,
                 else => {},
             }
         }
@@ -787,6 +796,7 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
         error.AxisReferenceInvalid => "Error: an output references an axis object that was not defined in --styles.",
         error.PointScaleNotSupported => "Error: the 'scale' output transformation does not make sense for point (pt2d) output. Remove 'scale' from your --outputs argument.",
         error.PointOrthogonalNotSupported => "Error: the 'orthogonal' output transformation does not make sense for point (pt2d) output. Remove 'orthogonal' from your --outputs argument.",
+        error.CenterNotSupportedForVec2d => "Error: the 'center' output transformation is currently only supported for point (pt2d) output.",
         else => "Error: an unexpected error occurred.",
     };
 }
