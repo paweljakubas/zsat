@@ -408,6 +408,21 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         outputsValidated.transformationPairs = replicated;
     }
 
+    // The scale and orthogonal transformations do not make sense for point
+    // (pt2d) output: a point carries no magnitude to scale nor a direction
+    // whose orthogonal component could be taken. Reject them explicitly.
+    for (0..inputs.input.len) |row_idx| {
+        if (row_idx >= outputsValidated.transformationPairs.len) continue;
+        if (!isPt2dRow(styles, datumValidated.mappings, row_idx)) continue;
+        for (outputsValidated.transformationPairs[row_idx].operation.ops) |op| {
+            switch (op) {
+                .scale => return error.PointScaleNotSupported,
+                .orthogonal => return error.PointOrthogonalNotSupported,
+                else => {},
+            }
+        }
+    }
+
     var result_pairs = try alloc.alloc(Outputs.OutputTransformationPair, outputsValidated.transformationPairs.len);
 
     for (0..outputsValidated.transformationPairs.len) |idx| {
@@ -533,6 +548,19 @@ fn resolvePaneBorder(pane: Panes.Pane, borders: []const Border.BorderDefinition)
             return null;
         },
     }
+}
+
+fn isPt2dRow(styles: []const Styles.Style, mappings: []const Datum.DataElementMapping, row_idx: usize) bool {
+    var style_idx: ?usize = null;
+    for (mappings) |mapping| {
+        if (mapping.from == row_idx) {
+            style_idx = mapping.to;
+            break;
+        }
+    }
+    const idx = style_idx orelse return false;
+    if (idx >= styles.len) return false;
+    return styles[idx].styleValue.styleType == .pt2d;
 }
 
 fn checkTerminalSupportsKitty(environ: std.process.Environ) bool {
@@ -757,6 +785,8 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
         error.TextReferenceInvalid => "Error: an output references a text object that was not defined in --styles.",
         error.AxisBaseInvalid => "Error: an axis definition references a base axis that is not defined in --styles (the base must be declared before the axis that inherits from it).",
         error.AxisReferenceInvalid => "Error: an output references an axis object that was not defined in --styles.",
+        error.PointScaleNotSupported => "Error: the 'scale' output transformation does not make sense for point (pt2d) output. Remove 'scale' from your --outputs argument.",
+        error.PointOrthogonalNotSupported => "Error: the 'orthogonal' output transformation does not make sense for point (pt2d) output. Remove 'orthogonal' from your --outputs argument.",
         else => "Error: an unexpected error occurred.",
     };
 }
