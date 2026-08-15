@@ -1999,6 +1999,133 @@ test "toExplicitPoint pure anchor on point row with identity sibling" {
     try testing.expectEqual(@as(usize, 3), count);
 }
 
+test "toExplicitPoint vec2d center single vector is midpoint" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const v1 = inputs.InputElement{ .vector = .{ .x = 2.0, .y = 0.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v1} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const r = try connectionParser.parse(a, "(out) -> (center) out");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(@as(usize, 1), transformed.transformationPairs[0].operation.ops.len);
+    const op = transformed.transformationPairs[0].operation.ops[0];
+    try testing.expect(op == .anchor);
+    try testing.expectEqual(inputs.Point{ .x = 1.0, .y = 0.0 }, op.anchor.point.point);
+}
+
+test "toExplicitPoint vec2d center chain is length-weighted centroid" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const v1 = inputs.InputElement{ .vector = .{ .x = 2.0, .y = 0.0 } };
+    const v2 = inputs.InputElement{ .vector = .{ .x = 0.0, .y = 2.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const r = try connectionParser.parse(a, "(out) -> (center) out");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    // polyline (0,0) -> (2,0) -> (2,2); two equal segments, weighted centroid (1.5, 0.5)
+    try testing.expectEqual(@as(usize, 1), transformed.transformationPairs[0].operation.ops.len);
+    const op = transformed.transformationPairs[0].operation.ops[0];
+    try testing.expect(op == .anchor);
+    try testing.expectApproxEqAbs(@as(f32, 1.5), op.anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), op.anchor.point.point.y, 0.0001);
+}
+
+test "toExplicitPoint vec2d center weights segments by length" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const v1 = inputs.InputElement{ .vector = .{ .x = 4.0, .y = 0.0 } };
+    const v2 = inputs.InputElement{ .vector = .{ .x = 0.0, .y = 3.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const r = try connectionParser.parse(a, "(out) -> (center) out");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    // Segments: (0,0)-(4,0) mid (2,0) len 4; (4,0)-(4,3) mid (4,1.5) len 3
+    // Weighted: (4*(2,0) + 3*(4,1.5)) / 7 = (20/7, 4.5/7)
+    try testing.expectEqual(@as(usize, 1), transformed.transformationPairs[0].operation.ops.len);
+    const op = transformed.transformationPairs[0].operation.ops[0];
+    try testing.expect(op == .anchor);
+    try testing.expectApproxEqAbs(@as(f32, 20.0 / 7.0), op.anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 4.5 / 7.0), op.anchor.point.point.y, 0.0001);
+}
+
+test "toExplicitPoint vec2d center degenerate segments" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const v1 = inputs.InputElement{ .vector = .{ .x = 0.0, .y = 0.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v1} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const r = try connectionParser.parse(a, "(out) -> (center) out");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(@as(usize, 1), transformed.transformationPairs[0].operation.ops.len);
+    const op = transformed.transformationPairs[0].operation.ops[0];
+    try testing.expect(op == .anchor);
+    try testing.expectEqual(inputs.Point{ .x = 0.0, .y = 0.0 }, op.anchor.point.point);
+}
+
+test "toExplicitPoint vec2d center after anchor keeps centroid relative to anchor" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const v1 = inputs.InputElement{ .vector = .{ .x = 2.0, .y = 0.0 } };
+    const v2 = inputs.InputElement{ .vector = .{ .x = 0.0, .y = 2.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ v1, v2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    // Anchor at (5,5) makes the chain (5,5) -> (7,5) -> (7,7); center = (6.5, 5.5)
+    const r = try connectionParser.parse(a, "(out) -> (center & a {(5,5)}) out");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(@as(usize, 1), transformed.transformationPairs[0].operation.ops.len);
+    const op = transformed.transformationPairs[0].operation.ops[0];
+    try testing.expect(op == .anchor);
+    try testing.expectApproxEqAbs(@as(f32, 6.5), op.anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 5.5), op.anchor.point.point.y, 0.0001);
+}
+
+test "toExplicitPoint pt2d center is point centroid" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const p1 = inputs.InputElement{ .point = .{ .x = 0.0, .y = 0.0 } };
+    const p2 = inputs.InputElement{ .point = .{ .x = 2.0, .y = 0.0 } };
+    const p3 = inputs.InputElement{ .point = .{ .x = 0.0, .y = 2.0 } };
+    const row = inputs.InputElementRow{ .row = &[3]inputs.InputElement{ p1, p2, p3 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const r = try connectionParser.parse(a, "(pt) -> (center) pt");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(@as(usize, 1), transformed.transformationPairs[0].operation.ops.len);
+    const op = transformed.transformationPairs[0].operation.ops[0];
+    try testing.expect(op == .anchor);
+    try testing.expectApproxEqAbs(@as(f32, 2.0 / 3.0), op.anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 2.0 / 3.0), op.anchor.point.point.y, 0.0001);
+}
+
 test "connectionParser with text items" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -3760,6 +3887,48 @@ fn isPointRow(inp: inputs.Inputs, idx: usize) bool {
     return false;
 }
 
+/// Computes the "center" point of a polyline.
+///
+/// Point rows: the centroid (arithmetic mean) of the points.
+///
+/// Vector rows: the polyline is a chain of segments, so the center is the
+/// centroid of the segment midpoints weighted by each segment's length — for a
+/// single vector this is simply the midpoint of the vector. When every segment
+/// is degenerate (zero length) the arithmetic mean of the polyline points is
+/// returned instead.
+fn polylineCenter(poly: []const inputs.Point, is_point_row: bool) inputs.Point {
+    var cx: f32 = 0;
+    var cy: f32 = 0;
+    if (is_point_row) {
+        for (poly) |p| {
+            cx += p.x;
+            cy += p.y;
+        }
+        const count: f32 = @floatFromInt(poly.len);
+        return inputs.Point{ .x = cx / count, .y = cy / count };
+    }
+    var total_len: f32 = 0;
+    for (poly, 0..) |p, i| {
+        if (i == 0) continue;
+        const q = poly[i - 1];
+        const len = std.math.sqrt((p.x - q.x) * (p.x - q.x) + (p.y - q.y) * (p.y - q.y));
+        cx += len * (q.x + p.x) / 2.0;
+        cy += len * (q.y + p.y) / 2.0;
+        total_len += len;
+    }
+    if (total_len > 0) {
+        return inputs.Point{ .x = cx / total_len, .y = cy / total_len };
+    }
+    var ax: f32 = 0;
+    var ay: f32 = 0;
+    for (poly) |p| {
+        ax += p.x;
+        ay += p.y;
+    }
+    const count: f32 = @floatFromInt(poly.len);
+    return inputs.Point{ .x = ax / count, .y = ay / count };
+}
+
 /// Translates every point of `poly` so that its centroid lands on `target`.
 /// A single-point polyline moves its point exactly onto `target`. Allocates a
 /// new polyline and leaves `poly` untouched.
@@ -4138,15 +4307,8 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                         }
                     } else if (op == .center) {
                         const prev_poly = polylines[poly_count - 1];
-                        var cx: f32 = 0;
-                        var cy: f32 = 0;
-                        for (prev_poly) |p| {
-                            cx += p.x;
-                            cy += p.y;
-                        }
-                        const count: f32 = @floatFromInt(prev_poly.len);
                         poly = try allocator.alloc(inputs.Point, 1);
-                        poly[0] = inputs.Point{ .x = cx / count, .y = cy / count };
+                        poly[0] = polylineCenter(prev_poly, isPointRow(inp, idx));
                     } else continue;
                     polylines[poly_count] = poly;
                     ctx_begin = poly[0];

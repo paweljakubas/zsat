@@ -96,6 +96,10 @@ pub const vec2d_output_help =
     \\  mirror (LINE)     -- reflect across LINE
     \\  project TARGET    -- project onto a line or another output's direction
     \\  orthogonal TARGET -- orthogonal component relative to a line or output
+    \\  center            -- replace the vector chain with the point at its center:
+    \\                       for a single vector this is the middle of the vector;
+    \\                       for a chain of vectors it is the centroid of the
+    \\                       segment midpoints weighted by segment length
     \\
     \\Shorthand forms:
     \\  a   -- anchor
@@ -104,6 +108,7 @@ pub const vec2d_output_help =
     \\  m   -- mirror
     \\  p   -- project
     \\  o   -- orthogonal
+    \\  c   -- center
     \\
     \\ANGLE syntax:
     \\  90        -- 90 degrees
@@ -139,6 +144,7 @@ pub const vec2d_output_help =
     \\  (out) -> (p out2 & a {(1,1)}) out        -- project onto out2's line
     \\  (out) -> (o out2 & a {(1,1)}) out        -- orthogonal to out2's direction
     \\  (out) -> (p (beg out2) & a {(1,1)}) out  -- unit vector anchored at out2's start
+    \\  (out) -> (c) out                    -- collapse the chain to its center point
 ;
 
 /// Help text for `zsat draw pt2d --help`
@@ -479,7 +485,7 @@ pub const objects_help =
     \\  zsat draw vec2d style --help
     \\       Style attributes: coordinate system, orientation, steps, line properties
     \\  zsat draw vec2d output --help
-    \\       Output transformations: anchor, rotate, scale, mirror
+    \\       Output transformations: anchor, rotate, scale, mirror, center
     \\  zsat draw pt2d --help
     \\       Point input format, markers, and style attributes
     \\  zsat draw pt2d style --help

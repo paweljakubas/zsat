@@ -583,15 +583,24 @@ test "zsat draw pt2d center shorthand works" {
     try testing.expectEqual(@as(u8, 0), result.code);
 }
 
-test "zsat draw pt2d center rejected for vec2d" {
+test "zsat draw vec2d center works" {
     defer cleanupOutputFiles();
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-s", "e0:{vec2d [l:5]}", "-o", "(out) -> (center) out" };
     var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "center"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "point"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "pt2d"));
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw vec2d center shorthand works" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-s", "e0:{vec2d [l:5]}", "-o", "(out) -> (c) out" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
 }
 
 test "zsat draw pt2d scale works for vec2d" {
