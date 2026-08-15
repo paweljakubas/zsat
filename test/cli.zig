@@ -464,6 +464,53 @@ test "zsat draw pt2d anchor works" {
     try testing.expectEqual(@as(u8, 0), result.code);
 }
 
+test "zsat draw pt2d anchor multi point works" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-s", "e0:{pt2d [sh:circle, s:10]}", "-o", "(pt) -> (anchor {(1,2)}) pt" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "{(0,0), (2,0), (1,3)}" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw pt2d anchor single point works" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-s", "e0:{pt2d [sh:circle, s:10]}", "-o", "(pt) -> (anchor {(1,2)}) pt" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "{(5,5)}" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw pt2d anchor compose with rotate works" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-s", "e0:{pt2d [sh:circle, s:10]}", "-o", "(pt) -> (anchor {(1,2)} & rotate [90 a {(-0,0)}]) pt" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "{(0,0), (2,0), (1,3)}" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw pt2d pure anchor with identity sibling works" {
+    // out1's identity op triggers Phase 2 for all pairs; out2's pure anchor must
+    // still translate its point set so its centroid lands on the anchor.
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{
+        zsat_path, "draw", "--out", "/dev/null",
+        "-s", "e0:{pt2d [sh:circle, s:10]}, e1:{pt2d [sh:square, s:10]}, e2:{vec2d [l:5]}",
+        "-d", "(pt0, pt1, vec0) -> (pt0 -> e0, pt1 -> e1, vec0 -> e2)",
+        "-o", "(out1, out2, out3) -> (out1, a {(0.75, 0.25)} out2, a {(0,0)} out3)",
+    };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "{(0,0), (1,1)}\n{(0.3,0.3),(0.33,0.45),(0.75,0.75)}\n[[1,0.75]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
 test "zsat draw pt2d rotate works" {
     defer cleanupOutputFiles();
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-s", "e0:{pt2d [sh:circle, s:10]}", "-o", "(pt) -> (rotate [90 a {(-0,0)}]) pt" };

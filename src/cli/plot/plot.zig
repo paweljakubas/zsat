@@ -475,7 +475,8 @@ test "computeBounds" {
     try testing.expectApproxEqAbs(@as(f32, 5.0), r6.y[0], 0.001);
     try testing.expectApproxEqAbs(@as(f32, 8.339), r6.y[1], 0.001);
 
-    // Pt2d: input points contribute their bounds directly (ops ignored)
+    // Pt2d: input points contribute their bounds directly, plus any explicit-point
+    // anchor ops (the markers that are actually drawn)
     const TestPointShape = struct { value: enum { circle, square } };
     const TestPointSize = struct { value: u16 };
     const TestAttrs = struct { pointShape: ?TestPointShape, pointSize: ?TestPointSize };
@@ -491,19 +492,20 @@ test "computeBounds" {
     } };
     const p_inputs = TestInputs{ .input = &[1]TestRow{p_row} };
     const r7 = computeBounds(&p_styles, &outputs_single, &p_inputs, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.xy}, &p_mappings);
-    // points (3,4) and (-1,2)
+    // points (3,4) and (-1,2), plus the anchor op (5,5)
     try testing.expectEqual(@as(f32, -1.0), r7.x[0]);
-    try testing.expectEqual(@as(f32, 3.0), r7.x[1]);
+    try testing.expectEqual(@as(f32, 5.0), r7.x[1]);
     try testing.expectEqual(@as(f32, 2.0), r7.y[0]);
-    try testing.expectEqual(@as(f32, 4.0), r7.y[1]);
+    try testing.expectEqual(@as(f32, 5.0), r7.y[1]);
 
     // Pt2d polar: point (2,45) -> (2cos45, 2sin45) ~ (1.414, 1.414)
     const polar_p_row = TestRow{ .row = &[1]TestElem{.{ .point = .{ .x = 2.0, .y = 45.0 } }} };
     const polar_p_inputs = TestInputs{ .input = &[1]TestRow{polar_p_row} };
     const r8 = computeBounds(&p_styles, &outputs_single, &polar_p_inputs, &[1]enum { coord, origin, fixed }{.fixed}, &[1]CoordinateType{.polar}, &p_mappings);
+    // point (2,45) -> (1.414, 1.414), plus the anchor op (5,5) in polar -> (5cos5, 5sin5) ~ (4.981, 0.4358)
     try testing.expectApproxEqAbs(@as(f32, 1.4142), r8.x[0], 0.001);
-    try testing.expectApproxEqAbs(@as(f32, 1.4142), r8.x[1], 0.001);
-    try testing.expectApproxEqAbs(@as(f32, 1.4142), r8.y[0], 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 4.9810), r8.x[1], 0.001);
+    try testing.expectApproxEqAbs(@as(f32, 0.4358), r8.y[0], 0.001);
     try testing.expectApproxEqAbs(@as(f32, 1.4142), r8.y[1], 0.001);
 }
 
@@ -558,6 +560,19 @@ fn computeBounds(styles: anytype, outputs: anytype, input_data: anytype, coord_o
                             }
                         },
                         else => {},
+                    }
+                }
+            }
+            if (row_idx < outputs.transformationPairs.len) {
+                for (outputs.transformationPairs[row_idx].operation.ops) |op| {
+                    if (op == .anchor and op.anchor.point == .point) {
+                        const p = op.anchor.point.point;
+                        if (row_idx < coord_types.len and coord_types[row_idx] == .polar) {
+                            const angle_rad = p.y * pi / 180.0;
+                            updateBounds(p.x * @cos(angle_rad), p.x * @sin(angle_rad), &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                        } else {
+                            updateBounds(p.x, p.y, &minX, &maxX, &minY, &maxY, &boundsInitialized);
+                        }
                     }
                 }
             }

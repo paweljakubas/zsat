@@ -215,7 +215,9 @@ pub const pt2d_output_help =
     \\
     \\Available operations for points:
     \\
-    \\  anchor POINT      -- pins the point(s) at the given position
+    \\  anchor POINT      -- move the point set so its centroid lands on POINT:
+    \\                       a single point moves exactly onto POINT, multiple
+    \\                       points all shift by the same (POINT - centroid) vector
     \\  rotate ANGLE around POINT  -- rotate counter-clockwise by ANGLE degrees
     \\  mirror (LINE)     -- reflect the point(s) across LINE
     \\  project TARGET    -- project the point(s) onto a line or direction
@@ -248,7 +250,7 @@ pub const pt2d_output_help =
     \\
     \\Examples:
     \\  (pt) -> pt                          -- draw raw input points
-    \\  (pt) -> (a {(0,0)}) pt              -- move all points to (0,0)
+    \\  (pt) -> (a {(0,0)}) pt              -- shift points so centroid lands on (0,0)
     \\  (pt) -> (r [90 a (0% self)] & a {(0,0)}) pt  -- rotate 90 degrees
     \\  (pt) -> (m (y=x) & a {(0,0)}) pt    -- mirror across y=x
     \\  (pt) -> (p (y=0) & a {(0,0)}) pt    -- project onto the line y=0

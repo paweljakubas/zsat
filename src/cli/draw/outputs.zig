@@ -1859,6 +1859,146 @@ test "toExplicitPoint bare mirror against element output" {
     try testing.expect(found != null);
 }
 
+test "toExplicitPoint anchor translates point rows to centroid" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const p1 = inputs.InputElement{ .point = .{ .x = 0.0, .y = 0.0 } };
+    const p2 = inputs.InputElement{ .point = .{ .x = 4.0, .y = 0.0 } };
+    const p3 = inputs.InputElement{ .point = .{ .x = 2.0, .y = 6.0 } };
+    const row = inputs.InputElementRow{ .row = &[3]inputs.InputElement{ p1, p2, p3 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    // Single pure anchor: triangle centroid (2,2) must move to (1,2), so every
+    // point shifts by (-1,0).
+    const r = try connectionParser.parse(a, "(pt) -> (anchor {(1,2)}) pt");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    var count: usize = 0;
+    for (transformed.transformationPairs[0].operation.ops) |op| {
+        if (op == .anchor and op.anchor.point == .point) count += 1;
+    }
+    try testing.expectEqual(@as(usize, 3), count);
+
+    const expected = [_]inputs.Point{
+        .{ .x = -1.0, .y = 0.0 },
+        .{ .x = 3.0, .y = 0.0 },
+        .{ .x = 1.0, .y = 6.0 },
+    };
+    var idx: usize = 0;
+    for (transformed.transformationPairs[0].operation.ops) |op| {
+        if (op == .anchor and op.anchor.point == .point) {
+            try testing.expectApproxEqAbs(expected[idx].x, op.anchor.point.point.x, 0.0001);
+            try testing.expectApproxEqAbs(expected[idx].y, op.anchor.point.point.y, 0.0001);
+            idx += 1;
+        }
+    }
+}
+
+test "toExplicitPoint anchor single point moves to anchor" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const p1 = inputs.InputElement{ .point = .{ .x = 5.0, .y = 5.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{p1} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    // A single point has a degenerate centroid (the point itself), so anchoring
+    // simply moves it onto the anchor.
+    const r = try connectionParser.parse(a, "(pt) -> (anchor {(1,2)}) pt");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    var count: usize = 0;
+    for (transformed.transformationPairs[0].operation.ops) |op| {
+        if (op == .anchor and op.anchor.point == .point) {
+            try testing.expectApproxEqAbs(@as(f32, 1.0), op.anchor.point.point.x, 0.0001);
+            try testing.expectApproxEqAbs(@as(f32, 2.0), op.anchor.point.point.y, 0.0001);
+            count += 1;
+        }
+    }
+    try testing.expectEqual(@as(usize, 1), count);
+}
+
+test "toExplicitPoint anchor in compose with rotate on point row" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const p1 = inputs.InputElement{ .point = .{ .x = 0.0, .y = 0.0 } };
+    const p2 = inputs.InputElement{ .point = .{ .x = 4.0, .y = 0.0 } };
+    const p3 = inputs.InputElement{ .point = .{ .x = 2.0, .y = 6.0 } };
+    const row = inputs.InputElementRow{ .row = &[3]inputs.InputElement{ p1, p2, p3 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    // Anchor first (translate so centroid (2,2) -> (1,2)), then rotate 90 degrees
+    // counter-clockwise around (0,0): (x,y) -> (-y,x).
+    // Translated: {(-1,0),(3,0),(1,6)} -> rotated: {(0,-1),(0,3),(-6,1)}.
+    const r = try connectionParser.parse(a, "(pt) -> (rotate [90 a {(-0,0)}] & anchor {(1,2)}) pt");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    const expected = [_]inputs.Point{
+        .{ .x = 0.0, .y = -1.0 },
+        .{ .x = 0.0, .y = 3.0 },
+        .{ .x = -6.0, .y = 1.0 },
+    };
+    var idx: usize = 0;
+    var count: usize = 0;
+    for (transformed.transformationPairs[0].operation.ops) |op| {
+        if (op == .anchor and op.anchor.point == .point) {
+            try testing.expectApproxEqAbs(expected[idx].x, op.anchor.point.point.x, 0.001);
+            try testing.expectApproxEqAbs(expected[idx].y, op.anchor.point.point.y, 0.001);
+            idx += 1;
+            count += 1;
+        }
+    }
+    try testing.expectEqual(@as(usize, 3), count);
+}
+
+test "toExplicitPoint pure anchor on point row with identity sibling" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const p1 = inputs.InputElement{ .point = .{ .x = 0.3, .y = 0.3 } };
+    const p2 = inputs.InputElement{ .point = .{ .x = 0.33, .y = 0.45 } };
+    const p3 = inputs.InputElement{ .point = .{ .x = 0.75, .y = 0.75 } };
+    const prow = inputs.InputElementRow{ .row = &[3]inputs.InputElement{ p1, p2, p3 } };
+    const v1 = inputs.InputElement{ .vector = .{ .x = 1.0, .y = 0.75 } };
+    const vrow = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v1} };
+    // Input rows pair with outputs by index: out1 = vec2d row, out2 = point row.
+    const inp = inputs.Inputs{ .input = &[2]inputs.InputElementRow{ vrow, prow } };
+
+    // out1 is a vec2d row anchored at (0,0). The identity none-op in another pair
+    // would normally pull everything into Phase 2; the point row's pure anchor must
+    // still translate its set so the centroid lands on (0.75,0.25).
+    const r = try connectionParser.parse(a, "(out1, out2) -> (a {(0,0)} out1, a {(0.75, 0.25)} out2)");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    // out2 (point row): centroid (0.46, 0.5) shifted by (0.29, -0.25)
+    const expected = [_]inputs.Point{
+        .{ .x = 0.59, .y = 0.05 },
+        .{ .x = 0.62, .y = 0.20 },
+        .{ .x = 1.04, .y = 0.50 },
+    };
+    var idx: usize = 0;
+    var count: usize = 0;
+    for (transformed.transformationPairs[1].operation.ops) |op| {
+        if (op == .anchor and op.anchor.point == .point) {
+            try testing.expectApproxEqAbs(expected[idx].x, op.anchor.point.point.x, 0.0001);
+            try testing.expectApproxEqAbs(expected[idx].y, op.anchor.point.point.y, 0.0001);
+            idx += 1;
+            count += 1;
+        }
+    }
+    try testing.expectEqual(@as(usize, 3), count);
+}
+
 test "connectionParser with text items" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -3607,6 +3747,71 @@ fn resolveElementToLine(
     return inputs.Line{ .a = dx, .b = dy, .c = c };
 }
 
+/// Returns true when the input row is a point row (pt2d), i.e. it contains at
+/// least one explicit point element.
+fn isPointRow(inp: inputs.Inputs, idx: usize) bool {
+    if (idx >= inp.input.len) return false;
+    for (inp.input[idx].row) |elem| {
+        switch (elem) {
+            .point => return true,
+            else => {},
+        }
+    }
+    return false;
+}
+
+/// Translates every point of `poly` so that its centroid lands on `target`.
+/// A single-point polyline moves its point exactly onto `target`. Allocates a
+/// new polyline and leaves `poly` untouched.
+fn translatePolylineToPoint(allocator: std.mem.Allocator, poly: []const inputs.Point, target: inputs.Point) ![]inputs.Point {
+    var cx: f32 = 0;
+    var cy: f32 = 0;
+    for (poly) |p| {
+        cx += p.x;
+        cy += p.y;
+    }
+    const count: f32 = @floatFromInt(poly.len);
+    const dx = target.x - cx / count;
+    const dy = target.y - cy / count;
+    var result = try allocator.alloc(inputs.Point, poly.len);
+    for (poly, 0..) |p, j| {
+        result[j] = inputs.Point{ .x = p.x + dx, .y = p.y + dy };
+    }
+    return result;
+}
+
+/// Processes anchors for a point row (pt2d): translates the input point set so
+/// its centroid lands on each anchor in application order, preserving internal
+/// distances and orientation. A single point moves exactly onto its anchor.
+/// Returns a new ops array with one anchor per translated point.
+fn processPointRowAnchors(allocator: std.mem.Allocator, inp: inputs.Inputs, idx: usize, pair: OutputTransformationPair, coordinate_type: CoordinateType, orientation: CoordinateOrientation) ToExplicitPointError!OutputTransformationPair {
+    const anchors = try collectAnchorsReversed(allocator, pair.operation.ops);
+    defer allocator.free(anchors);
+    if (anchors.len == 0) return pair;
+
+    const vectors = try collectVectors(allocator, inp, idx, coordinate_type, orientation);
+    defer allocator.free(vectors);
+    var cur_poly = try collectBasePolyline(allocator, inp, idx, vectors);
+    const base_ptr = cur_poly.ptr;
+    const base_len = cur_poly.len;
+    for (anchors) |a| {
+        const next = try translatePolylineToPoint(allocator, cur_poly, a);
+        if (cur_poly.ptr != base_ptr) allocator.free(cur_poly);
+        cur_poly = next;
+    }
+    if (cur_poly.ptr != base_ptr) allocator.free(base_ptr[0..base_len]);
+
+    const new_ops = try allocator.alloc(OneArgFunctionPartial, cur_poly.len);
+    for (cur_poly, 0..) |p, j| {
+        new_ops[j] = OneArgFunctionPartial{ .anchor = .{ .point = .{ .point = p } } };
+    }
+    allocator.free(cur_poly);
+    return OutputTransformationPair{
+        .outputName = pair.outputName,
+        .operation = .{ .ops = new_ops },
+    };
+}
+
 /// Processes anchors in origin or fixed mode, expanding each anchor into a
 /// (begin, end) point pair using the input vector sum.
 ///
@@ -3637,6 +3842,11 @@ fn processOriginFixed(
 
     for (outputs.transformationPairs, 0..) |pair, idx| {
         const anchors = try collectAnchorsReversed(allocator, pair.operation.ops);
+        if (isPointRow(inp, idx)) {
+            allocator.free(anchors);
+            result_pairs[idx] = try processPointRowAnchors(allocator, inp, idx, pair, coordinate_type, orientation);
+            continue;
+        }
         if (anchors.len < 2) {
             result_pairs[idx] = pair;
             continue;
@@ -3762,7 +3972,35 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                 }
 
                 if (!has_mixed) {
-                    result_pairs[idx] = pair;
+                    if (isPointRow(inp, idx)) {
+                        // Pure-anchor point row in a mixed compose: translate the
+                        // input point set so its centroid lands on each anchor.
+                        // With plot_steps == .all, keep the original set as the
+                        // first step so the movement is visible.
+                        const vectors = try collectVectors(allocator, inp, idx, coordinate_type, orientation);
+                        defer allocator.free(vectors);
+                        const base = try collectBasePolyline(allocator, inp, idx, vectors);
+                        const anchors = try collectAnchorsReversed(allocator, ops);
+                        defer allocator.free(anchors);
+                        var polylines = try allocator.alloc([]inputs.Point, 2);
+                        polylines[0] = base;
+                        var cur_poly = base;
+                        for (anchors) |a| {
+                            const next = try translatePolylineToPoint(allocator, cur_poly, a);
+                            if (cur_poly.ptr != base.ptr) allocator.free(cur_poly);
+                            cur_poly = next;
+                        }
+                        polylines[1] = cur_poly;
+                        if (plot_steps == .last) {
+                            allocator.free(polylines[0]);
+                            polylines[0] = polylines[1];
+                            result_pairs[idx] = try flattenPolylinesToOps(allocator, polylines, 1, pair.outputName);
+                        } else {
+                            result_pairs[idx] = try flattenPolylinesToOps(allocator, polylines, 2, pair.outputName);
+                        }
+                    } else {
+                        result_pairs[idx] = pair;
+                    }
                     continue;
                 }
 
@@ -3800,12 +4038,22 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                             .fraction => |frac| try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation),
                             .self => ctx_begin orelse inputs.Point{ .x = 0, .y = 0 },
                         };
-                        poly = try allocator.alloc(inputs.Point, vectors.len + 1);
-                        poly[0] = pt;
-                        var cur = pt;
-                        for (vectors, 0..) |v, j| {
-                            cur = inputs.Point{ .x = cur.x + v.x, .y = cur.y + v.y };
-                            poly[j + 1] = cur;
+                        if (isPointRow(inp, idx)) {
+                            if (poly_count == 0) {
+                                const base = try collectBasePolyline(allocator, inp, idx, vectors);
+                                poly = try translatePolylineToPoint(allocator, base, pt);
+                                allocator.free(base);
+                            } else {
+                                poly = try translatePolylineToPoint(allocator, polylines[poly_count - 1], pt);
+                            }
+                        } else {
+                            poly = try allocator.alloc(inputs.Point, vectors.len + 1);
+                            poly[0] = pt;
+                            var cur = pt;
+                            for (vectors, 0..) |v, j| {
+                                cur = inputs.Point{ .x = cur.x + v.x, .y = cur.y + v.y };
+                                poly[j + 1] = cur;
+                            }
                         }
                     } else if (op == .rotate) {
                         const arg = op.rotate.elements[0];
