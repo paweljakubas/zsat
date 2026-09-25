@@ -78,7 +78,22 @@ pub fn build(b: *std.Build) void {
         plot_mod.addImport("pt2d", pt2d_mod);
         exe.root_module.addImport("plot", plot_mod);
 
-        b.installArtifact(exe);
+        const install_artifact = b.addInstallArtifact(exe, .{});
+        b.getInstallStep().dependOn(&install_artifact.step);
+
+        const config_installer_mod = b.createModule(.{
+            .root_source_file = b.path("src/install_config.zig"),
+            .target = b.graph.host,
+        });
+        const config_installer = b.addExecutable(.{
+            .name = "zsat-config-installer",
+            .root_module = config_installer_mod,
+        });
+        const install_config = b.addRunArtifact(config_installer);
+        install_config.stdio = .inherit;
+        install_config.step.dependOn(&install_artifact.step);
+        b.getInstallStep().dependOn(&install_config.step);
+
         const run_cmd = b.addRunArtifact(exe);
         run_cmd.step.dependOn(b.getInstallStep());
 
