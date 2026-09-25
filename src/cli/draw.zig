@@ -5,7 +5,6 @@ const zli = @import("zli");
 const z2d = @import("z2d");
 const zigimg = @import("zigimg");
 const mecha = @import("mecha");
-const common = @import("draw/common.zig");
 const Styles = @import("draw/styles.zig");
 const Inputs = @import("draw/inputs.zig");
 const Outputs = @import("draw/outputs.zig");
@@ -15,6 +14,7 @@ const Panes = @import("draw/panes.zig");
 const Border = @import("draw/border.zig");
 const Text = @import("draw/text.zig");
 const Axis = @import("draw/axis.zig");
+const config = @import("config");
 
 const Plot = @import("plot");
 const draw_help = @import("draw_help.zig");
@@ -35,12 +35,18 @@ pub const ParsedData = struct {
 
 const DrawElement = union(enum) {
     style: Styles.Style,
+    point_style: Styles.PointStyleDefinition,
     border: Border.BorderDefinition,
     text: Text.TextDefinition,
     axis: Axis.AxisDefinition,
 };
 
 const drawElementParser = mecha.oneOf(.{
+    Styles.pointStyleParser.map(struct {
+        fn toElem(s: Styles.PointStyleDefinition) mecha.ConvertError!DrawElement {
+            return DrawElement{ .point_style = s };
+        }
+    }.toElem),
     Styles.styleParser.map(struct {
         fn toElem(s: Styles.Style) mecha.ConvertError!DrawElement {
             return DrawElement{ .style = s };
@@ -63,25 +69,162 @@ const drawElementParser = mecha.oneOf(.{
     }.toElem),
 });
 
-const styleSeparatorParser = mecha.combine(.{ common.skipAnyWhitespace, mecha.ascii.char(',').discard(), common.skipAnyWhitespace });
-const drawElementsParserRaw = mecha.many(drawElementParser, .{ .collect = true, .separator = styleSeparatorParser });
-const drawElementsParserRawP = @TypeOf(drawElementsParserRaw);
-fn toDrawElementsSlice(arena: std.mem.Allocator, raw: drawElementsParserRawP.T) mecha.ConvertError![]DrawElement {
-    const result = try arena.alloc(DrawElement, raw.len);
-    for (raw, 0..) |elem, i| {
-        result[i] = try elem;
+const RawDefinition = struct {
+    name: []const u8,
+    text: []const u8,
+};
+
+const QualifiedReference = struct {
+    namespace: []const u8,
+    name: []const u8,
+};
+
+fn splitStyleInput(alloc: std.mem.Allocator, input: []const u8) ![][]const u8 {
+    var parts = std.ArrayList([]const u8).empty;
+    var start: usize = 0;
+    var depth: usize = 0;
+    var quoted = false;
+    var escaped = false;
+
+    for (input, 0..) |character, index| {
+        if (quoted) {
+            if (escaped) {
+                escaped = false;
+            } else if (character == '\\') {
+                escaped = true;
+            } else if (character == '"') {
+                quoted = false;
+            }
+            continue;
+        }
+
+        switch (character) {
+            '"' => quoted = true,
+            '{', '[', '(' => depth += 1,
+            '}', ']', ')' => {
+                if (depth > 0) depth -= 1;
+            },
+            ',' => if (depth == 0) {
+                const part = std.mem.trim(u8, input[start..index], " \t\r\n");
+                if (part.len > 0) try parts.append(alloc, part);
+                start = index + 1;
+            },
+            else => {},
+        }
     }
-    arena.free(raw);
-    return result;
+
+    const part = std.mem.trim(u8, input[start..], " \t\r\n");
+    if (part.len > 0) try parts.append(alloc, part);
+    return parts.toOwnedSlice(alloc);
 }
-const drawElementsParser = drawElementsParserRaw.convert(toDrawElementsSlice);
+
+fn parseQualifiedReference(value: []const u8) ?QualifiedReference {
+    const separator = std.mem.indexOf(u8, value, "::") orelse return null;
+    if (std.mem.indexOf(u8, value[separator + 2 ..], "::") != null) return null;
+    const namespace = std.mem.trim(u8, value[0..separator], " \t\r\n");
+    const name = std.mem.trim(u8, value[separator + 2 ..], " \t\r\n");
+    if (namespace.len == 0 or name.len == 0) return null;
+    for (namespace) |character| {
+        if (std.ascii.isWhitespace(character) or character == ':' or character == '{' or character == '}') return null;
+    }
+    for (name) |character| {
+        if (std.ascii.isWhitespace(character) or character == ':' or character == '{' or character == '}') return null;
+    }
+    return .{ .namespace = namespace, .name = name };
+}
+
+fn upsertRawDefinition(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), name: []const u8, text: []const u8) !void {
+    for (definitions.items) |*definition| {
+        if (std.mem.eql(u8, definition.name, name)) {
+            definition.text = text;
+            return;
+        }
+    }
+    try definitions.append(alloc, .{ .name = name, .text = text });
+}
+
+fn addNamespaceDefinitions(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), store: *const config.Store, namespace: []const u8) !bool {
+    var found = false;
+    for (store.definitions) |definition| {
+        if (!std.mem.eql(u8, definition.namespace, namespace)) continue;
+        found = true;
+        try upsertRawDefinition(alloc, definitions, definition.name, definition.text);
+    }
+    return found;
+}
+
+fn referencedBaseName(name: []const u8, text: []const u8) ?[]const u8 {
+    if (text.len < name.len) return null;
+    var rest = std.mem.trim(u8, text[name.len..], " \t\r\n");
+    if (rest.len > 0 and rest[0] == ':') {
+        rest = std.mem.trim(u8, rest[1..], " \t\r\n");
+    }
+    const end = std.mem.indexOfAny(u8, rest, " \t\r\n{[") orelse rest.len;
+    const token = rest[0..end];
+    if (token.len < 2 or (token[0] != 'e' and token[0] != 'p')) return null;
+    for (token[1..]) |character| {
+        if (!std.ascii.isDigit(character)) return null;
+    }
+    return token;
+}
+
+fn addReferencedDefinition(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), store: *const config.Store, visited: *std.ArrayList(QualifiedReference), namespace: []const u8, name: []const u8) !void {
+    for (visited.items) |reference| {
+        if (std.mem.eql(u8, reference.namespace, namespace) and std.mem.eql(u8, reference.name, name)) return;
+    }
+    try visited.append(alloc, .{ .namespace = namespace, .name = name });
+
+    const definition = store.get(namespace, name) orelse return error.StyleReferenceNotFound;
+    if (referencedBaseName(definition.name, definition.text)) |base| {
+        if (store.get(namespace, base) != null) {
+            try addReferencedDefinition(alloc, definitions, store, visited, namespace, base);
+        } else if (!std.mem.eql(u8, namespace, "default") and store.get("default", base) != null) {
+            try addReferencedDefinition(alloc, definitions, store, visited, "default", base);
+        }
+    }
+    try upsertRawDefinition(alloc, definitions, definition.name, definition.text);
+}
+
+fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store: ?*const config.Store, default_store: *const config.Store) ![]RawDefinition {
+    const parts = try splitStyleInput(alloc, styles_str);
+    defer alloc.free(parts);
+
+    var references = std.ArrayList(QualifiedReference).empty;
+    var inline_parts = std.ArrayList([]const u8).empty;
+    for (parts) |part| {
+        if (parseQualifiedReference(part)) |reference| {
+            try references.append(alloc, reference);
+        } else {
+            try inline_parts.append(alloc, part);
+        }
+    }
+
+    var definitions = std.ArrayList(RawDefinition).empty;
+    if (references.items.len > 0) {
+        const loaded = store orelse default_store;
+        var visited = std.ArrayList(QualifiedReference).empty;
+        for (references.items) |reference| {
+            if (!loaded.hasNamespace(reference.namespace)) return error.NamespaceNotFound;
+            try addReferencedDefinition(alloc, &definitions, loaded, &visited, reference.namespace, reference.name);
+        }
+    } else if (store) |loaded| {
+        _ = try addNamespaceDefinitions(alloc, &definitions, loaded, "default");
+    }
+
+    for (inline_parts.items) |part| {
+        const name = config.definitionName(part) orelse return error.ParseStylesFailed;
+        try upsertRawDefinition(alloc, &definitions, name, part);
+    }
+
+    return definitions.toOwnedSlice(alloc);
+}
 
 const style_flag = zli.Flag{
     .name = "styles",
     .shortcut = "s",
     .description = "Style(s) definition to be used in further steps when constructing the figure.",
     .type = .String,
-    .default_value = .{ .String = "e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}" },
+    .default_value = .{ .String = config.default_style },
 };
 
 const datum_flag = zli.Flag{
@@ -244,7 +387,7 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
     return cmd;
 }
 
-fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
+fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process.Environ) !ParsedData {
     const debug = ctx.flag("debug", bool);
     const styles_str = ctx.flag("styles", []const u8);
     const datum_str = ctx.flag("datum", []const u8);
@@ -271,52 +414,80 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
         }
     }
 
-    const elements_parse_result = try drawElementsParser.parse(alloc, styles_str);
-    const draw_elements = switch (elements_parse_result.value) {
-        .ok => |e| e,
-        .err => {
-            return error.ParseStylesFailed;
-        },
+    var loaded_store = config.load(alloc, ctx.io, environ) catch |err| switch (err) {
+        error.InvalidConfig => return error.ParseStylesFailed,
+        else => return err,
     };
-    if (elements_parse_result.index < styles_str.len) {
-        const rest = styles_str[elements_parse_result.index..];
-        for (rest) |c| {
-            if (c != ' ' and c != '\n' and c != '\r' and c != '\t') {
-                return error.ParseStylesFailed;
+    defer if (loaded_store) |*store| store.deinit();
+    var default_store = try config.parse(alloc, config.default_content);
+    defer default_store.deinit();
+    const store_ptr: ?*const config.Store = if (loaded_store) |*store| store else null;
+    const effective_styles_str = if (store_ptr != null and std.mem.eql(u8, styles_str, config.default_style)) "" else styles_str;
+
+    var raw_definitions = try collectRawDefinitions(alloc, effective_styles_str, store_ptr, &default_store);
+    defer alloc.free(raw_definitions);
+    if (raw_definitions.len == 0) {
+        var fallback = std.ArrayList(RawDefinition).empty;
+        try upsertRawDefinition(alloc, &fallback, "e0", config.default_style);
+        raw_definitions = try fallback.toOwnedSlice(alloc);
+    }
+
+    var draw_elements_list = std.ArrayList(DrawElement).empty;
+    for (raw_definitions) |definition| {
+        const element_parse_result = try drawElementParser.parse(alloc, definition.text);
+        const element = switch (element_parse_result.value) {
+            .ok => |e| try e,
+            .err => return error.ParseStylesFailed,
+        };
+        if (element_parse_result.index < definition.text.len) {
+            const rest = definition.text[element_parse_result.index..];
+            for (rest) |c| {
+                if (c != ' ' and c != '\n' and c != '\r' and c != '\t') {
+                    return error.ParseStylesFailed;
+                }
             }
         }
+        try draw_elements_list.append(alloc, element);
     }
 
     var styles_list = std.ArrayList(Styles.Style).empty;
+    var style_names = std.ArrayList([]const u8).empty;
     var borders_list = std.ArrayList(Border.BorderDefinition).empty;
     var texts_list = std.ArrayList(Text.TextDefinition).empty;
     var axes_list = std.ArrayList(Axis.AxisDefinition).empty;
-    for (draw_elements) |elem| {
-        switch (elem) {
-            .style => |s| try styles_list.append(alloc, s),
+    for (raw_definitions, draw_elements_list.items) |definition, element| {
+        switch (element) {
+            .style => |s| {
+                var named_style = s;
+                named_style.name = definition.name;
+                try styles_list.append(alloc, named_style);
+                try style_names.append(alloc, definition.name);
+            },
+            .point_style => |p| {
+                try styles_list.append(alloc, .{ .styleNumber = p.styleNumber, .styleValue = p.styleValue, .name = definition.name });
+                try style_names.append(alloc, definition.name);
+            },
             .border => |b| try borders_list.append(alloc, b),
             .text => |t| try texts_list.append(alloc, t),
             .axis => |a| try axes_list.append(alloc, a),
         }
     }
 
-    // If the user provided no explicit styles, auto-inject the default e0 so
-    // datum defaults and vector drawing still work.
     if (styles_list.items.len == 0) {
         try styles_list.append(alloc, Styles.Style{
             .styleNumber = 0,
             .styleValue = Styles.defaultStyleValue,
+            .name = "e0",
         });
+        try style_names.append(alloc, "e0");
     }
 
     const raw_styles = try styles_list.toOwnedSlice(alloc);
+    const style_name_list = try style_names.toOwnedSlice(alloc);
     const borders = try borders_list.toOwnedSlice(alloc);
     const texts = try texts_list.toOwnedSlice(alloc);
     const axes = try axes_list.toOwnedSlice(alloc);
 
-    if (draw_elements.len == 0) {
-        return error.ParseStylesFailed;
-    }
     const styles = try Styles.resolveStyles(alloc, raw_styles);
 
     var effective_datum_str = datum_str;
@@ -345,8 +516,8 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
     const numberOfDatum: u8 = @intCast(inputs.input.len);
 
     var elements = try alloc.alloc([]const u8, styles.len);
-    for (styles, 0..) |style, i| {
-        elements[i] = try std.fmt.allocPrint(alloc, "e{}", .{style.styleNumber});
+    for (style_name_list, 0..) |name, i| {
+        elements[i] = name;
     }
     defer alloc.free(elements);
 
@@ -516,9 +687,9 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator) !ParsedData {
             const size = pane.paneValue.paneSize.?;
             const b = resolvePaneBorder(pane, borders);
             const pane_str = if (b) |border_val|
-                try std.fmt.allocPrint(alloc, "p{d}:{{size: {}x{}, border: {{width: {}, opacity: {}, color: {s}}}}}" , .{ pane.paneNumber, size.width, size.height, border_val.width, border_val.opacity, @tagName(border_val.color) })
+                try std.fmt.allocPrint(alloc, "p{d}:{{size: {}x{}, border: {{width: {}, opacity: {}, color: {s}}}}}", .{ pane.paneNumber, size.width, size.height, border_val.width, border_val.opacity, @tagName(border_val.color) })
             else
-                try std.fmt.allocPrint(alloc, "p{d}:{{size: {}x{}, border: none}}" , .{ pane.paneNumber, size.width, size.height });
+                try std.fmt.allocPrint(alloc, "p{d}:{{size: {}x{}, border: none}}", .{ pane.paneNumber, size.width, size.height });
             try panes_debug_parts.append(alloc, pane_str);
         }
         const panes_debug = try std.mem.join(alloc, "", panes_debug_parts.items);
@@ -778,6 +949,8 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
     return switch (err) {
         error.ParseInputsFailed => "Error: failed to parse input data. Please check your input format.",
         error.ParseStylesFailed => "Error: failed to parse styles. Please check your --styles argument.",
+        error.NamespaceNotFound => "Error: the requested style namespace was not found in ~/.config/zsat/zsat.conf.",
+        error.StyleReferenceNotFound => "Error: the requested style was not found in the selected namespace.",
         error.ParseDatumFailed => "Error: failed to parse datum mapping. Please check your --datum argument.",
         error.ParseOutputsFailed => "Error: failed to parse outputs. Please check your --outputs argument.",
         error.ParsePanesFailed => "Error: failed to parse panes. Please check your --panes argument.",
@@ -815,7 +988,7 @@ fn run(ctx: zli.CommandContext) !void {
 }
 
 fn runInternal(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process.Environ) !void {
-    const parsed_data = try parse(ctx, alloc);
+    const parsed_data = try parse(ctx, alloc, environ);
 
     const out_filename = ctx.flag("out", []const u8);
     const force_file = out_filename.len > 0;

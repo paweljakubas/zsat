@@ -62,6 +62,63 @@ test "zsat draw with malformed pt2d style size" {
     try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse styles"));
 }
 
+test "zsat draw with pN style" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "p0:{pt2d [sh:square, s:15, c: grey]}", "--datum", "(pt) -> (pt -> p0)" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "{(1,1)}" });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw with style from config namespace" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    try tmp.dir.createDirPath(io, ".config/zsat");
+    try tmp.dir.writeFile(io, .{ .sub_path = ".config/zsat/zsat.conf", .data =
+        \\- default
+        \\e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}
+        \\
+        \\- namespace1
+        \\e0:{vec2d xy fixed last [l:25, c: red, o: 100, e:none, j: none, d: none]}
+        \\p1:{pt2d [sh:circle, s:30, c: blue]}
+        \\
+    });
+
+    const home = try std.fmt.allocPrint(std.testing.allocator, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    defer std.testing.allocator.free(home);
+
+    var env_map: std.process.Environ.Map = .init(std.testing.allocator);
+    defer env_map.deinit();
+    try env_map.put("HOME", home);
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "namespace1::e0" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "c: red") != null);
+
+    const p_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "namespace1::p1", "--datum", "(pt) -> (pt -> p1)" };
+    var p_result = try cmdtest.run(io, .{ .argv = p_argv, .stdin = "{(1,1)}", .env_map = &env_map });
+    defer p_result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), p_result.code);
+    try testing.expect(std.mem.indexOf(u8, p_result.stdout, "p1:{pt2d") != null);
+}
+
+test "zsat draw with unknown config namespace" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "missing_namespace::e0" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "namespace") != null);
+}
+
 test "zsat draw with invalid stdin" {
     defer cleanupOutputFiles();
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null" };
@@ -499,10 +556,9 @@ test "zsat draw pt2d pure anchor with identity sibling works" {
     // still translate its point set so its centroid lands on the anchor.
     defer cleanupOutputFiles();
     const argv = &[_][]const u8{
-        zsat_path, "draw", "--out", "/dev/null",
-        "-s", "e0:{pt2d [sh:circle, s:10]}, e1:{pt2d [sh:square, s:10]}, e2:{vec2d [l:5]}",
-        "-d", "(pt0, pt1, vec0) -> (pt0 -> e0, pt1 -> e1, vec0 -> e2)",
-        "-o", "(out1, out2, out3) -> (out1, a {(0.75, 0.25)} out2, a {(0,0)} out3)",
+        zsat_path, "draw",                                                                       "--out", "/dev/null",
+        "-s",      "e0:{pt2d [sh:circle, s:10]}, e1:{pt2d [sh:square, s:10]}, e2:{vec2d [l:5]}", "-d",    "(pt0, pt1, vec0) -> (pt0 -> e0, pt1 -> e1, vec0 -> e2)",
+        "-o",      "(out1, out2, out3) -> (out1, a {(0.75, 0.25)} out2, a {(0,0)} out3)",
     };
     var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "{(0,0), (1,1)}\n{(0.3,0.3),(0.33,0.45),(0.75,0.75)}\n[[1,0.75]]" });
     defer result.deinit();

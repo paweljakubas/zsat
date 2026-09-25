@@ -48,6 +48,7 @@ pub const PlotSteps = enum {
 pub const Style = struct {
     styleNumber: u8,
     styleValue: StyleValue,
+    name: ?[]const u8 = null,
 };
 
 pub const StyleValue = struct {
@@ -1231,6 +1232,67 @@ fn toStyle(_: std.mem.Allocator, res: styleParserRawP.T) mecha.ConvertError!Styl
 }
 pub const styleParser = styleParserRaw.convert(toStyle);
 
+pub const pointStyleOffset: u8 = 128;
+pub const PointStyleDefinition = struct {
+    styleNumber: u8,
+    styleValue: StyleValue,
+};
+
+const pointStyleNumberParserRaw =
+    mecha.combine(.{ common.skipWhitespace, mecha.ascii.char('p').discard(), mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 2 }).asStr().convert(mecha.toInt(u8, 10)) });
+const pointStyleParserRaw = mecha.combine(.{
+    pointStyleNumberParserRaw,
+    mecha.opt(mecha.ascii.char(':').discard()),
+    common.skipWhitespace,
+    mecha.opt(pointStyleNumberParserRaw),
+    common.skipWhitespace,
+    mecha.opt(bodyParser),
+});
+const pointStyleParserRawP = @TypeOf(pointStyleParserRaw);
+fn toPointStyle(_: std.mem.Allocator, res: pointStyleParserRawP.T) mecha.ConvertError!PointStyleDefinition {
+    const number = res[0];
+    const base = res[2];
+    const body = res[3];
+    var styleValue = StyleValue{ .styleType = .pt2d };
+    if (base) |base_number| styleValue.baseStyle = pointStyleOffset + base_number;
+    if (body) |fields| {
+        for (fields) |field| switch (field) {
+            .styleType => |style_type| styleValue.styleType = style_type,
+            .coordinateSystem => |coordinate_system| styleValue.coordinateSystem = coordinate_system,
+            .coordinateOrientation => |coordinate_orientation| styleValue.coordinateOrientation = coordinate_orientation,
+            .plotSteps => |plot_steps| styleValue.plotSteps = plot_steps,
+            .attributes => |attributes| {
+                if (!attributesEmpty(attributes)) styleValue.attributes = attributes;
+            },
+        };
+    }
+    if (styleValue.styleType != .pt2d) return error.ConversionFailed;
+    return .{ .styleNumber = pointStyleOffset + number, .styleValue = styleValue };
+}
+pub const pointStyleParser = pointStyleParserRaw.convert(toPointStyle);
+
+test "pointStyleParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r = try pointStyleParser.parse(a, "p0:{pt2d [sh:square, s:15, c: grey]}");
+    try testing.expectEqual(@as(u8, 128), r.value.ok.styleNumber);
+    try testing.expectEqual(StyleType.pt2d, r.value.ok.styleValue.styleType);
+    try testing.expectEqual(PointShape.square, r.value.ok.styleValue.attributes.?.pointShape.?.value);
+    try testing.expectEqual(@as(u16, 15), r.value.ok.styleValue.attributes.?.pointSize.?.value);
+}
+
+test "stylesParser pN" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r = try stylesParser.parse(a, "p0:{pt2d [sh:square, s:15]}");
+    try testing.expectEqual(@as(usize, 1), r.value.ok.len);
+    try testing.expectEqual(@as(u8, 128), r.value.ok[0].styleNumber);
+}
+
 test "styleParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -1379,7 +1441,13 @@ test "styleParser" {
 }
 
 const styleSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
-const stylesParserRaw = mecha.many(styleParser, .{ .collect = true, .separator = styleSeparatorParser });
+const pointStyleAsStyleParser = pointStyleParser.map(struct {
+    fn toStyle(p: PointStyleDefinition) Style {
+        return .{ .styleNumber = p.styleNumber, .styleValue = p.styleValue };
+    }
+}.toStyle);
+const styleOrPointParser = mecha.oneOf(.{ styleParser, pointStyleAsStyleParser });
+const stylesParserRaw = mecha.many(styleOrPointParser, .{ .collect = true, .separator = styleSeparatorParser });
 const stylesParserRawP = @TypeOf(stylesParserRaw);
 
 pub const defaultStyleValue = StyleValue{
@@ -1595,8 +1663,11 @@ pub fn serializeStyle(allocator: std.mem.Allocator, style: Style) ![]const u8 {
 
     const sv = style.styleValue;
 
-    // eN:{
-    try parts.append(allocator, try std.fmt.allocPrint(allocator, "e{}:{{", .{style.styleNumber}));
+    const name_prefix = if (style.name) |name|
+        try std.fmt.allocPrint(allocator, "{s}:{{", .{name})
+    else
+        try std.fmt.allocPrint(allocator, "e{}:{{", .{style.styleNumber});
+    try parts.append(allocator, name_prefix);
 
     // Type
     const st = sv.styleType orelse .vec2d;

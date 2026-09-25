@@ -11,6 +11,9 @@ pub fn build(b: *std.Build) void {
     const z2d_dep = b.dependency("z2d", .{ .target = target, .optimize = optimize });
     const zigimg_dep = b.dependency("zigimg", .{ .target = target, .optimize = optimize });
 
+    const config_mod = b.createModule(.{
+        .root_source_file = b.path("src/config.zig"),
+    });
     const inputs_mod = b.createModule(.{
         .root_source_file = b.path("src/cli/draw/inputs.zig"),
     });
@@ -64,6 +67,7 @@ pub fn build(b: *std.Build) void {
         exe.root_module.addImport("z2d", z2d_dep.module("z2d"));
         exe.root_module.addImport("zigimg", zigimg_dep.module("zigimg"));
         exe.root_module.addImport("cli", inputs_mod);
+        exe.root_module.addImport("config", config_mod);
         exe.root_module.addImport("plot_types", b.createModule(.{
             .root_source_file = b.path("src/cli/plot/plot_types.zig"),
         }));
@@ -85,6 +89,8 @@ pub fn build(b: *std.Build) void {
             .root_source_file = b.path("src/install_config.zig"),
             .target = b.graph.host,
         });
+        config_installer_mod.addImport("config", config_mod);
+
         const config_installer = b.addExecutable(.{
             .name = "zsat-config-installer",
             .root_module = config_installer_mod,
@@ -109,6 +115,7 @@ pub fn build(b: *std.Build) void {
         const test_step = b.step("test", "Run unit tests");
 
         const test_files = [_][]const u8{
+            "src/config.zig",
             "src/cli/draw/common.zig",
             "src/cli/draw/border.zig",
             "src/cli/draw/datum.zig",
@@ -190,6 +197,7 @@ pub fn build(b: *std.Build) void {
         });
         cli_test.setEnvironmentVariable("PATH", "zig-out/bin");
         cli_test.setEnvironmentVariable("TMPDIR", "/tmp");
+        cli_test.setEnvironmentVariable("HOME", "/tmp/zsat-cli-test-home");
 
         test_step.dependOn(&cli_test.step);
 

@@ -1,4 +1,5 @@
 const std = @import("std");
+const config = @import("config");
 
 const created_message = " ~/.config/zsat/zsat.conf created where tool's saves will be stored!";
 const found_message = " ~/.config/zsat/zsat.conf found. All saves stored there could be used when using the tool!";
@@ -39,6 +40,7 @@ pub fn main(init: std.process.Init) !void {
         },
         else => return err,
     };
+    try file.writeStreamingAll(init.io, config.default_content);
     file.close(init.io);
     try printMessage(init.io, created_message);
     try printMessage(init.io, install_message);
