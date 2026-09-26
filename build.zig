@@ -1,6 +1,36 @@
 const std = @import("std");
 const cmdtest = @import("cmdtest");
 
+/// Zig 0.16 ships no build step for removing a directory tree, so `clean` brings
+/// its own. Deleting the cache root from inside the make phase is the point of
+/// the step, so it must not depend on any other step of this build.
+const RemoveDirTree = struct {
+    step: std.Build.Step,
+    lazy_path: std.Build.LazyPath,
+
+    fn create(b: *std.Build, lazy_path: std.Build.LazyPath) *RemoveDirTree {
+        const self = b.allocator.create(RemoveDirTree) catch @panic("OOM");
+        self.* = .{
+            .step = std.Build.Step.init(.{
+                .id = .custom,
+                .name = "remove directory tree",
+                .owner = b,
+                .makeFn = make,
+            }),
+            .lazy_path = lazy_path,
+        };
+        return self;
+    }
+
+    fn make(step: *std.Build.Step, options: std.Build.Step.MakeOptions) anyerror!void {
+        _ = options;
+        const self: *RemoveDirTree = @fieldParentPtr("step", step);
+        const b = step.owner;
+        const path = self.lazy_path.getPath3(b, step);
+        try path.root_dir.handle.deleteTree(b.graph.io, path.subPathOrDot());
+    }
+};
+
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -203,5 +233,15 @@ pub fn build(b: *std.Build) void {
 
         const cli_test_step = b.step("cli-test", "Run CLI integration tests");
         cli_test_step.dependOn(&cli_test.step);
+    }
+
+    {
+        const clean_step = b.step("clean", "Remove the build cache and the install prefix");
+
+        const cache_path: std.Build.LazyPath = .{ .cwd_relative = b.cache_root.path orelse "." };
+        clean_step.dependOn(&RemoveDirTree.create(b, cache_path).step);
+
+        const install_path: std.Build.LazyPath = .{ .cwd_relative = b.install_path };
+        clean_step.dependOn(&RemoveDirTree.create(b, install_path).step);
     }
 }
