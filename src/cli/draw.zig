@@ -281,6 +281,7 @@ fn findImportAlias(imports: []const ImportDirective, namespace: []const u8) ?Imp
 
 threadlocal var namespaceErrorDetail: ?[]const u8 = null;
 threadlocal var definitionErrorDetail: ?[]const u8 = null;
+threadlocal var saveErrorDetail: ?[]const u8 = null;
 
 fn availableNamespaces(alloc: std.mem.Allocator, store: ?*const config.Store, default_store: *const config.Store) ![][]const u8 {
     const source: *const config.Store = if (store) |loaded| blk: {
@@ -349,6 +350,45 @@ fn reportMissingDefinition(alloc: std.mem.Allocator, missing: []const u8, namesp
     const joined = try std.mem.join(alloc, ", ", available);
     definitionErrorDetail = try std.fmt.allocPrint(alloc, "{s} Defined keys: {s}.", .{ namespaceErrorDetail.?, joined });
     return error.StyleReferenceNotFound;
+}
+
+fn findRawDefinition(definitions: []const RawDefinition, name: []const u8) ?[]const u8 {
+    for (definitions) |definition| {
+        if (std.mem.eql(u8, definition.name, name)) return definition.text;
+    }
+    return null;
+}
+
+fn saveToConfig(alloc: std.mem.Allocator, ctx: zli.CommandContext, environ: std.process.Environ, definitions: []const RawDefinition, save_str: []const u8, overwrite: bool) !void {
+    const target = parseQualifiedReference(save_str) orelse {
+        saveErrorDetail = try std.fmt.allocPrint(alloc, "Error: --save expects a 'NS::KEY' target, but '{s}' was given.", .{save_str});
+        return error.SaveTargetNotFound;
+    };
+    if (target.namespace.len == 0 or target.name.len == 0 or std.mem.indexOf(u8, target.name, "::") != null) {
+        saveErrorDetail = try std.fmt.allocPrint(alloc, "Error: --save expects a 'NS::KEY' target, but '{s}' was given.", .{save_str});
+        return error.SaveTargetNotFound;
+    }
+
+    const text = findRawDefinition(definitions, target.name) orelse {
+        saveErrorDetail = try std.fmt.allocPrint(alloc, "Error: --save was asked to store '{s}' in namespace '{s}', but that key is not defined in --styles. Define it first, e.g. --styles '{s}:{{...}}'.", .{ target.name, target.namespace, target.name });
+        return error.SaveTargetNotFound;
+    };
+
+    config.saveDefinition(alloc, ctx.io, environ, target.namespace, target.name, text, overwrite) catch |err| switch (err) {
+        error.KeyAlreadyExists => {
+            saveErrorDetail = try std.fmt.allocPrint(alloc, "Error: key '{s}' is already defined in namespace '{s}' of ~/.config/zsat/zsat.conf. Use --overwrite to replace it.", .{ target.name, target.namespace });
+            return error.KeyAlreadyExists;
+        },
+        error.HomeDirectoryMissing => {
+            saveErrorDetail = try std.fmt.allocPrint(alloc, "Error: --save could not locate the home directory, so nothing was written to ~/.config/zsat/zsat.conf.", .{});
+            return error.HomeDirectoryMissing;
+        },
+        error.InvalidConfig => {
+            saveErrorDetail = try std.fmt.allocPrint(alloc, "Error: --save cannot store '{s}' in namespace '{s}'. Check the namespace and key names.", .{ target.name, target.namespace });
+            return error.InvalidConfig;
+        },
+        else => |other| return other,
+    };
 }
 
 fn addImportedDefinitions(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), store: ?*const config.Store, default_store: *const config.Store, directive: ImportDirective) !void {
@@ -462,6 +502,20 @@ const debug_flag = zli.Flag{
     .default_value = .{ .Bool = false },
 };
 
+const save_flag = zli.Flag{
+    .name = "save",
+    .description = "Persist a style defined in --styles into ~/.config/zsat/zsat.conf as NS::KEY, e.g. --save mynamespace::e1. The namespace is created when it does not exist yet.",
+    .type = .String,
+    .default_value = .{ .String = "" },
+};
+
+const overwrite_flag = zli.Flag{
+    .name = "overwrite",
+    .description = "Let --save replace a key that is already defined in the target namespace instead of failing.",
+    .type = .Bool,
+    .default_value = .{ .Bool = false },
+};
+
 const out_flag = zli.Flag{
     .name = "out",
     .description = "Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal.",
@@ -485,6 +539,8 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
 
     try cmd.addFlag(debug_flag);
     try cmd.addFlag(out_flag);
+    try cmd.addFlag(save_flag);
+    try cmd.addFlag(overwrite_flag);
 
     // Documentation subcommands
     const objects_cmd = try zli.Command.init(init_opts, .{
@@ -650,6 +706,10 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
             }
         }
         try draw_elements_list.append(alloc, element);
+    }
+
+    if (ctx.flag("save", []const u8).len > 0) {
+        try saveToConfig(alloc, ctx, environ, raw_definitions, ctx.flag("save", []const u8), ctx.flag("overwrite", bool));
     }
 
     var styles_list = std.ArrayList(Styles.Style).empty;
@@ -1151,6 +1211,9 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
     return switch (err) {
         error.ParseInputsFailed => "Error: failed to parse input data. Please check your input format.",
         error.ParseStylesFailed => "Error: failed to parse styles. Please check your --styles argument.",
+        error.SaveTargetNotFound => saveErrorDetail orelse "Error: the key given to --save is not defined in --styles.",
+        error.KeyAlreadyExists => saveErrorDetail orelse "Error: the key given to --save already exists in the target namespace. Use --overwrite to replace it.",
+        error.HomeDirectoryMissing => saveErrorDetail orelse "Error: could not locate the home directory.",
         error.NamespaceNotFound => namespaceErrorDetail orelse "Error: the requested style namespace was not found in ~/.config/zsat/zsat.conf. Check the 'use' directive or the 'NS::NAME' reference in --styles.",
         error.StyleReferenceNotFound => definitionErrorDetail orelse "Error: the requested style was not found in the selected namespace.",
         error.ParseDatumFailed => "Error: failed to parse datum mapping. Please check your --datum argument.",

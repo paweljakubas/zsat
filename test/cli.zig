@@ -83,13 +83,33 @@ const test_config_content =
     \\
 ;
 
-fn writeTestConfig() !struct { tmp: std.testing.TmpDir, home: []u8, env_map: std.process.Environ.Map } {
+const TestConfig = struct {
+    tmp: std.testing.TmpDir,
+    home: []u8,
+    env_map: std.process.Environ.Map,
+
+    fn deinit(self: *TestConfig) void {
+        self.env_map.deinit();
+        std.testing.allocator.free(self.home);
+        self.tmp.cleanup();
+    }
+
+    fn readContent(self: *TestConfig) ![]u8 {
+        return self.tmp.dir.readFileAlloc(std.testing.io, ".config/zsat/zsat.conf", std.testing.allocator, .limited(1024 * 1024));
+    }
+};
+
+fn writeTestConfig() !TestConfig {
+    return writeTestConfigWith(test_config_content);
+}
+
+fn writeTestConfigWith(content: []const u8) !TestConfig {
     const io = std.testing.io;
     var tmp = std.testing.tmpDir(.{});
     errdefer tmp.cleanup();
 
     try tmp.dir.createDirPath(io, ".config/zsat");
-    try tmp.dir.writeFile(io, .{ .sub_path = ".config/zsat/zsat.conf", .data = test_config_content });
+    try tmp.dir.writeFile(io, .{ .sub_path = ".config/zsat/zsat.conf", .data = content });
 
     const home = try std.fmt.allocPrint(std.testing.allocator, ".zig-cache/tmp/{s}", .{tmp.sub_path});
     errdefer std.testing.allocator.free(home);
@@ -105,9 +125,7 @@ test "zsat draw with style from config namespace" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "namespace1::e0" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -128,9 +146,7 @@ test "zsat draw with multiple use namespace directives" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "use sleek as s1, use namespace1 as s2, s1::e0, s2::e0", "--datum", "(vec) -> (vec -> s1::e0)" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -145,9 +161,7 @@ test "zsat draw with multiple use namespace directives requires alias" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use sleek, use namespace1 as s2" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -160,9 +174,7 @@ test "zsat draw with duplicate use alias" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use sleek as s, use namespace1 as s" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -175,9 +187,7 @@ test "zsat draw with use namespace directive" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "use namespace1" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -192,9 +202,7 @@ test "zsat draw with use namespace directive with alias" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "use namespace1 as s, s::e0, s::p1", "--datum", "(vec) -> (vec -> s::e0)" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -209,9 +217,7 @@ test "zsat draw with use of unknown namespace" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use missing_namespace" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -226,9 +232,7 @@ test "zsat draw lists available namespaces on error" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "gone::e0" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -243,9 +247,7 @@ test "zsat draw lists available keys on missing key error" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "namespace1::xyz" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -260,9 +262,7 @@ test "zsat draw reports alias in missing key error" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use sleek as s1, use namespace1 as s2, s2::nope" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -277,9 +277,7 @@ test "zsat draw reports missing namespace before missing key" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "gone::xyz" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -287,6 +285,147 @@ test "zsat draw reports missing namespace before missing key" {
 
     try testing.expect(result.code != 0);
     try testing.expect(std.mem.indexOf(u8, result.stderr, "namespace 'gone' was requested") != null);
+}
+
+test "zsat draw saves a style into a new namespace" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "myns::e5", "--styles", "e5:{vec2d xy fixed last [c: blue]}" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+
+    const content = try fixture.readContent();
+    defer std.testing.allocator.free(content);
+    try testing.expect(std.mem.indexOf(u8, content, "- myns\n") != null);
+    try testing.expect(std.mem.indexOf(u8, content, "e5:{vec2d xy fixed last [c: blue]}\n") != null);
+    try testing.expect(std.mem.indexOf(u8, content, test_config_content) != null);
+
+    const use_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "myns::e5" };
+    var use_result = try cmdtest.run(io, .{ .argv = use_argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer use_result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), use_result.code);
+    try testing.expect(std.mem.indexOf(u8, use_result.stdout, "c: blue") != null);
+}
+
+test "zsat draw saves a style into an existing namespace" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "namespace1::t5", "--styles", "t5: {txt \"hi\" [c:green, s:12]}" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+
+    const content = try fixture.readContent();
+    defer std.testing.allocator.free(content);
+    try testing.expect(std.mem.indexOf(u8, content, "t5: {txt \"hi\" [c:green, s:12]}") != null);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, content, "- namespace1"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, content, "- sleek"));
+    try testing.expect(std.mem.indexOf(u8, content, "e0:{vec2d xy fixed last [l:25, c: red") != null);
+}
+
+test "zsat draw refuses to save over an existing key" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "namespace1::e0", "--styles", "e0:{vec2d xy fixed last [c: blue]}" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "key 'e0' is already defined in namespace 'namespace1'") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "Use --overwrite to replace it") != null);
+
+    const content = try fixture.readContent();
+    defer std.testing.allocator.free(content);
+    try testing.expectEqualStrings(test_config_content, content);
+}
+
+test "zsat draw overwrites a saved key with --overwrite" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "namespace1::e0", "--overwrite", "--styles", "e0:{vec2d xy fixed last [c: blue]}" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+
+    const content = try fixture.readContent();
+    defer std.testing.allocator.free(content);
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, content, "e0:{vec2d xy fixed last [c: blue]}"));
+    try testing.expect(std.mem.indexOf(u8, content, "c: red") == null);
+    try testing.expect(std.mem.indexOf(u8, content, "- namespace1") != null);
+    try testing.expect(std.mem.indexOf(u8, content, "p1:{pt2d [sh:circle, s:30, c: blue]}") != null);
+}
+
+test "zsat draw refuses to save a key missing from --styles" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "myns::e9", "--styles", "e5:{vec2d xy fixed last [c: blue]}" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "store 'e9' in namespace 'myns'") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "not defined in --styles") != null);
+
+    const content = try fixture.readContent();
+    defer std.testing.allocator.free(content);
+    try testing.expectEqualStrings(test_config_content, content);
+}
+
+test "zsat draw rejects a malformed --save target" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "myns", "--styles", "e5:{vec2d xy fixed last [c: blue]}" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "--save expects a 'NS::KEY' target") != null);
+}
+
+test "zsat draw saves into a config file that does not exist yet" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    const home = try std.fmt.allocPrint(std.testing.allocator, ".zig-cache/tmp/{s}", .{&tmp.sub_path});
+    defer std.testing.allocator.free(home);
+    var env_map: std.process.Environ.Map = .init(std.testing.allocator);
+    defer env_map.deinit();
+    try env_map.put("HOME", home);
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "fresh::e0", "--styles", "e0:{vec2d xy fixed last [c: blue]}" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+
+    const content = try tmp.dir.readFileAlloc(io, ".config/zsat/zsat.conf", std.testing.allocator, .limited(1024 * 1024));
+    defer std.testing.allocator.free(content);
+    try testing.expectEqualStrings("- fresh\ne0:{vec2d xy fixed last [c: blue]}\n", content);
 }
 
 test "zsat draw reports missing config file" {
@@ -303,9 +442,7 @@ test "zsat draw with use of unknown namespace among several" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use sleek as s1, use missing_namespace as s2" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
@@ -319,9 +456,7 @@ test "zsat draw with unknown alias reference" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
     var fixture = try writeTestConfig();
-    defer fixture.env_map.deinit();
-    defer std.testing.allocator.free(fixture.home);
-    defer fixture.tmp.cleanup();
+    defer fixture.deinit();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use sleek as s1, unknown_alias::e0" };
     var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });

@@ -54,6 +54,13 @@ pub const vec2d_style_help =
     \\  use sleek1 as s1, use sleek2 as s2, s1::e0, s2::a0
     \\A single 'use NS' keeps the bare names (e0, a0, ...) available.
     \\
+    \\Storing a definition back with --save NS::KEY:
+    \\  zsat draw --save myns::e1 --styles 'e1:{vec2d xy fixed last [c:blue]}'
+    \\  --save writes the definition of KEY given in --styles into namespace NS of
+    \\  ~/.config/zsat/zsat.conf, where it can later be used as NS::KEY. The
+    \\  namespace is created when it is not there yet. Storing a key that already
+    \\  exists in that namespace fails, unless --overwrite is given.
+    \\
     \\TYPE (default: vec2d):
     \\  vec2d  -- input is parsed as 2D vectors
     \\
@@ -197,6 +204,22 @@ pub const pt2d_style_help =
     \\
     \\  eN     -- style key (e0, e1, ...) used for referencing in --datum
     \\  {...}  -- style body; all fields are optional and inherit from defaults
+    \\
+    \\Saved definitions from ~/.config/zsat/zsat.conf:
+    \\  NS::NAME      -- use a single saved definition, e.g. sleek::p0
+    \\  use NS        -- import every definition of NS, usable as e0, a0, ...
+    \\  use NS as P   -- import every definition of NS under the prefix P, usable as P::e0, P::a0, ...
+    \\
+    \\Importing more than one namespace requires an alias for each of them:
+    \\  use sleek1 as s1, use sleek2 as s2, s1::p0, s2::p0
+    \\A single 'use NS' keeps the bare names (e0, a0, ...) available.
+    \\
+    \\Storing a definition back with --save NS::KEY:
+    \\  zsat draw --save myns::p1 --styles 'p1:{pt2d [sh:circle, s:20, c:blue]}'
+    \\  --save writes the definition of KEY given in --styles into namespace NS of
+    \\  ~/.config/zsat/zsat.conf, where it can later be used as NS::KEY. The
+    \\  namespace is created when it is not there yet. Storing a key that already
+    \\  exists in that namespace fails, unless --overwrite is given.
     \\
     \\TYPE:
     \\  pt2d  -- input is parsed as 2D points and drawn as markers
