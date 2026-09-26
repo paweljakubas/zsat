@@ -251,7 +251,7 @@ fn addReferencedDefinition(alloc: std.mem.Allocator, definitions: *std.ArrayList
     }
     try visited.append(alloc, .{ .namespace = namespace, .name = name });
 
-    const definition = store.get(namespace, name) orelse return error.StyleReferenceNotFound;
+    const definition = store.get(namespace, name) orelse return reportMissingDefinition(alloc, name, namespace, prefix, store);
     if (referencedBaseName(definition.name, definition.text)) |base| {
         if (store.get(namespace, base) != null) {
             try addReferencedDefinition(alloc, definitions, store, default_store, visited, namespace, base, prefix);
@@ -279,9 +279,81 @@ fn findImportAlias(imports: []const ImportDirective, namespace: []const u8) ?Imp
     return null;
 }
 
+threadlocal var namespaceErrorDetail: ?[]const u8 = null;
+threadlocal var definitionErrorDetail: ?[]const u8 = null;
+
+fn availableNamespaces(alloc: std.mem.Allocator, store: ?*const config.Store, default_store: *const config.Store) ![][]const u8 {
+    const source: *const config.Store = if (store) |loaded| blk: {
+        if (loaded.definitions.len == 0) break :blk default_store;
+        break :blk loaded;
+    } else default_store;
+
+    var names: std.ArrayList([]const u8) = .empty;
+    for (source.definitions) |definition| {
+        var already_listed = false;
+        for (names.items) |name| {
+            if (std.mem.eql(u8, name, definition.namespace)) already_listed = true;
+        }
+        if (!already_listed) try names.append(alloc, definition.namespace);
+    }
+    return names.toOwnedSlice(alloc);
+}
+
+fn reportMissingNamespace(alloc: std.mem.Allocator, missing: []const u8, store: ?*const config.Store, default_store: *const config.Store) (error{NamespaceNotFound} || error{OutOfMemory}) {
+    const available = try availableNamespaces(alloc, store, default_store);
+    defer alloc.free(available);
+
+    if (store == null) {
+        namespaceErrorDetail = try std.fmt.allocPrint(alloc, "Error: namespace '{s}' was requested, but ~/.config/zsat/zsat.conf does not exist. Only the built-in namespace '{s}' is available.", .{ missing, config.default_namespace });
+        return error.NamespaceNotFound;
+    }
+
+    if (available.len == 0) {
+        namespaceErrorDetail = try std.fmt.allocPrint(alloc, "Error: namespace '{s}' was requested, but no namespaces are defined in ~/.config/zsat/zsat.conf.", .{missing});
+        return error.NamespaceNotFound;
+    }
+
+    const joined = try std.mem.join(alloc, ", ", available);
+    namespaceErrorDetail = try std.fmt.allocPrint(alloc, "Error: namespace '{s}' was requested, but it is not defined in ~/.config/zsat/zsat.conf. Defined namespaces: {s}.", .{ missing, joined });
+    return error.NamespaceNotFound;
+}
+
+fn namespaceDefinitionNames(alloc: std.mem.Allocator, store: *const config.Store, namespace: []const u8) ![][]const u8 {
+    var names: std.ArrayList([]const u8) = .empty;
+    for (store.definitions) |definition| {
+        if (!std.mem.eql(u8, definition.namespace, namespace)) continue;
+        var already_listed = false;
+        for (names.items) |name| {
+            if (std.mem.eql(u8, name, definition.name)) already_listed = true;
+        }
+        if (!already_listed) try names.append(alloc, definition.name);
+    }
+    return names.toOwnedSlice(alloc);
+}
+
+fn reportMissingDefinition(alloc: std.mem.Allocator, missing: []const u8, namespace: []const u8, prefix: ?[]const u8, store: *const config.Store) (error{StyleReferenceNotFound} || error{OutOfMemory}) {
+    const available = try namespaceDefinitionNames(alloc, store, namespace);
+    defer alloc.free(available);
+
+    if (prefix) |alias| {
+        namespaceErrorDetail = try std.fmt.allocPrint(alloc, "Error: key '{s}' is not present in namespace '{s}' (imported as '{s}').", .{ missing, namespace, alias });
+    } else {
+        namespaceErrorDetail = try std.fmt.allocPrint(alloc, "Error: key '{s}' is not present in namespace '{s}'.", .{ missing, namespace });
+    }
+
+    if (available.len == 0) {
+        definitionErrorDetail = try std.fmt.allocPrint(alloc, "{s} That namespace is currently empty.", .{namespaceErrorDetail.?});
+        return error.StyleReferenceNotFound;
+    }
+
+    const joined = try std.mem.join(alloc, ", ", available);
+    definitionErrorDetail = try std.fmt.allocPrint(alloc, "{s} Defined keys: {s}.", .{ namespaceErrorDetail.?, joined });
+    return error.StyleReferenceNotFound;
+}
+
 fn addImportedDefinitions(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), store: ?*const config.Store, default_store: *const config.Store, directive: ImportDirective) !void {
     const loaded = namespaceStore(store, default_store, directive.namespace);
-    if (!loaded.hasNamespace(directive.namespace)) return error.NamespaceNotFound;
+    if (!loaded.hasNamespace(directive.namespace)) return reportMissingNamespace(alloc, directive.namespace, store, default_store);
     for (loaded.definitions) |definition| {
         if (!std.mem.eql(u8, definition.namespace, directive.namespace)) continue;
         try upsertRawDefinition(alloc, definitions, try prefixedName(alloc, directive.alias, definition.name), definition.text);
@@ -327,7 +399,7 @@ fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store
             const target_namespace = if (directive) |import| import.namespace else reference.namespace;
             const prefix = if (directive) |import| import.alias else null;
             const loaded = namespaceStore(store, default_store, target_namespace);
-            if (!loaded.hasNamespace(target_namespace)) return error.NamespaceNotFound;
+            if (!loaded.hasNamespace(target_namespace)) return reportMissingNamespace(alloc, target_namespace, store, default_store);
             try addReferencedDefinition(alloc, &definitions, loaded, default_store, &visited, target_namespace, reference.name, prefix);
         }
     } else if (parsed_input.imports.len == 0) {
@@ -1079,8 +1151,8 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
     return switch (err) {
         error.ParseInputsFailed => "Error: failed to parse input data. Please check your input format.",
         error.ParseStylesFailed => "Error: failed to parse styles. Please check your --styles argument.",
-        error.NamespaceNotFound => "Error: the requested style namespace was not found in ~/.config/zsat/zsat.conf. Check the 'use' directive or the 'NS::NAME' reference in --styles.",
-        error.StyleReferenceNotFound => "Error: the requested style was not found in the selected namespace.",
+        error.NamespaceNotFound => namespaceErrorDetail orelse "Error: the requested style namespace was not found in ~/.config/zsat/zsat.conf. Check the 'use' directive or the 'NS::NAME' reference in --styles.",
+        error.StyleReferenceNotFound => definitionErrorDetail orelse "Error: the requested style was not found in the selected namespace.",
         error.ParseDatumFailed => "Error: failed to parse datum mapping. Please check your --datum argument.",
         error.ParseOutputsFailed => "Error: failed to parse outputs. Please check your --outputs argument.",
         error.ParsePanesFailed => "Error: failed to parse panes. Please check your --panes argument.",
