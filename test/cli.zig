@@ -124,6 +124,53 @@ test "zsat draw with style from config namespace" {
     try testing.expect(std.mem.indexOf(u8, p_result.stdout, "p1:{pt2d") != null);
 }
 
+test "zsat draw with multiple use namespace directives" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.env_map.deinit();
+    defer std.testing.allocator.free(fixture.home);
+    defer fixture.tmp.cleanup();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "use sleek as s1, use namespace1 as s2, s1::e0, s2::e0", "--datum", "(vec) -> (vec -> s1::e0)" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "s1::e0:{vec2d xy fixed last [l:10, c: black") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "s2::e0:{vec2d xy fixed last [l:25, c: red") != null);
+}
+
+test "zsat draw with multiple use namespace directives requires alias" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.env_map.deinit();
+    defer std.testing.allocator.free(fixture.home);
+    defer fixture.tmp.cleanup();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use sleek, use namespace1 as s2" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+}
+
+test "zsat draw with duplicate use alias" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.env_map.deinit();
+    defer std.testing.allocator.free(fixture.home);
+    defer fixture.tmp.cleanup();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use sleek as s, use namespace1 as s" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+}
+
 test "zsat draw with use namespace directive" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
@@ -164,6 +211,39 @@ test "zsat draw with use of unknown namespace" {
     var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "namespace") != null);
+}
+
+test "zsat draw with use of unknown namespace among several" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.env_map.deinit();
+    defer std.testing.allocator.free(fixture.home);
+    defer fixture.tmp.cleanup();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use sleek as s1, use missing_namespace as s2" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "namespace") != null);
+}
+
+test "zsat draw with unknown alias reference" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.env_map.deinit();
+    defer std.testing.allocator.free(fixture.home);
+    defer fixture.tmp.cleanup();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use sleek as s1, unknown_alias::e0" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
     try testing.expect(std.mem.indexOf(u8, result.stderr, "namespace") != null);
 }
 

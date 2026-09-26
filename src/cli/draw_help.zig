@@ -50,6 +50,10 @@ pub const vec2d_style_help =
     \\  use NS        -- import every definition of NS, usable as e0, a0, ...
     \\  use NS as P   -- import every definition of NS under the prefix P, usable as P::e0, P::a0, ...
     \\
+    \\Importing more than one namespace requires an alias for each of them:
+    \\  use sleek1 as s1, use sleek2 as s2, s1::e0, s2::a0
+    \\A single 'use NS' keeps the bare names (e0, a0, ...) available.
+    \\
     \\TYPE (default: vec2d):
     \\  vec2d  -- input is parsed as 2D vectors
     \\

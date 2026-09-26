@@ -305,7 +305,18 @@ fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store
     }
 
     var definitions = std.ArrayList(RawDefinition).empty;
+    const alias_required = parsed_input.imports.len > 1;
+    var aliases_seen = std.ArrayList([]const u8).empty;
+    defer aliases_seen.deinit(alloc);
     for (parsed_input.imports) |directive| {
+        if (directive.alias) |alias| {
+            for (aliases_seen.items) |seen| {
+                if (std.mem.eql(u8, seen, alias)) return error.ParseStylesFailed;
+            }
+            try aliases_seen.append(alloc, alias);
+        } else if (alias_required) {
+            return error.ParseStylesFailed;
+        }
         try addImportedDefinitions(alloc, &definitions, store, default_store, directive);
     }
 
@@ -1068,7 +1079,7 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
     return switch (err) {
         error.ParseInputsFailed => "Error: failed to parse input data. Please check your input format.",
         error.ParseStylesFailed => "Error: failed to parse styles. Please check your --styles argument.",
-        error.NamespaceNotFound => "Error: the requested style namespace was not found in ~/.config/zsat/zsat.conf.",
+        error.NamespaceNotFound => "Error: the requested style namespace was not found in ~/.config/zsat/zsat.conf. Check the 'use' directive or the 'NS::NAME' reference in --styles.",
         error.StyleReferenceNotFound => "Error: the requested style was not found in the selected namespace.",
         error.ParseDatumFailed => "Error: failed to parse datum mapping. Please check your --datum argument.",
         error.ParseOutputsFailed => "Error: failed to parse outputs. Please check your --outputs argument.",
