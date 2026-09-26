@@ -499,7 +499,7 @@ pub const skipArrow =
 pub const skipComma =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
 pub const characterInNameParser =
-    mecha.oneOf(.{ mecha.ascii.range('a', 'z'), mecha.ascii.range('A', 'Z'), mecha.ascii.range('0', '9') });
+    mecha.oneOf(.{ mecha.ascii.range('a', 'z'), mecha.ascii.range('A', 'Z'), mecha.ascii.range('0', '9'), mecha.ascii.char(':') });
 pub const nameParser = mecha.many(characterInNameParser, .{ .collect = false });
 
 const zeronine = mecha.utf8.range('0', '9');

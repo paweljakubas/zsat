@@ -71,43 +71,100 @@ test "zsat draw with pN style" {
     try testing.expectEqual(@as(u8, 0), result.code);
 }
 
+const test_config_content =
+    \\- sleek
+    \\e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}
+    \\t0: {txt "txt" [c:red, s:20]}
+    \\p0:{pt2d [sh:square, s:15, c: grey]}
+    \\
+    \\- namespace1
+    \\e0:{vec2d xy fixed last [l:25, c: red, o: 100, e:none, j: none, d: none]}
+    \\p1:{pt2d [sh:circle, s:30, c: blue]}
+    \\
+;
+
+fn writeTestConfig() !struct { tmp: std.testing.TmpDir, home: []u8, env_map: std.process.Environ.Map } {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    errdefer tmp.cleanup();
+
+    try tmp.dir.createDirPath(io, ".config/zsat");
+    try tmp.dir.writeFile(io, .{ .sub_path = ".config/zsat/zsat.conf", .data = test_config_content });
+
+    const home = try std.fmt.allocPrint(std.testing.allocator, ".zig-cache/tmp/{s}", .{tmp.sub_path});
+    errdefer std.testing.allocator.free(home);
+
+    var env_map: std.process.Environ.Map = .init(std.testing.allocator);
+    errdefer env_map.deinit();
+    try env_map.put("HOME", home);
+
+    return .{ .tmp = tmp, .home = home, .env_map = env_map };
+}
+
 test "zsat draw with style from config namespace" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
-    var tmp = std.testing.tmpDir(.{});
-    defer tmp.cleanup();
-
-    try tmp.dir.createDirPath(io, ".config/zsat");
-    try tmp.dir.writeFile(io, .{ .sub_path = ".config/zsat/zsat.conf", .data =
-        \\- default
-        \\e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}
-        \\
-        \\- namespace1
-        \\e0:{vec2d xy fixed last [l:25, c: red, o: 100, e:none, j: none, d: none]}
-        \\p1:{pt2d [sh:circle, s:30, c: blue]}
-        \\
-    });
-
-    const home = try std.fmt.allocPrint(std.testing.allocator, ".zig-cache/tmp/{s}", .{tmp.sub_path});
-    defer std.testing.allocator.free(home);
-
-    var env_map: std.process.Environ.Map = .init(std.testing.allocator);
-    defer env_map.deinit();
-    try env_map.put("HOME", home);
+    var fixture = try writeTestConfig();
+    defer fixture.env_map.deinit();
+    defer std.testing.allocator.free(fixture.home);
+    defer fixture.tmp.cleanup();
 
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "namespace1::e0" };
-    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &env_map });
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
     defer result.deinit();
 
     try testing.expectEqual(@as(u8, 0), result.code);
     try testing.expect(std.mem.indexOf(u8, result.stdout, "c: red") != null);
 
     const p_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "namespace1::p1", "--datum", "(pt) -> (pt -> p1)" };
-    var p_result = try cmdtest.run(io, .{ .argv = p_argv, .stdin = "{(1,1)}", .env_map = &env_map });
+    var p_result = try cmdtest.run(io, .{ .argv = p_argv, .stdin = "{(1,1)}", .env_map = &fixture.env_map });
     defer p_result.deinit();
 
     try testing.expectEqual(@as(u8, 0), p_result.code);
     try testing.expect(std.mem.indexOf(u8, p_result.stdout, "p1:{pt2d") != null);
+}
+
+test "zsat draw with use namespace directive" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.env_map.deinit();
+    defer std.testing.allocator.free(fixture.home);
+    defer fixture.tmp.cleanup();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "use namespace1" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--styles e0:{vec2d xy fixed last [l:25, c: red") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "p1:{pt2d") != null);
+}
+
+test "zsat draw with use namespace directive with alias" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.env_map.deinit();
+    defer std.testing.allocator.free(fixture.home);
+    defer fixture.tmp.cleanup();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "use namespace1 as s, s::e0, s::p1", "--datum", "(vec) -> (vec -> s::e0)" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "s::e0:{vec2d xy fixed last [l:25, c: red") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "s::p1:{pt2d") != null);
+}
+
+test "zsat draw with use of unknown namespace" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use missing_namespace" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "namespace") != null);
 }
 
 test "zsat draw with unknown config namespace" {

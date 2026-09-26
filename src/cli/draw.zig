@@ -79,6 +79,78 @@ const QualifiedReference = struct {
     name: []const u8,
 };
 
+const ImportDirective = struct {
+    namespace: []const u8,
+    alias: ?[]const u8 = null,
+};
+
+const ParsedStyleInput = struct {
+    imports: []ImportDirective,
+    rest: []const u8,
+};
+
+fn skipSeparators(value: []const u8, index: usize) usize {
+    var cursor = index;
+    while (cursor < value.len) : (cursor += 1) {
+        if (std.ascii.isWhitespace(value[cursor]) or value[cursor] == ',') continue;
+        break;
+    }
+    return cursor;
+}
+
+fn matchesWord(value: []const u8, index: usize, word: []const u8) bool {
+    if (!std.mem.startsWith(u8, value[index..], word)) return false;
+    const end = index + word.len;
+    if (end == value.len) return true;
+    const next = value[end];
+    return std.ascii.isWhitespace(next) or next == ',';
+}
+
+fn readNameToken(value: []const u8, index: usize) usize {
+    var cursor = index;
+    while (cursor < value.len) : (cursor += 1) {
+        const character = value[cursor];
+        if (std.ascii.isWhitespace(character) or character == ',' or character == ':') break;
+    }
+    return cursor;
+}
+
+fn parseImportDirectives(alloc: std.mem.Allocator, styles_str: []const u8) !ParsedStyleInput {
+    var imports: std.ArrayList(ImportDirective) = .empty;
+    var index: usize = 0;
+    while (true) {
+        index = skipSeparators(styles_str, index);
+        if (!matchesWord(styles_str, index, "use")) break;
+
+        var cursor = skipSeparators(styles_str, index + "use".len);
+        const namespace_start = cursor;
+        cursor = readNameToken(styles_str, cursor);
+        if (cursor == namespace_start) return error.ParseStylesFailed;
+        const namespace = styles_str[namespace_start..cursor];
+
+        var alias: ?[]const u8 = null;
+        const after_namespace = cursor;
+        cursor = skipSeparators(styles_str, cursor);
+        if (matchesWord(styles_str, cursor, "as")) {
+            cursor = skipSeparators(styles_str, cursor + "as".len);
+            const alias_start = cursor;
+            cursor = readNameToken(styles_str, cursor);
+            if (cursor == alias_start) return error.ParseStylesFailed;
+            alias = styles_str[alias_start..cursor];
+        } else {
+            cursor = after_namespace;
+        }
+
+        try imports.append(alloc, .{ .namespace = namespace, .alias = alias });
+        index = cursor;
+    }
+
+    return .{
+        .imports = try imports.toOwnedSlice(alloc),
+        .rest = std.mem.trim(u8, styles_str[index..], " \t\r\n,"),
+    };
+}
+
 fn splitStyleInput(alloc: std.mem.Allocator, input: []const u8) ![][]const u8 {
     var parts = std.ArrayList([]const u8).empty;
     var start: usize = 0;
@@ -168,7 +240,12 @@ fn referencedBaseName(name: []const u8, text: []const u8) ?[]const u8 {
     return token;
 }
 
-fn addReferencedDefinition(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), store: *const config.Store, visited: *std.ArrayList(QualifiedReference), namespace: []const u8, name: []const u8) !void {
+fn prefixedName(alloc: std.mem.Allocator, prefix: ?[]const u8, name: []const u8) ![]const u8 {
+    if (prefix) |value| return try std.fmt.allocPrint(alloc, "{s}::{s}", .{ value, name });
+    return name;
+}
+
+fn addReferencedDefinition(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), store: *const config.Store, default_store: *const config.Store, visited: *std.ArrayList(QualifiedReference), namespace: []const u8, name: []const u8, prefix: ?[]const u8) !void {
     for (visited.items) |reference| {
         if (std.mem.eql(u8, reference.namespace, namespace) and std.mem.eql(u8, reference.name, name)) return;
     }
@@ -177,16 +254,44 @@ fn addReferencedDefinition(alloc: std.mem.Allocator, definitions: *std.ArrayList
     const definition = store.get(namespace, name) orelse return error.StyleReferenceNotFound;
     if (referencedBaseName(definition.name, definition.text)) |base| {
         if (store.get(namespace, base) != null) {
-            try addReferencedDefinition(alloc, definitions, store, visited, namespace, base);
-        } else if (!std.mem.eql(u8, namespace, "default") and store.get("default", base) != null) {
-            try addReferencedDefinition(alloc, definitions, store, visited, "default", base);
+            try addReferencedDefinition(alloc, definitions, store, default_store, visited, namespace, base, prefix);
+        } else if (!std.mem.eql(u8, namespace, config.default_namespace) and store.get(config.default_namespace, base) != null) {
+            try addReferencedDefinition(alloc, definitions, store, default_store, visited, config.default_namespace, base, prefix);
         }
     }
-    try upsertRawDefinition(alloc, definitions, definition.name, definition.text);
+    try upsertRawDefinition(alloc, definitions, try prefixedName(alloc, prefix, definition.name), definition.text);
+}
+
+fn namespaceStore(store: ?*const config.Store, default_store: *const config.Store, namespace: []const u8) *const config.Store {
+    if (store) |loaded| {
+        if (loaded.hasNamespace(namespace)) return loaded;
+        if (default_store.hasNamespace(namespace)) return default_store;
+        return loaded;
+    }
+    return default_store;
+}
+
+fn findImportAlias(imports: []const ImportDirective, namespace: []const u8) ?ImportDirective {
+    for (imports) |directive| {
+        const alias = directive.alias orelse continue;
+        if (std.mem.eql(u8, alias, namespace)) return directive;
+    }
+    return null;
+}
+
+fn addImportedDefinitions(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), store: ?*const config.Store, default_store: *const config.Store, directive: ImportDirective) !void {
+    const loaded = namespaceStore(store, default_store, directive.namespace);
+    if (!loaded.hasNamespace(directive.namespace)) return error.NamespaceNotFound;
+    for (loaded.definitions) |definition| {
+        if (!std.mem.eql(u8, definition.namespace, directive.namespace)) continue;
+        try upsertRawDefinition(alloc, definitions, try prefixedName(alloc, directive.alias, definition.name), definition.text);
+    }
 }
 
 fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store: ?*const config.Store, default_store: *const config.Store) ![]RawDefinition {
-    const parts = try splitStyleInput(alloc, styles_str);
+    const parsed_input = try parseImportDirectives(alloc, styles_str);
+    defer alloc.free(parsed_input.imports);
+    const parts = try splitStyleInput(alloc, parsed_input.rest);
     defer alloc.free(parts);
 
     var references = std.ArrayList(QualifiedReference).empty;
@@ -200,15 +305,23 @@ fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store
     }
 
     var definitions = std.ArrayList(RawDefinition).empty;
+    for (parsed_input.imports) |directive| {
+        try addImportedDefinitions(alloc, &definitions, store, default_store, directive);
+    }
+
     if (references.items.len > 0) {
-        const loaded = store orelse default_store;
         var visited = std.ArrayList(QualifiedReference).empty;
         for (references.items) |reference| {
-            if (!loaded.hasNamespace(reference.namespace)) return error.NamespaceNotFound;
-            try addReferencedDefinition(alloc, &definitions, loaded, &visited, reference.namespace, reference.name);
+            const directive = findImportAlias(parsed_input.imports, reference.namespace);
+            const target_namespace = if (directive) |import| import.namespace else reference.namespace;
+            const prefix = if (directive) |import| import.alias else null;
+            const loaded = namespaceStore(store, default_store, target_namespace);
+            if (!loaded.hasNamespace(target_namespace)) return error.NamespaceNotFound;
+            try addReferencedDefinition(alloc, &definitions, loaded, default_store, &visited, target_namespace, reference.name, prefix);
         }
-    } else if (store) |loaded| {
-        _ = try addNamespaceDefinitions(alloc, &definitions, loaded, "default");
+    } else if (parsed_input.imports.len == 0) {
+        const loaded = namespaceStore(store, default_store, config.default_namespace);
+        _ = try addNamespaceDefinitions(alloc, &definitions, loaded, config.default_namespace);
     }
 
     for (inline_parts.items) |part| {
@@ -426,10 +539,16 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
 
     var raw_definitions = try collectRawDefinitions(alloc, effective_styles_str, store_ptr, &default_store);
     defer alloc.free(raw_definitions);
-    if (raw_definitions.len == 0) {
-        var fallback = std.ArrayList(RawDefinition).empty;
-        try upsertRawDefinition(alloc, &fallback, "e0", config.default_style);
-        raw_definitions = try fallback.toOwnedSlice(alloc);
+    var has_builtin_e0 = false;
+    for (raw_definitions) |definition| {
+        if (std.mem.eql(u8, definition.name, "e0")) has_builtin_e0 = true;
+    }
+    if (!has_builtin_e0) {
+        var with_fallback: std.ArrayList(RawDefinition) = .empty;
+        try with_fallback.appendSlice(alloc, raw_definitions);
+        try upsertRawDefinition(alloc, &with_fallback, "e0", config.default_style);
+        alloc.free(raw_definitions);
+        raw_definitions = try with_fallback.toOwnedSlice(alloc);
     }
 
     var draw_elements_list = std.ArrayList(DrawElement).empty;

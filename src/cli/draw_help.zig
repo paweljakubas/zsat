@@ -45,6 +45,11 @@ pub const vec2d_style_help =
     \\  eN     -- style key (e0, e1, ...) used for referencing in --datum
     \\  {...}  -- style body; all fields are optional and inherit from defaults
     \\
+    \\Saved definitions from ~/.config/zsat/zsat.conf:
+    \\  NS::NAME      -- use a single saved definition, e.g. sleek::e0
+    \\  use NS        -- import every definition of NS, usable as e0, a0, ...
+    \\  use NS as P   -- import every definition of NS under the prefix P, usable as P::e0, P::a0, ...
+    \\
     \\TYPE (default: vec2d):
     \\  vec2d  -- input is parsed as 2D vectors
     \\

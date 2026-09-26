@@ -1,8 +1,9 @@
 const std = @import("std");
 
+pub const default_namespace = "sleek";
 pub const default_style = "e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}";
 pub const default_content =
-    "- default\n" ++
+    "- " ++ default_namespace ++ "\n" ++
     default_style ++ "\n" ++
     "t0: {txt \"txt\" [c:red, s:20]}\n" ++
     "a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]], values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]}\n" ++
@@ -128,9 +129,9 @@ test "default config" {
     defer store.deinit();
 
     try std.testing.expectEqual(@as(usize, 5), store.definitions.len);
-    try std.testing.expectEqualStrings("e0", store.get("default", "e0").?.name);
-    try std.testing.expectEqualStrings("p0", store.get("default", "p0").?.name);
-    try std.testing.expectEqualStrings("b0", store.get("default", "b0").?.name);
+    try std.testing.expectEqualStrings("e0", store.get(default_namespace, "e0").?.name);
+    try std.testing.expectEqualStrings("p0", store.get(default_namespace, "p0").?.name);
+    try std.testing.expectEqualStrings("b0", store.get(default_namespace, "b0").?.name);
 }
 
 test "config namespaces" {
@@ -138,7 +139,7 @@ test "config namespaces" {
     defer arena.deinit();
 
     const source =
-        "- default\n" ++
+        "- sleek\n" ++
         "e0:{vec2d}\n" ++
         "\n" ++
         "- namespace1\n" ++
@@ -146,7 +147,7 @@ test "config namespaces" {
     var store = try parse(arena.allocator(), source);
     defer store.deinit();
 
-    try std.testing.expect(store.hasNamespace("default"));
+    try std.testing.expect(store.hasNamespace("sleek"));
     try std.testing.expect(store.hasNamespace("namespace1"));
     try std.testing.expectEqualStrings("e0:{pt2d [s:5]}", store.get("namespace1", "e0").?.text);
 }
@@ -160,7 +161,7 @@ test "duplicate definition keeps last" {
     defer arena.deinit();
 
     const source =
-        "- default\n" ++
+        "- sleek\n" ++
         "e0:{vec2d}\n" ++
         "e0:{pt2d [s:5]}\n" ++
         "\n" ++
@@ -170,7 +171,7 @@ test "duplicate definition keeps last" {
     defer store.deinit();
 
     try std.testing.expectEqual(@as(usize, 2), store.definitions.len);
-    try std.testing.expectEqualStrings("e0:{pt2d [s:5]}", store.get("default", "e0").?.text);
+    try std.testing.expectEqualStrings("e0:{pt2d [s:5]}", store.get("sleek", "e0").?.text);
     try std.testing.expectEqualStrings("e0:{vec2d [c: red]}", store.get("other", "e0").?.text);
 }
 
