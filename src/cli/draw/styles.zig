@@ -1737,7 +1737,7 @@ pub fn serializeStyle(allocator: std.mem.Allocator, style: Style) ![]const u8 {
         try parts.append(allocator, dash_str);
         try parts.append(allocator, try std.fmt.allocPrint(allocator, " {}]}}", .{ld.offset}));
     } else {
-        try parts.append(allocator, try allocator.dupe(u8, "none]}}"));
+        try parts.append(allocator, try allocator.dupe(u8, "none]}"));
     }
 
     return try std.mem.join(allocator, "", parts.items);

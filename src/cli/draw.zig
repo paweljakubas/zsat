@@ -932,12 +932,12 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
         defer alloc.free(texts_debug);
         try ctx.writer.print("stdin:\n{s}\n", .{stdin_str});
         if (texts_debug.len > 0) {
-            try ctx.writer.print("\n--styles {s}, {s}\n", .{ styles_debug, texts_debug });
+            try ctx.writer.print("\n--styles '{s}, {s}'\n", .{ styles_debug, texts_debug });
         } else {
-            try ctx.writer.print("\n--styles {s}\n", .{styles_debug});
+            try ctx.writer.print("\n--styles '{s}'\n", .{styles_debug});
         }
-        try ctx.writer.print("--datum {s}\n", .{datum_str});
-        try ctx.writer.print("--outputs {s}\n", .{output_str});
+        try ctx.writer.print("--datum '{s}'\n", .{datum_str});
+        try ctx.writer.print("--outputs '{s}'\n", .{output_str});
         // Build panes string with embedded border info
         var panes_debug_parts = std.ArrayList([]const u8).empty;
         defer {
@@ -956,8 +956,8 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
         }
         const panes_debug = try std.mem.join(alloc, "", panes_debug_parts.items);
         defer alloc.free(panes_debug);
-        try ctx.writer.print("--panes {s}\n", .{panes_debug});
-        try ctx.writer.print("--frames {s}\n", .{frames_str});
+        try ctx.writer.print("--panes '{s}'\n", .{panes_debug});
+        try ctx.writer.print("--frames '{s}'\n", .{frames_str});
     }
 
     return ParsedData{

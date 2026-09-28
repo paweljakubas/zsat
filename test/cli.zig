@@ -194,7 +194,7 @@ test "zsat draw with use namespace directive" {
     defer result.deinit();
 
     try testing.expectEqual(@as(u8, 0), result.code);
-    try testing.expect(std.mem.indexOf(u8, result.stdout, "--styles e0:{vec2d xy fixed last [l:25, c: red") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--styles 'e0:{vec2d xy fixed last [l:25, c: red") != null);
     try testing.expect(std.mem.indexOf(u8, result.stdout, "p1:{pt2d") != null);
 }
 
@@ -677,10 +677,11 @@ test "zsat draw with debug and custom options" {
     try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
     try testing.expectEqual(@as(u8, 0), result.code);
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "stdin:"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--datum (vec) -> (vec -> e0)"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--panes p0:{size: 600x600, border: none}"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--frames (out) -> out -> p0"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "f:default, o:100]}'\n"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--datum '(vec) -> (vec -> e0)'"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--panes 'p0:{size: 600x600, border: none}'"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--frames '(out) -> out -> p0'"));
 }
 
 test "zsat draw -h cleaned output" {
