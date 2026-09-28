@@ -1,5 +1,4 @@
 const std = @import("std");
-const cmdtest = @import("cmdtest");
 
 /// Zig 0.16 ships no build step for removing a directory tree, so `clean` brings
 /// its own. Deleting the cache root from inside the make phase is the point of
@@ -34,6 +33,9 @@ const RemoveDirTree = struct {
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+
+    const test_step = b.step("test", "Run unit tests");
+    const cli_test_step = b.step("cli-test", "Run CLI integration tests");
 
     const zli_dep = b.dependency("zli", .{ .target = target, .optimize = optimize });
     const mecha_dep = b.dependency("mecha", .{ .target = target, .optimize = optimize });
@@ -127,11 +129,14 @@ pub fn build(b: *std.Build) void {
         });
         const install_config = b.addRunArtifact(config_installer);
         install_config.stdio = .inherit;
-        install_config.step.dependOn(&install_artifact.step);
+        // Only the install step writes ~/.config/zsat/zsat.conf. Steps that merely
+        // need the binary, like 'run', depend on the compile step instead, and the
+        // CLI tests depend on the install artifact rather than the install step, so
+        // that they never create the config file either.
         b.getInstallStep().dependOn(&install_config.step);
 
         const run_cmd = b.addRunArtifact(exe);
-        run_cmd.step.dependOn(b.getInstallStep());
+        run_cmd.step.dependOn(&exe.step);
 
         if (b.args) |args| {
             run_cmd.addArgs(args);
@@ -139,11 +144,36 @@ pub fn build(b: *std.Build) void {
 
         const run_step = b.step("run", "Run the app");
         run_step.dependOn(&run_cmd.step);
+
+        const cli_test_mod = b.createModule(.{
+            .root_source_file = b.path("test/cli.zig"),
+            .target = b.graph.host,
+            .imports = &.{
+                .{
+                    .name = "cmdtest",
+                    .module = cmdtest_dep.module("cmdtest"),
+                },
+            },
+        });
+        const cli_test_exe = b.addTest(.{
+            .name = "zsat",
+            .root_module = cli_test_mod,
+        });
+        const run_cli_tests = b.addRunArtifact(cli_test_exe);
+        run_cli_tests.step.dependOn(&install_artifact.step);
+        const original_path = b.graph.environ_map.get("PATH") orelse "";
+        run_cli_tests.setEnvironmentVariable("PATH", b.fmt("{s}{c}{s}", .{
+            b.exe_dir,
+            std.fs.path.delimiter,
+            original_path,
+        }));
+        run_cli_tests.setEnvironmentVariable("TMPDIR", "/tmp");
+        run_cli_tests.setEnvironmentVariable("HOME", "/tmp/zsat-cli-test-home");
+        cli_test_step.dependOn(&run_cli_tests.step);
+        test_step.dependOn(&run_cli_tests.step);
     }
 
     {
-        const test_step = b.step("test", "Run unit tests");
-
         const test_files = [_][]const u8{
             "src/config.zig",
             "src/cli/draw/common.zig",
@@ -220,19 +250,6 @@ pub fn build(b: *std.Build) void {
             const run_plot_tests = b.addRunArtifact(plot_unit_tests);
             test_step.dependOn(&run_plot_tests.step);
         }
-
-        const cli_test = cmdtest.add(b, .{
-            .name = "zsat",
-            .test_file = b.path("test/cli.zig"),
-        });
-        cli_test.setEnvironmentVariable("PATH", "zig-out/bin");
-        cli_test.setEnvironmentVariable("TMPDIR", "/tmp");
-        cli_test.setEnvironmentVariable("HOME", "/tmp/zsat-cli-test-home");
-
-        test_step.dependOn(&cli_test.step);
-
-        const cli_test_step = b.step("cli-test", "Run CLI integration tests");
-        cli_test_step.dependOn(&cli_test.step);
     }
 
     {

@@ -24,7 +24,7 @@ I also treat this as an opportunity to learn and practice Zig, a truely wonderfu
 As AI agentic era has started it is going to be probably more recreational programming project, but still, I do have a lot of fun developing it and do not intend to stop:-)
 
 **zsat** must have had picked maximum two out of three choices from _flexibility_, _power_ and _simplicity_.
-And, by a design, both __flexibility__ and __power__ were chosen over _simplicity_.
+And, by a design, both __flexibility__ and __power__ have been chosen over _simplicity_.
 Meaning, if you are in pursuit of the simplicity **zsat** might not be the best choice.
 
 ## Terminal
@@ -128,8 +128,8 @@ zig build test --summary all
 
 ## Zig packages (outside std) proudly used in the project:
 
-- [**zli**](https://github.com/xcaeser/zli) CLI development support 
-- [**mecha**](https://github.com/Hejsil/mecha) Parser combinator library 
-- [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app 
-- [**zigimg**](https://github.com/zigimg/zigimg) Image processing for **kitty graphics protocol** support 
-- [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend 
+- [**zli**](https://github.com/xcaeser/zli) CLI development support
+- [**mecha**](https://github.com/Hejsil/mecha) Parser combinator library
+- [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app
+- [**zigimg**](https://github.com/zigimg/zigimg) Image processing for **kitty graphics protocol** support
+- [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend

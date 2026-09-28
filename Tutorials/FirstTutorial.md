@@ -9,6 +9,7 @@
 - [Adding text](#adding-text)
 - [Adding axis](#adding-axis)
 - [Point2d data and its characteristic](#point2d-data-and-its-characteristic)
+- [Persistent styles](#persistent-styles)
 - [Exploring the tool through help](#exploring-the-tool-through-help)
 
 ## First try and how to explore the tool
@@ -31,11 +32,11 @@ echo '[[1,1]]' | zsat draw --debug
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}
---datum (vec) -> (vec -> e0)
---outputs (out) -> (anchor {(0,0)}) out
---panes p0:{size: 600x600, border: none}
---frames (out) -> out -> p0
+--styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}'
+--datum '(vec) -> (vec -> e0)'
+--outputs '(out) -> (anchor {(0,0)}) out'
+--panes 'p0:{size: 600x600, border: none}'
+--frames '(out) -> out -> p0'
 ```
 ![](fig1.png)
 
@@ -659,9 +660,9 @@ echo '[[1,1]]' | ./zig-out/bin/zsat draw \
 ```
 
 Please notice that when rotation is done against not itself then the rotation is done to the whole text with internal orientation intact.
-Rotation around itself results in internal rotation. This behaviour is by design and is found intuitive by the author. 
+Rotation around itself results in internal rotation. This behaviour is by design and is found intuitive by the author.
 
-In general, one should not expect for the composition to be commutative. Indeed, rotation followed by anchoring gives another result that the its flipped composition. 
+In general, one should not expect for the composition to be commutative. Indeed, rotation followed by anchoring gives another result that the its flipped composition.
 
 ```bash
 echo '[[1,1]]' | zsat draw --debug \

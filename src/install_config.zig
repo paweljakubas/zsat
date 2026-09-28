@@ -1,9 +1,8 @@
 const std = @import("std");
 const config = @import("config");
 
-const created_message = " ~/.config/zsat/zsat.conf created where tool's saves will be stored!";
-const found_message = " ~/.config/zsat/zsat.conf found. All saves stored there could be used when using the tool!";
-const install_message = "~/.config/zsat/zsat.conf added when zig build install is triggered";
+const created_message = " ~/.config/zsat/zsat.conf created, its saved styles can be used in --styles";
+const found_message = " ~/.config/zsat/zsat.conf found, its saved styles can be used in --styles";
 
 pub fn main(init: std.process.Init) !void {
     const home = init.environ_map.get("HOME") orelse init.environ_map.get("USERPROFILE") orelse return;
@@ -25,7 +24,6 @@ pub fn main(init: std.process.Init) !void {
     if (existing) |file| {
         file.close(init.io);
         try printMessage(init.io, found_message);
-        try printMessage(init.io, install_message);
         return;
     }
 
@@ -35,7 +33,6 @@ pub fn main(init: std.process.Init) !void {
     }) catch |err| switch (err) {
         error.PathAlreadyExists => {
             try printMessage(init.io, found_message);
-            try printMessage(init.io, install_message);
             return;
         },
         else => return err,
@@ -43,7 +40,6 @@ pub fn main(init: std.process.Init) !void {
     try file.writeStreamingAll(init.io, config.default_content);
     file.close(init.io);
     try printMessage(init.io, created_message);
-    try printMessage(init.io, install_message);
 }
 
 fn printMessage(io: std.Io, message: []const u8) !void {
