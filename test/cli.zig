@@ -198,6 +198,53 @@ test "zsat draw with use namespace directive" {
     try testing.expect(std.mem.indexOf(u8, result.stdout, "p1:{pt2d") != null);
 }
 
+test "zsat draw debug expands default datum with multiple inputs" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]\n[[-1,1]]\n[[-1,-1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--datum '(vec, vec, vec) -> (vec -> e0, vec -> e0, vec -> e0)'") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--outputs '(out) -> (anchor {(0,0)}) out'") != null);
+}
+
+test "zsat draw rotates output ops when outputs are fewer than inputs" {
+    const filenames = [_][]const u8{ "rot_a.png", "rot_b.png", "rot_c.png" };
+    defer for (filenames) |f| std.Io.Dir.cwd().deleteFile(std.testing.io, f) catch {};
+
+    const stdin_3 = "[[1,1]]\n[[-1,1]]\n[[-1,-1]]";
+    const two_ops = "(out1,out2) -> ((anchor {(0,0)}) out1,(anchor {(100,100)}) out2)";
+
+    // Three vectors, two ops: rows must use op0, op1, op0.
+    var r1 = try cmdtest.run(std.testing.io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "rot_a.png", "--outputs", two_ops }, .stdin = stdin_3 });
+    defer r1.deinit();
+
+    // The same rotation, spelled out explicitly with three outputs.
+    var r2 = try cmdtest.run(std.testing.io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "rot_b.png", "--outputs", "(out1,out2,out3) -> ((anchor {(0,0)}) out1,(anchor {(100,100)}) out2,(anchor {(0,0)}) out3)" }, .stdin = stdin_3 });
+    defer r2.deinit();
+
+    // Only two vectors: the picture a "drop" implementation would also produce.
+    var r3 = try cmdtest.run(std.testing.io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "rot_c.png", "--outputs", two_ops }, .stdin = "[[1,1]]\n[[-1,1]]" });
+    defer r3.deinit();
+
+    try testing.expectEqual(@as(u8, 0), r1.code);
+    try testing.expectEqual(@as(u8, 0), r2.code);
+    try testing.expectEqual(@as(u8, 0), r3.code);
+
+    const a = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "rot_a.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(a);
+    const b = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "rot_b.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(b);
+    const c = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "rot_c.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(c);
+
+    // Rotation must reproduce the explicit spelling...
+    try testing.expectEqualSlices(u8, a, b);
+    // ...and must NOT drop the third vector.
+    try testing.expect(!std.mem.eql(u8, a, c));
+}
+
 test "zsat draw with use namespace directive with alias" {
     defer cleanupOutputFiles();
     const io = std.testing.io;

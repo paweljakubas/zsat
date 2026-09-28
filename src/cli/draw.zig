@@ -836,16 +836,18 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
     }
     const axis_overlays = try axis_overlays_list.toOwnedSlice(alloc);
 
-    // If only one output transformation pair is defined but multiple input
-    // rows are present, replicate the pair so each row is drawn independently
-    // using the same output transformation.
-    if (outputsValidated.transformationPairs.len == 1 and inputs.input.len > 1) {
-        const original_pair = outputsValidated.transformationPairs[0];
-        const replicated = try alloc.alloc(Outputs.OutputTransformationPair, inputs.input.len);
-        for (replicated) |*p| {
-            p.* = original_pair;
+    // Output transformation pairs are assigned to input rows by index. When
+    // the counts differ, the sequence is rotated: row i uses the
+    // (i % count)-th pair. This keeps the mapping total -- every row is drawn,
+    // including with a single pair, which then simply broadcasts to all rows.
+    if (outputsValidated.transformationPairs.len > 0 and inputs.input.len != outputsValidated.transformationPairs.len) {
+        const original_count = outputsValidated.transformationPairs.len;
+        const original = outputsValidated.transformationPairs[0..original_count];
+        const rotated = try alloc.alloc(Outputs.OutputTransformationPair, inputs.input.len);
+        for (0..inputs.input.len) |i| {
+            rotated[i] = original[i % original_count];
         }
-        outputsValidated.transformationPairs = replicated;
+        outputsValidated.transformationPairs = rotated;
     }
 
     // The scale and orthogonal transformations do not make sense for point
@@ -936,7 +938,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
         } else {
             try ctx.writer.print("\n--styles '{s}'\n", .{styles_debug});
         }
-        try ctx.writer.print("--datum '{s}'\n", .{datum_str});
+        try ctx.writer.print("--datum '{s}'\n", .{effective_datum_str});
         try ctx.writer.print("--outputs '{s}'\n", .{output_str});
         // Build panes string with embedded border info
         var panes_debug_parts = std.ArrayList([]const u8).empty;

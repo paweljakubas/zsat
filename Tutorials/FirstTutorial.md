@@ -32,7 +32,8 @@ echo '[[1,1]]' | zsat draw --debug
 stdin:
 [[1,1]]
 
---styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}'
+
+--styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
 --datum '(vec) -> (vec -> e0)'
 --outputs '(out) -> (anchor {(0,0)}) out'
 --panes 'p0:{size: 600x600, border: none}'
@@ -42,15 +43,16 @@ stdin:
 
 There are many dimensions to master in the tool, and it is best to cover each aspect one by one.
 
-**Pane borders**
+**Pane definition**
 
-By default, panes have no border. You can add one inline inside a pane definition:
+`size` is expressed in pixels and is self explanatory.
+By default, panes have no border. You can add one by inlining inside a pane border definition:
 
 ```bash
 echo '[[1,1]]' | zsat draw -p 'p0:{size: 300x300, border: [w:20, c:red]}'
 ```
 
-Or define a reusable border in `--styles` and reference it by name:
+Or define a reusable border in `--styles` (`-s` could also be used) and reference it by name:
 
 ```bash
 echo '[[1,1]]' | zsat draw -s 'b0: {border [w:20, c:red]}' -p 'p0:{size: 300x300, border: b0}'
@@ -98,13 +100,26 @@ Each vector structure is separated by a newline character (`\n`), meaning each o
 
 ```bash
 printf '[[1,1]]\n[[-1,0]]' | zsat draw
-Error: failed to parse input data. Please check your input format.
+```
+![](fig3.png)
+
+
+In that case we have automatic replication, and `--datum '(vec, vec) -> (vec -> e0, vec -> e0)'`
+
+```bash
+printf '[[1,1]]\n[[-1,0]]' | zsat draw --debug
+stdin:
+[[1,1]]
+[[-1,0]]
+
+--styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
+--datum '(vec, vec) -> (vec -> e0, vec -> e0)'
+--outputs '(out) -> (anchor {(0,0)}) out'
+--panes 'p0:{size: 600x600, border: none}'
+--frames '(out) -> out -> p0'
 ```
 
-The error occurs because we now have two outputs (one per row), but the default `--outputs` setting only defines a single output.
-To handle this correctly, we need to specify two outputs — for exampe:
-`--outputs '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(1,1)}) out2)'`.
-More on this later. For now, we are focusing on understanding what input shapes are supported.
+There is also one output in `--outputs` an it follows from the rotation that is applied with regards to inputs. So in case of two inputs, each input undergoes the same operation, anchoring at point `(0,0)`.
 
 ## Defining styles
 
