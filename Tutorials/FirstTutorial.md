@@ -123,20 +123,20 @@ Thus we have two outputs in `--outputs` an it follows from the rotation that is 
 
 ## Defining styles
 
-The tool provides a default stye:
+The tool provides a default style for line, `e0`, point , `p0`, and text accessible via `t0`. When it comes to the line we have:
 
 `e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}`.
 
 Let's break down what each part means.
 
-`e0` denotes that in other options this particular style is going to be defined by the `e0` key.
+`e0` denotes that in other options this particular style is going to be refered by the `e0` key.
 Once defined in the `styles` option, one can reuse the defined element by using `e0`.
 
 What follows — `{...}` — is the definition body, i.e., the value associated with `e0`.
 Here, many things happen and can be influenced.
 
 First, `vec2d` indicates how data should be treated.
-Here, stdin data is interpreted as 2D vectors.
+Here, stdin data is interpreted as 2D vector.
 This means the input data conforms to the 2D vector shape described in the previous section.
 
 `xy` denotes that data values — for example, `[1,2]` — should be interpreted in the XY coordinate system, and hence `x=1, y=2` there.
@@ -150,7 +150,7 @@ This setting can be changed to either `origin` or `coord`, which both redefine t
 in which values are defined based on the previous segment, if present. More on that later.
 
 `last` means that only the final image of the vector is plotted, which will become relevant when we introduce operations that, if composed with each other, create many intermediary images ending with the final one.
-`last` denotes that we want only the final image to be plotted; `all` means the user wants all images — i.e., intermediary and final — to be plotted. More on that later.
+`last` denotes that we want only the final image to be plotted; `all` means the user wants all images — i.e., intermediary one(s) and the final — to be plotted. More on that later.
 
 `[..]` is the vector styling setting:
 - `l` means **line width**, expressed in pixels
@@ -158,7 +158,7 @@ in which values are defined based on the previous segment, if present. More on t
 - `o` means **line opacity**, where `0` is totally transparent and `100` is totally opaque
 - `e` means **line ending**; besides the default `none`, the choices are `butt`, `round`, or `square`
 - `j` stands for **line join** and is relevant for n-segment vectors; it describes how two segments are attached to each other. In addition to the default `none`, the choices are `miter`, `round`, and `bevel`
-- `d` stands for **line dashing**, which is switched off by default, meaning a continuous line is used. If one wants to use it, the pattern is specified as `[dash1, off1, dash2, off2, ..]`, which means the width of the first dash, `dash1`, then empty space, `off1`, and so on. After the pattern, the offset (in pixels) is provided: it tells how far from the start of the dashing pattern we should begin to plot. Everything is expressed in pixels. If the overall length of dashes and empty spaces within `[..]` is less than the vector to be covered, after covering the whole length of `[..]` the dashing pattern is continued until the whole length of the vector is covered. We will see examples soon.
+- `d` stands for **line dashing**, which is switched off by default, meaning a continuous line is used. If one wants to use it, the pattern is specified as `[dash1, off1, dash2, off2, ..]`, which means the width of the first dash, `dash1`, then empty space, specified by `off1`, and so on. After the pattern, the offset (in pixels) is provided: it tells how far from the start of the dashing pattern we should begin to plot. Every parameter is expressed in pixels. If the overall length of dashes and empty spaces within `[..]` is less than the vector to be covered, after covering the whole length of `[..]` the dashing pattern is continued until the whole length of the vector is covered. We will see examples soon.
 
 Let's see some examples of vector styling.
 
@@ -168,7 +168,7 @@ echo '[[1,1]]' | zsat draw \
 ```
 ![](fig4.png)
 
-We reused the default `e0` style and changed the line width to `15` and the line color to `aqua`.
+We reused the default `e0` style and changed the line width to `15` and the line color to `aqua` leaving other settings intact.
 Another example below.
 
 ```bash
@@ -191,11 +191,11 @@ echo '[[1,1]]' | zsat draw \
 ```
 ![](fig7.png)
 
-The last value in the dashing definition is the `offset`. It controls where in the dashing pattern we start.
+The last value in the dashing definition is the `offset`. It offers given a dashing patter where we start via setting starting anchor.
 
 ```bash
-echo '[[1,1]]' | zsat draw --styles \
-'e0{[l:15, c: aqua, d: [100,30] 0]}'
+echo '[[1,1]]' | zsat draw \
+--styles 'e0{[l:15, c: aqua, d: [100,30] 0]}'
 ```
 ![](fig8.png)
 
@@ -205,11 +205,15 @@ echo '[[1,1]]' | zsat draw \
 ```
 ![](fig9.png)
 
+Here, we we have dashing pattern that is 100 pixel lines and 30 pixel spacings and we are starting at 65 pixel counting from the beginning of the dashing pattern.
+
 ```bash
 echo '[[1,1]]' | zsat draw \
 --styles 'e0{[l:15, c: aqua, d: [100,30] 130]}'
 ```
 ![](fig10.png)
+
+Here, we we have dashing pattern that is 100 pixel lines and 30 pixel spacings and we are starting at 130 pixel counting from the beginning of the dashing pattern.
 
 In the first figure we start with `0` offset, meaning we start from the beginning of the pattern.
 In the middle figure we start exactly in the middle of the pattern, as the pattern is `100+30=130` pixels long.
@@ -218,7 +222,7 @@ This means that specifying `d: [100,30] 0` and `d: [100,30] 130` is equivalent.
 
 ## Multiple data
 
-As mentioned in the data section, objects that require different treatment must be provided on separate lines.
+As mentioned in the data section, objects that require different treatment must be provided in separate lines.
 
 ```bash
 printf '[[1,1]]\n[[0,1]]' | zsat draw \
@@ -227,6 +231,8 @@ printf '[[1,1]]\n[[0,1]]' | zsat draw \
 --outputs '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0,0)}) out2)'
 ```
 <img src="fig11.png" width="332" style="border: 2px solid grey;">
+
+We could omit `--outputs` as this is what we would get from rotation default.
 
 By separating vectors with `\n`, we indicate that they should be treated as separate data entities.
 We also defined two styles: `e1` and `e2`, both based on the default style `e0`, setting only the fields we want to overwrite with new values.
@@ -240,7 +246,7 @@ You do not have to use all defined styles — it is perfectly fine to define fiv
 Hence, using `--datum '(vec1, vec2) -> (vec1 -> e1, vec2 -> e1)'` or even `--datum '(vec1, vec2) -> (vec1 -> e0, vec2 -> e0)'` (if we also added `e0` or `e0: e0` in styles; otherwise `e0` is not exposed for later use) is perfectly fine, though superfluous.
 Finally, we need to place each object in the pane space.
 Vectors are abstract entities; to place them in concrete space we need to pin them there using `anchor POINT`.
-Let's see other capabilities of **POINT** in examples.
+Let's see how **POINT** could be defined in examples.
 
 ```bash
 printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
@@ -283,8 +289,11 @@ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 <img src="fig16.png" width="332" style="border: 2px solid grey;">
 
 A point can be specified explicitly as `{(x,y)}`, or implicitly by referring to another object using `beg`, `mid`, `end`, or `NUM%`.
-The percentage counts from the beginning of the object, where the full length equals 100%.
-As shown below, we have moved the anchor of the red segments even further, and the framing has adjusted.
+The percentage counts from the beginning of the referenced object, where the full length equals 100%.
+Use `self` to refer to the current object, or name other objects directly.
+To be well-defined, we must also specify which part of the referenced object to point to:
+hence `NUM%`, `beg`, `mid`, and `end`.
+As shown below, we have moved the anchor of the red segments even further, and the framing has adjusted automatically.
 
 ```bash
 printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
@@ -297,9 +306,9 @@ printf '[[1,1]]\n[[0,0.5],[0.5,0]]' | zsat draw \
 ## Datum transformation with straightforward composing
 
 Now let's focus on what can be done with data after it is read from stdin.
-As we see above, we deal with vectors, and because of that we al ays need to pin them in space (through the `anchor` operation).
+As we see above, we deal with vectors, and because of that we always need to pin them in space (through the `anchor` operation).
 We do this in `--output`, where we first declare all data handles in a tuple `(out1, ...)` and then apply operations to each.
-For vectors, anchoring is mandatory — it is the minimal required operation.
+For vectors, anchoring is mandatory — it is the minimal required operation and default one.
 Additional operations such as rotation, scaling, or mirroring can be composed on top of anchoring using `&`.
 Composition here means plain successive application (think `.` in Haskell or `&` in J).
 Thus, `(op2 & op1) out` is equivalent to `op2 (op1 out)`.
@@ -311,11 +320,11 @@ printf '[[1,1]]' | zsat draw --debug \
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}
---datum (vec) -> (vec -> e0)
---outputs (out) -> (anchor {(0,0)}) out
---panes p0:{size: 600x600, border: none}
---frames (out) -> out -> p0
+--styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
+--datum '(vec) -> (vec -> e0)'
+--outputs '(out) -> (anchor {(0,0)}) out'
+--panes 'p0:{size: 600x600, border: none}'
+--frames '(out) -> out -> p0'
 ```
 <img src="fig18.png" width="332" style="border: 2px solid grey;">
 
@@ -327,23 +336,23 @@ printf '[[1,1]]' | zsat draw --debug \
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}
---datum (vec) -> (vec -> e0)
---outputs (out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out
---panes p0:{size: 600x600, border: none}
---frames (out) -> out -> p0
+--styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
+--datum '(vec) -> (vec -> e0)'
+--outputs '(out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out'
+--panes 'p0:{size: 600x600, border: none}'
+--frames '(out) -> out -> p0'
 ```
 <img src="fig19.png" width="332" style="border: 2px solid grey;">
 
 As we can see from the `--debug` output, `last` is used in the `e0` style definition, instructing the tool to plot only the final result of the transformation.
-But we might also want to see the intermediate images at each step.
+But we might also want to see the intermediate images also, so here, the result after `(anchor {(0,0)}`.
 Note that if we combine three operations using `&`, as shown below:
 
 ```bash
 (out) -> (op3 & op2 & op1) out
 ```
 
-then we will have the following three intermediate resuls:
+then we will have the following two intermediate and one final results:
 
 ```bash
 (op1) out
@@ -351,7 +360,7 @@ then we will have the following three intermediate resuls:
 (op3 & op2 & op1) out
 ```
 
-Here are examples building on the one above:
+Here are examples building on the above:
 
 ```bash
 printf '[[1,1]]' | zsat draw --debug \
@@ -360,48 +369,38 @@ printf '[[1,1]]' | zsat draw --debug \
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed all [l:10, c: black, o: 100, e:none, j: none, d:none]}}
---datum (vec) -> (vec -> e0)
---outputs (out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out
---panes p0:{size: 600x600, border: none}
---frames (out) -> out -> p0
+--styles 'e0:{vec2d xy fixed all [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
+--datum '(vec) -> (vec -> e0)'
+--outputs '(out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out'
+--panes 'p0:{size: 600x600, border: none}'
+--frames '(out) -> out -> p0'
 ```
 <img src="fig20.png" width="332" style="border: 2px solid grey;">
 
 ```bash
 printf '[[1,1]]' | zsat draw --debug \
 -s 'e0:{vec2d all}' \
--o '(out) -> ((r [-90 a (mid self)]) & (rotate [90 a (0% self)]) & (anchor {(0,0)})) out'
+-o '(out) -> ((r [-90 a (mid self)]) & (rotate [1r2p a (0% self)]) & (anchor {(0,0)})) out'
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed all [l:10, c: black, o: 100, e:none, j: none, d:none]}}
---datum (vec) -> (vec -> e0)
---outputs (out) -> ((r [-90 a (mid self)]) & (rotate [90 a (0% self)]) & (anchor {(0,0)})) out
---panes p0:{size: 600x600, border: none}
---frames (out) -> out -> p0
+--styles 'e0:{vec2d xy fixed all [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
+--datum '(vec) -> (vec -> e0)'
+--outputs '(out) -> ((r [-90 a (mid self)]) & (rotate [1r2p a (0% self)]) & (anchor {(0,0)})) out'
+--panes 'p0:{size: 600x600, border: none}'
+--frames '(out) -> out -> p0'
 ```
 <img src="fig21.png" width="332" style="border: 2px solid grey;">
-
-**Note on point definition**
-
-Point definitions are used inside transformations like `rotate`.
-They can be specified explicitly, e.g., `{(1,2)}`, or by referring to other objects.
-Use `self` to refer to the current object, or name other objects directly.
-To be well-defined, we must also specify which part of the referenced object to point o:
-hence `beg`, `mid`, and `end`.
-If that is not enough, percentages can be used instead.
-`0%` is equivalent to the beginning, and `100%` to the end.
-It is worth mentioning that one can also use negative values.
 
 **Note on angles**
 
 Angles can be expressed either in degrees or radians.
-In the former case, angles are given in degrees. In the latter, they are given in radians using `p`.
+In the former case, angles are given in degrees with positive values following counter-clockwise movement.
+In the latter case, they are given in radians using `p`.
 For example, `180` degrees is equivalent to `p`, and `45` degrees to `1r4p`.
 Here, `r` stands for ratio — notice the advantage of using `1r3p` instead of `0.3333p`.
 
-Now let's use the `scale` transformation (abbreviated `s`), which scales both components according to the given argument.
+Now let's use the `scale` transformation (abbreviated as `s`), which scales both components according to the given argument.
 
 ```bash
 printf '[[1,1]]' | zsat draw \
@@ -492,7 +491,7 @@ printf '[[1,1]]\n[[0,2]],[[2,0]]' | zsat draw  \
 Decomposition relative to another output. Projection plus orthogonal equals the original vector:
 
 ```bash
-printf '[[1,1]]\n[[0,2]],[[2,0]]\n[[2,0.5]]' | zsat draw \
+printf '[[1,1]]\n[[0,2]],[[2.5,0]]\n[[2,0.5]]' | zsat draw \
 -s 'e0:{all [l:20]}, e1:{[l:5, c: aqua, d: [40,10] 0]}, e2: {[l:30, c: grey, o: 50]}' \
 -d '(vec0, vec1, vec2) -> (vec0 -> e0, vec1 -> e1, vec2 -> e2)' \
 -o '(out0, out1, out2) -> ((o out2 & a {(1,1)}) out0, (a {(0,0)}) out1, (a {(0.5,0.5)}) out2)'
@@ -520,9 +519,10 @@ printf '[[1,1]]\n[[0,2]],[[2,0]]\n[[2,0.5]]' | zsat draw \
 
 **Note on coordinate systems**
 
-Until now we have implicitly used the **fixed** coordinate system, as it is the default.
-So `(0,0)` is a fixed coordinate origin and the axes do not move.
+Until now we have implicitly used the **fixed** coordinate system, as it is the default setting.
+So `(0,0)` is a fixed coordinate origin and the axes do not move throughout the operations.
 If **origin** is used, the axes keep the same orientation, but the origin is moved to the end of the vector from the last step (for the first step, we start from `(0,0)`).
+*origin* is ideal if we want to visualize or work with increments.
 
 ```bash
 printf '[[1,0]]\n[[2,2]]' | zsat draw \
@@ -542,10 +542,10 @@ printf '[[1,0]]\n[[2,2]]' | zsat draw \
 ```
 <img src="fig27.png" width="332" style="border: 2px solid grey;">
 
-In `origin` mode (and `coord` mode in this context), after the first transformation the origin moves to `(1,0)`, so `y=x` is constructed there.
+In `origin` mode (and `coord` mode in this context), after the first transformation the origin moves to `(1,0)`, so `y=x` is defined within this new coordinate system.
 This means the mirrored vector is adjacent to the vector from the first step.
 `coord` mode also moves the coordinate origin, as `origin` does, but additionally reorients the axes so that the x-axis aligns with the last step's vector direction.
-Let's look at an example and discuss it to illustrate this mode.
+Let's look at an example and discuss this mode.
 
 ```bash
 printf '[[1,1]]\n[[2,2]]' | zsat draw \
@@ -555,15 +555,16 @@ printf '[[1,1]]\n[[2,2]]' | zsat draw \
 ```
 <img src="fig28.png" width="332" style="border: 2px solid grey;">
 
-In the second transformation, if `coord` is active, the vector from the first transformation becomes the direction of the x-axis for the next coordinate system.
-The new coordinate system is also shifted to global `(1,0)`.
-Here, `y=x` is the vertical line passing through the origin, against which the mirror operates.
+In the second transformation, if `coord` is switched on, the vector from the first transformation established the direction of the x-axis for the next coordinate system.
+The origin of the new coordinate system is also shifted to global `(1,0)`.
+
+Notice, that `y=x` in the new coordinate system is the vertical line passing through the new origin, against which the mirror operates.
 
 ```bash
 printf '[[1,1]]\n[[0,2]]' | zsat draw \
-  -s 'e0:{vec2d all coord}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
-  -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
-  -o '(out0, out1) -> ((m (y=x) & a {(1,0)}) out0, (a {(1,0)}) out1)'
+-s 'e0:{vec2d all coord}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
+-d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
+-o '(out0, out1) -> ((m (y=x) & a {(1,0)}) out0, (a {(1,0)}) out1)'
 ```
 <img src="fig29.png" width="332" style="border: 2px solid grey;">
 
@@ -575,8 +576,8 @@ One can also use the `polar` type, where we use `(r, phi)` to determine position
 
 ```bash
 printf '[[1,45]]' | zsat draw \
-  -s 'e0:{vec2d polar all coord}' \
-  -o '(out) -> (r [45 a (end self)] & a {(0,0)}) out'
+-s 'e0:{vec2d polar all coord}' \
+-o '(out) -> (r [45 a (end self)] & a {(0,0)}) out'
 ```
 
 <img src="fig30.png" width="332" style="border: 2px solid grey;">
@@ -585,10 +586,12 @@ The stdin input sets `(r, phi) = (1, 45°)`, and the next step rotates 45 degree
 
 ```bash
 printf '[[1,45]]' | zsat draw \
-  -s 'e0:{vec2d polar all}' \
-  -o '(out) -> (r [-1r6p a (beg self)] & r [45 a (end self)] & a {(0,0)}) out'
+-s 'e0:{vec2d polar all}' \
+-o '(out) -> (r [-1r6p a (beg self)] & r [45 a (end self)] & a {(0,0)}) out'
 ```
 <img src="fig31.png" width="332" style="border: 2px solid grey;">
+
+HERE
 
 **Multi-segment data**
 
