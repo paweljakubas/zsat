@@ -1772,6 +1772,38 @@ test "connectionParser" {
     try testing.expectEqualDeep(exp2, r2.value.ok);
 }
 
+test "rotatedString expands outputs over rows" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Two outputs with anchors at distinct points: the tuple and the pairs
+    // both expand by rotation over three rows.
+    const r1 = try connectionParser.parse(a, "(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(1,1)}) out2)");
+    try testing.expectEqualStrings("(out1, out2, out1) -> ((anchor {(0.0,0.0)}) out1, (anchor {(1.0,1.0)}) out2, (anchor {(0.0,0.0)}) out1)", try rotatedString(a, r1.value.ok, 3));
+
+    // A single output broadcasts to every row.
+    const r2 = try connectionParser.parse(a, "(out) -> (anchor {(2,3)}) out");
+    try testing.expectEqualStrings("(out, out) -> ((anchor {(2.0,3.0)}) out, (anchor {(2.0,3.0)}) out)", try rotatedString(a, r2.value.ok, 2));
+
+    // Identity outputs stay bare names.
+    const r3 = try connectionParser.parse(a, "(out1, out2) -> (out1, out2)");
+    try testing.expectEqualStrings("(out1, out2, out1) -> (out1, out2, out1)", try rotatedString(a, r3.value.ok, 3));
+
+    // Compose, rotate and scale are reconstructed.
+    const r4 = try connectionParser.parse(a, "(out1) -> ((anchor {(0,0)} & r [-120 a (10% self)] & scale [[2,3]]) out1)");
+    try testing.expectEqualStrings("(out1, out1) -> ((anchor {(0.0,0.0)} & r [-120.0 a (10% self)] & scale [[2.0,3.0]]) out1, (anchor {(0.0,0.0)} & r [-120.0 a (10% self)] & scale [[2.0,3.0]]) out1)", try rotatedString(a, r4.value.ok, 2));
+
+    // The rotated output (complete form) must re-parse to the same expanded connection.
+    const rotated = try rotatedString(a, r1.value.ok, 3);
+    const reparsed = try connectionParser.parse(a, rotated);
+    try testing.expectEqual(@as(usize, 3), reparsed.value.ok.outputs.len);
+    try testing.expectEqual(@as(usize, 3), reparsed.value.ok.transformationPairs.len);
+    try testing.expectEqualDeep(r1.value.ok.transformationPairs[0], reparsed.value.ok.transformationPairs[0]);
+    try testing.expectEqualDeep(r1.value.ok.transformationPairs[1], reparsed.value.ok.transformationPairs[1]);
+    try testing.expectEqualDeep(r1.value.ok.transformationPairs[0], reparsed.value.ok.transformationPairs[2]);
+}
+
 test "connectionParser identity multiple" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -2164,11 +2196,11 @@ test "validateConnection relaxes name check with axis overlay" {
         .outputs = &[_]Output{ .{ .name = "out0" }, .{ .name = "out1" } },
         .transformationPairs = &[_]OutputTransformationPair{ pair1, pair2 },
         .textOutputs = &.{},
-        .axisOutputs = &[_]AxisOutput{ .{
+        .axisOutputs = &[_]AxisOutput{.{
             .item = .{ .name = "a0" },
             .from = .{ .x = 0, .y = 0 },
             .to = .{ .x = 2, .y = 0 },
-        } },
+        }},
     };
     const res = try validateConnection(a, 2, conn);
     try testing.expectEqual(@as(usize, 2), res.transformationPairs.len);
@@ -2426,6 +2458,175 @@ pub fn validateConnection(_: std.mem.Allocator, numberOfOutputs: u8, connection:
     }
 
     return OutputsValidated{ .transformationPairs = connection.transformationPairs };
+}
+
+/// Serializes the connection as an explicit multiple-form outputs string, with
+/// the output tuple and the transformation pairs expanded over `rows` rows:
+/// row i uses the (i % count)-th entry. Only the rotation-relevant parts are
+/// reconstructed; overlay text/axis outputs are not part of the rotation.
+/// Used to show the effective mapping in --debug.
+pub fn rotatedString(arena: std.mem.Allocator, connection: Connection, rows: u8) ![]const u8 {
+    if (connection.outputs.len == 0 or connection.transformationPairs.len == 0) {
+        return "(?) -> (?)";
+    }
+
+    var buf = std.ArrayList(u8).empty;
+    try buf.append(arena, '(');
+    for (0..rows) |i| {
+        if (i > 0) try buf.appendSlice(arena, ", ");
+        try buf.appendSlice(arena, connection.outputs[i % connection.outputs.len].name);
+    }
+    try buf.appendSlice(arena, ") -> (");
+    for (0..rows) |i| {
+        if (i > 0) try buf.appendSlice(arena, ", ");
+        const pair = connection.transformationPairs[i % connection.transformationPairs.len];
+        try appendTransformationPair(&buf, arena, pair);
+    }
+    try buf.append(arena, ')');
+    return buf.toOwnedSlice(arena);
+}
+
+fn appendTransformationPair(buf: *std.ArrayList(u8), arena: std.mem.Allocator, pair: OutputTransformationPair) !void {
+    const ops = pair.operation.ops;
+    if (ops.len == 1 and ops[0] == .none) {
+        try buf.appendSlice(arena, pair.outputName);
+        return;
+    }
+    try buf.append(arena, '(');
+    for (ops, 0..) |op, i| {
+        if (i > 0) try buf.appendSlice(arena, " & ");
+        try appendOp(buf, arena, op);
+    }
+    try buf.append(arena, ')');
+    try buf.append(arena, ' ');
+    try buf.appendSlice(arena, pair.outputName);
+}
+
+fn appendOp(buf: *std.ArrayList(u8), arena: std.mem.Allocator, op: OneArgFunctionPartial) !void {
+    switch (op) {
+        .none => {},
+        .center => try buf.appendSlice(arena, "center"),
+        .anchor => |a| {
+            try buf.appendSlice(arena, "anchor ");
+            try appendGeneralPoint(buf, arena, a.point);
+        },
+        .rotate => |r| {
+            try buf.appendSlice(arena, "r [");
+            for (r.elements, 0..) |arg, i| {
+                if (i > 0) try buf.appendSlice(arena, ", ");
+                try appendFloat(buf, arena, arg.phi);
+                try buf.appendSlice(arena, " a ");
+                try appendGeneralPoint(buf, arena, arg.point);
+            }
+            try buf.append(arena, ']');
+        },
+        .scale => |s| {
+            try buf.appendSlice(arena, "scale [");
+            for (s.elements, 0..) |arg, i| {
+                if (i > 0) try buf.appendSlice(arena, ", ");
+                try appendVector(buf, arena, arg.translation);
+            }
+            try buf.append(arena, ']');
+        },
+        .mirror => |m| {
+            try buf.appendSlice(arena, "mirror ");
+            try appendTarget(buf, arena, m.target);
+        },
+        .project => |p| {
+            try buf.appendSlice(arena, "project ");
+            try appendTarget(buf, arena, p.target);
+        },
+        .orthogonal => |o| {
+            try buf.appendSlice(arena, "orthogonal ");
+            try appendTarget(buf, arena, o.target);
+        },
+    }
+}
+
+fn appendTarget(buf: *std.ArrayList(u8), arena: std.mem.Allocator, target: ProjectTarget) !void {
+    switch (target) {
+        .line => |l| {
+            try buf.appendSlice(arena, "(y=");
+            try appendFloat(buf, arena, l.b);
+            try buf.appendSlice(arena, "x");
+            if (l.c >= 0) {
+                try buf.appendSlice(arena, "+");
+            } else {
+                try buf.appendSlice(arena, "-");
+            }
+            try appendFloat(buf, arena, if (l.c >= 0) l.c else -l.c);
+            try buf.append(arena, ')');
+        },
+        .vector => |v| {
+            try buf.appendSlice(arena, "vector ");
+            try appendVector(buf, arena, v);
+        },
+        .point => |gp| {
+            try appendGeneralPoint(buf, arena, gp);
+        },
+        .element => |ref| {
+            try appendElementReference(buf, arena, ref);
+        },
+    }
+}
+
+fn appendElementReference(buf: *std.ArrayList(u8), arena: std.mem.Allocator, ref: ElementReference) !void {
+    switch (ref) {
+        .self => try buf.appendSlice(arena, "self"),
+        .other => |name| try buf.appendSlice(arena, name),
+    }
+}
+
+fn appendGeneralPoint(buf: *std.ArrayList(u8), arena: std.mem.Allocator, gp: GeneralPoint) !void {
+    switch (gp) {
+        .point => |p| {
+            try buf.append(arena, '{');
+            try buf.append(arena, '(');
+            try appendFloat(buf, arena, p.x);
+            try buf.appendSlice(arena, ",");
+            try appendFloat(buf, arena, p.y);
+            try buf.append(arena, ')');
+            try buf.append(arena, '}');
+        },
+        .beginning => |ref| {
+            try buf.appendSlice(arena, "(beg ");
+            try appendElementReference(buf, arena, ref);
+            try buf.append(arena, ')');
+        },
+        .end => |ref| {
+            try buf.appendSlice(arena, "(e ");
+            try appendElementReference(buf, arena, ref);
+            try buf.append(arena, ')');
+        },
+        .middle => |ref| {
+            try buf.appendSlice(arena, "(m ");
+            try appendElementReference(buf, arena, ref);
+            try buf.append(arena, ')');
+        },
+        .fraction => |f| {
+            try buf.appendSlice(arena, "(");
+            try buf.appendSlice(arena, try std.fmt.allocPrint(arena, "{d}% ", .{f.fromStart}));
+            try appendElementReference(buf, arena, f.element);
+            try buf.append(arena, ')');
+        },
+        .self => try buf.appendSlice(arena, "(self)"),
+    }
+}
+
+fn appendVector(buf: *std.ArrayList(u8), arena: std.mem.Allocator, v: inputs.Vector) !void {
+    try buf.append(arena, '[');
+    try appendFloat(buf, arena, v.x);
+    try buf.appendSlice(arena, ",");
+    try appendFloat(buf, arena, v.y);
+    try buf.append(arena, ']');
+}
+
+fn appendFloat(buf: *std.ArrayList(u8), arena: std.mem.Allocator, x: f32) !void {
+    const s = try std.fmt.allocPrint(arena, "{d}", .{x});
+    try buf.appendSlice(arena, s);
+    if (std.mem.indexOfAny(u8, s, ".eE") == null) {
+        try buf.appendSlice(arena, ".0");
+    }
 }
 
 /// Converts a point from local frame coordinates to global coordinates.

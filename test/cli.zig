@@ -206,7 +206,7 @@ test "zsat draw debug expands default datum with multiple inputs" {
 
     try testing.expectEqual(@as(u8, 0), result.code);
     try testing.expect(std.mem.indexOf(u8, result.stdout, "--datum '(vec, vec, vec) -> (vec -> e0, vec -> e0, vec -> e0)'") != null);
-    try testing.expect(std.mem.indexOf(u8, result.stdout, "--outputs '(out) -> (anchor {(0,0)}) out'") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--outputs '(out, out, out) -> ((anchor {(0.0,0.0)}) out, (anchor {(0.0,0.0)}) out, (anchor {(0.0,0.0)}) out)'") != null);
 }
 
 test "zsat draw rotates output ops when outputs are fewer than inputs" {
@@ -243,6 +243,15 @@ test "zsat draw rotates output ops when outputs are fewer than inputs" {
     try testing.expectEqualSlices(u8, a, b);
     // ...and must NOT drop the third vector.
     try testing.expect(!std.mem.eql(u8, a, c));
+}
+
+test "zsat draw debug shows rotated outputs" {
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--outputs", "(out1,out2) -> ((anchor {(0,0)}) out1,(anchor {(1,1)}) out2)" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]\n[[-1,1]]\n[[-1,-1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--outputs '(out1, out2, out1) -> ((anchor {(0.0,0.0)}) out1, (anchor {(1.0,1.0)}) out2, (anchor {(0.0,0.0)}) out1)'") != null);
 }
 
 test "zsat draw with use namespace directive with alias" {
@@ -596,13 +605,41 @@ test "zsat draw with two styles" {
     try testing.expectEqual(@as(u8, 0), result.code);
 }
 
-test "zsat draw with wrong number of datum" {
-    defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--datum", "(vec, vec) -> (vec -> e0)" };
-    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[2,1.1]]" });
-    defer result.deinit();
+test "zsat draw rotates datum mappings with fewer inputs" {
+    const filenames = [_][]const u8{ "datum_a.png", "datum_b.png", "datum_c.png" };
+    defer for (filenames) |f| std.Io.Dir.cwd().deleteFile(std.testing.io, f) catch {};
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "number of datum mappings does not match"));
+    const stdin_3 = "[[1,1]]\n[[-1,1]]\n[[-1,-1]]";
+    const styles = "e0:{vec2d}, e1:{vec2d [c:red]}";
+    const two_mappings = "(a, b) -> (a -> e0, b -> e1)";
+
+    // Three vectors, two mappings: rows must use e0, e1, e0.
+    var r1 = try cmdtest.run(std.testing.io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "datum_a.png", "--styles", styles, "--datum", two_mappings }, .stdin = stdin_3 });
+    defer r1.deinit();
+
+    // The same rotation, spelled out explicitly with three mappings.
+    var r2 = try cmdtest.run(std.testing.io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "datum_b.png", "--styles", styles, "--datum", "(a, b, a) -> (a -> e0, b -> e1, a -> e0)" }, .stdin = stdin_3 });
+    defer r2.deinit();
+
+    // Only two vectors: the picture an "arity error / drop" approach would also produce.
+    var r3 = try cmdtest.run(std.testing.io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "datum_c.png", "--styles", styles, "--datum", two_mappings }, .stdin = "[[1,1]]\n[[-1,1]]" });
+    defer r3.deinit();
+
+    try testing.expectEqual(@as(u8, 0), r1.code);
+    try testing.expectEqual(@as(u8, 0), r2.code);
+    try testing.expectEqual(@as(u8, 0), r3.code);
+
+    const a = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "datum_a.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(a);
+    const b = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "datum_b.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(b);
+    const c = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "datum_c.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(c);
+
+    // Rotation must reproduce the explicit spelling...
+    try testing.expectEqualSlices(u8, a, b);
+    // ...and must NOT drop the third vector.
+    try testing.expect(!std.mem.eql(u8, a, c));
 }
 
 test "zsat draw with invalid element in mapping" {

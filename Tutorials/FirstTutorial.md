@@ -104,7 +104,7 @@ printf '[[1,1]]\n[[-1,0]]' | zsat draw
 ![](fig3.png)
 
 
-In that case we have automatic replication, and `--datum '(vec, vec) -> (vec -> e0, vec -> e0)'`
+In that case we have automatic replication of both datum and outputs arguments:
 
 ```bash
 printf '[[1,1]]\n[[-1,0]]' | zsat draw --debug
@@ -114,12 +114,12 @@ stdin:
 
 --styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
 --datum '(vec, vec) -> (vec -> e0, vec -> e0)'
---outputs '(out) -> (anchor {(0,0)}) out'
+--outputs '(out, out) -> ((anchor {(0.0,0.0)}) out, (anchor {(0.0,0.0)}) out)'
 --panes 'p0:{size: 600x600, border: none}'
 --frames '(out) -> out -> p0'
 ```
 
-There is also one output in `--outputs` an it follows from the rotation that is applied with regards to inputs. So in case of two inputs, each input undergoes the same operation, anchoring at point `(0,0)`.
+Thus we have two outputs in `--outputs` an it follows from the rotation that is applied with regards to inputs. So in case of two inputs, each input undergoes the same operation, anchoring at point `(0.0,0.0)`. The same for `--datum`, here both inputs are associated with the same style element, `e0`.
 
 ## Defining styles
 

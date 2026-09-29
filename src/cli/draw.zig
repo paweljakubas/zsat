@@ -753,20 +753,6 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
     const styles = try Styles.resolveStyles(alloc, raw_styles);
 
     var effective_datum_str = datum_str;
-    if (std.mem.eql(u8, datum_str, "(vec) -> (vec -> e0)") and inputs.input.len > 1) {
-        var buf = std.ArrayList(u8).empty;
-        try buf.appendSlice(alloc, "(vec");
-        for (1..inputs.input.len) |_| {
-            try buf.appendSlice(alloc, ", vec");
-        }
-        try buf.appendSlice(alloc, ") -> (vec -> e0");
-        for (1..inputs.input.len) |_| {
-            try buf.appendSlice(alloc, ", vec -> e0");
-        }
-        try buf.append(alloc, ')');
-        effective_datum_str = try buf.toOwnedSlice(alloc);
-    }
-
     const datum_parse_result = try Datum.connectionParser.parse(alloc, effective_datum_str);
     const datum = switch (datum_parse_result.value) {
         .ok => |d| d,
@@ -776,6 +762,13 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
     };
 
     const numberOfDatum: u8 = @intCast(inputs.input.len);
+
+    // The effective datum applies mappings positionally: row i uses the
+    // (i % count)-th mapping, so a single mapping like `(vec) -> (vec -> e0)`
+    // broadcasts to every row. Show the rotated form in --debug.
+    if (datum.inputs.len != 0 and datum.inputs.len != numberOfDatum) {
+        effective_datum_str = try Datum.rotatedString(alloc, datum, numberOfDatum);
+    }
 
     var elements = try alloc.alloc([]const u8, styles.len);
     for (style_name_list, 0..) |name, i| {
@@ -848,6 +841,15 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
             rotated[i] = original[i % original_count];
         }
         outputsValidated.transformationPairs = rotated;
+    }
+
+    // Show the rotated form in --debug, mirroring how the datum mapping is
+    // expanded over the rows. Keyed off the parsed (pre-rotation) connection
+    // so the display matches the rotation applied above.
+    var effective_outputs_str = output_str;
+    if (outputsConnection.transformationPairs.len > 0 and inputs.input.len != outputsConnection.transformationPairs.len) {
+        const rows: u8 = @intCast(inputs.input.len);
+        effective_outputs_str = try Outputs.rotatedString(alloc, outputsConnection, rows);
     }
 
     // The scale and orthogonal transformations do not make sense for point
@@ -939,7 +941,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
             try ctx.writer.print("\n--styles '{s}'\n", .{styles_debug});
         }
         try ctx.writer.print("--datum '{s}'\n", .{effective_datum_str});
-        try ctx.writer.print("--outputs '{s}'\n", .{output_str});
+        try ctx.writer.print("--outputs '{s}'\n", .{effective_outputs_str});
         // Build panes string with embedded border info
         var panes_debug_parts = std.ArrayList([]const u8).empty;
         defer {
@@ -1222,7 +1224,6 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
         error.ParseOutputsFailed => "Error: failed to parse outputs. Please check your --outputs argument.",
         error.ParsePanesFailed => "Error: failed to parse panes. Please check your --panes argument.",
         error.ParseFramesFailed => "Error: failed to parse frames. Please check your --frames argument.",
-        error.WrongNumberOfDatum => "Error: the number of datum mappings does not match the number of inputs.",
         error.ElementInMappingInvalid => "Error: an invalid element was found in the datum mapping.",
         error.DataInMappingInvalid => "Error: invalid data type in the datum mapping.",
         error.WrongNumberOfOutputs => "Error: the number of outputs does not match the expected count.",

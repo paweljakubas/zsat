@@ -18,7 +18,6 @@ pub const DataElementValidated = struct {
 };
 
 pub const DataElementError = error{
-    WrongNumberOfDatum,
     ElementInMappingInvalid,
     DataInMappingInvalid,
 };
@@ -189,9 +188,13 @@ test "connectionParser" {
 
 // Validate 'Connection' to get 'DataElementValidated' if
 // (a) all elements in mappingPairs of 'connection' are from 'elements' array specified (if not `DataElementError.ElementInMappingInvalid` triggered)
-// (b) the number of datum is the same as the one specified in numberOfDatum arg (if not `DataElementError.WrongNumberOfDatum` triggered)
-// (c) all datum in mappingPairs of Connection exist in inputs (if not 'DataElementError.DataInMappingInvalid' triggered)
+// (b) all datum in mappingPairs of Connection exist in inputs (if not 'DataElementError.DataInMappingInvalid' triggered)
 // Otherwise, one of the errors from DataElementError is emitted
+//
+// Datum mappings are assigned to input rows positionally: row i uses the
+// (i % count)-th mapping pair, so a single mapping broadcasts to every row
+// and any other arity rotates. The mappings array therefore always has
+// `numberOfDatum` entries, each paired with its row via `from == i`.
 //
 // Usage and allocation information
 // if (validateConnection(allocator, numberOfDatum, elements, connection)) |validatedConnection| {
@@ -201,8 +204,8 @@ test "connectionParser" {
 //    ...
 // }
 pub fn validateConnection(arena: std.mem.Allocator, numberOfDatum: u8, elements: []const []const u8, connection: Connection) !DataElementValidated {
-    if (connection.inputs.len != numberOfDatum) {
-        return DataElementError.WrongNumberOfDatum;
+    if (connection.mappingPairs.len == 0) {
+        return DataElementValidated{ .mappings = &.{} };
     }
 
     var srcArr = try arena.alloc([]const u8, connection.inputs.len);
@@ -212,18 +215,36 @@ pub fn validateConnection(arena: std.mem.Allocator, numberOfDatum: u8, elements:
         ix += 1;
     }
 
-    var outArr = try arena.alloc(DataElementMapping, connection.mappingPairs.len);
-    ix = 0;
-    for (connection.mappingPairs) |theTarget| {
-        const elemToFind = theTarget.elementName;
-        const srcToFind = theTarget.dataName;
-        const elemIx = try indexOfPos(ConnectionValidationCheck.elementCheck, elements, elemToFind);
-        const srcIx = try indexOfPos(ConnectionValidationCheck.inputCheck, srcArr, srcToFind);
-        outArr[ix] = DataElementMapping{ .index = ix, .from = srcIx, .to = elemIx };
-        ix += 1;
+    const outArr = try arena.alloc(DataElementMapping, numberOfDatum);
+    for (0..numberOfDatum) |i| {
+        const theTarget = connection.mappingPairs[i % connection.mappingPairs.len];
+        const elemIx = try indexOfPos(ConnectionValidationCheck.elementCheck, elements, theTarget.elementName);
+        _ = try indexOfPos(ConnectionValidationCheck.inputCheck, srcArr, theTarget.dataName);
+        outArr[i] = DataElementMapping{ .index = @intCast(i), .from = i, .to = elemIx };
     }
 
     return DataElementValidated{ .mappings = outArr };
+}
+
+/// Serializes the connection expanded so that row i repeats the (i % count)-th
+/// datum mapping. Used to show the effective mapping in --debug.
+pub fn rotatedString(arena: std.mem.Allocator, connection: Connection, rows: u8) ![]const u8 {
+    var buf = std.ArrayList(u8).empty;
+    try buf.append(arena, '(');
+    for (0..rows) |i| {
+        if (i > 0) try buf.appendSlice(arena, ", ");
+        try buf.appendSlice(arena, connection.inputs[i % connection.inputs.len].name);
+    }
+    try buf.appendSlice(arena, ") -> (");
+    for (0..rows) |i| {
+        if (i > 0) try buf.appendSlice(arena, ", ");
+        const pair = connection.mappingPairs[i % connection.mappingPairs.len];
+        try buf.appendSlice(arena, pair.dataName);
+        try buf.appendSlice(arena, " -> ");
+        try buf.appendSlice(arena, pair.elementName);
+    }
+    try buf.append(arena, ')');
+    return buf.toOwnedSlice(arena);
 }
 
 const ConnectionValidationCheck = enum {
@@ -262,8 +283,12 @@ test "connection validation" {
     const validation1 = try validateConnection(a, 1, &elems1, connection1);
     try testing.expectEqualDeep(&validation1, &connectionValidated1);
 
-    const validation2 = validateConnection(a, 2, &elems1, connection1);
-    try testing.expectEqual(validation2, DataElementError.WrongNumberOfDatum);
+    const validation2 = try validateConnection(a, 2, &elems1, connection1);
+    const im2a = DataElementMapping{ .index = 0, .from = 0, .to = 0 };
+    const im2b = DataElementMapping{ .index = 1, .from = 1, .to = 0 };
+    const mappings2 = [2]DataElementMapping{ im2a, im2b };
+    const connectionValidated2 = DataElementValidated{ .mappings = &mappings2 };
+    try testing.expectEqualDeep(&connectionValidated2, &validation2);
 
     const s3a = Data{ .name = &[_]u8{ 's', 'e', 'g', '1' } };
     const s3b = Data{ .name = &[_]u8{ 's', 'e', 'g', '2' } };
@@ -316,4 +341,50 @@ test "connection validation" {
     const elems6: [2][]const u8 = .{ "e1", "e0" };
     const validation6 = validateConnection(a, 2, &elems6, connection6);
     try testing.expectEqual(validation6, DataElementError.ElementInMappingInvalid);
+}
+
+test "connection validation rotates datum mappings" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const sa = Data{ .name = &[_]u8{'a'} };
+    const sb = Data{ .name = &[_]u8{'b'} };
+    const data = [2]Data{ sa, sb };
+    const ta = DataElementPair{ .dataName = "a", .elementName = "e0" };
+    const tb = DataElementPair{ .dataName = "b", .elementName = "e1" };
+    const target = [2]DataElementPair{ ta, tb };
+    const connection = Connection{ .inputs = &data, .mappingPairs = &target };
+    const elems: [2][]const u8 = .{ "e0", "e1" };
+
+    const validation = try validateConnection(a, 3, &elems, connection);
+    try testing.expectEqual(@as(usize, 3), validation.mappings.len);
+    try testing.expectEqual(@as(u8, 0), validation.mappings[0].from);
+    try testing.expectEqual(@as(u8, 1), validation.mappings[1].from);
+    try testing.expectEqual(@as(u8, 2), validation.mappings[2].from);
+    try testing.expectEqual(@as(usize, 0), validation.mappings[0].to);
+    try testing.expectEqual(@as(usize, 1), validation.mappings[1].to);
+    try testing.expectEqual(@as(usize, 0), validation.mappings[2].to);
+}
+
+test "rotatedString expands datum connection" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const s1 = Data{ .name = &[_]u8{ 'v', 'e', 'c' } };
+    const data1 = [1]Data{s1};
+    const t1 = DataElementPair{ .dataName = "vec", .elementName = "e0" };
+    const target1 = [1]DataElementPair{t1};
+    const connection1 = Connection{ .inputs = &data1, .mappingPairs = &target1 };
+    try testing.expectEqualStrings("(vec, vec, vec) -> (vec -> e0, vec -> e0, vec -> e0)", try rotatedString(a, connection1, 3));
+
+    const sa = Data{ .name = &[_]u8{'a'} };
+    const sb = Data{ .name = &[_]u8{'b'} };
+    const data2 = [2]Data{ sa, sb };
+    const ta = DataElementPair{ .dataName = "a", .elementName = "e0" };
+    const tb = DataElementPair{ .dataName = "b", .elementName = "e1" };
+    const target2 = [2]DataElementPair{ ta, tb };
+    const connection2 = Connection{ .inputs = &data2, .mappingPairs = &target2 };
+    try testing.expectEqualStrings("(a, b, a) -> (a -> e0, b -> e1, a -> e0)", try rotatedString(a, connection2, 3));
 }
