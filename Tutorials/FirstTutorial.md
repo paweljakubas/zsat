@@ -745,11 +745,32 @@ echo '[[1,1]]' | zsat draw \
 -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
 -o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{+" world"})'
 ```
-
 <img src="fig46a.png" width="332" style="border: 2px solid grey;">
 
 
 The text plotted is `hello world`. An unquoted value works as well, so `t0{+!}` appends just `!`, and `t0{}` or `t0{+}` keep the defined value untouched.
+
+`^` puts the value in front instead, which is what you reach for when the definition holds the part that stays put:
+
+```bash
+echo '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
+-o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{^"nice "})'
+```
+<img src="fig46b.png" width="332" style="border: 2px solid grey;">
+
+The text plotted is `nice hello`. If both markers are used then the value wraps the definition, so `t0{^+"~"}` plots `~hello~`.
+Spaces are fine around markers, so `t0{^ "nice "}` reads just as well.
+
+So, for a `t0` defined as `hello`:
+
+| `--outputs` | plots |
+| --- | --- |
+| `t0` | `hello` |
+| `t0{"nice "}` | `nice ` (the trailing space is kept) |
+| `t0{^"nice "}` | `nice hello` |
+| `t0{+" there"}` | `hello there` |
+| `t0{^+"~"}` | `~hello~` |
 
 A text value can also be a template. Put as many `{}` holes in it as you like, before, after or between any amount of text, and fill them in from `--outputs` with a list of values:
 
@@ -758,17 +779,34 @@ echo '[[1,1]]' | zsat draw \
 -s 'e0:{vec2d}, t0: {txt "{} and {} are the halves of {}" [c:red, s:20]}' \
 -o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{{"this", "that", "it"}})'
 ```
+<img src="fig46c.png" width="332" style="border: 2px solid grey;">
 
-<img src="fig46b.png" width="332" style="border: 2px solid grey;">
 
-
-The text plotted is `this and that are the halves of it`. The values are quoted or not, whichever is more convenient, and they fill the holes left to right. Their number has to match the number of holes, otherwise the pairing would only be a guess, so this is reported rather than guessed:
+The text plotted is `this and that are the halves of it`. The values are quoted or not, whichever is more convenient, and they fill the holes left to right.
+Their number has to match the number of holes, otherwise the pairing would only be a guess, so this is reported rather than guessed as an error:
 
 ```
 Error: text object 't0' is defined with 3 '{}' hole(s) in --styles, but 2 value(s) were given in --outputs.
 ```
 
-A `{` that does not open a hole is kept as it is, so `{ {} }` with `{"k"}` plots `{ k }`. The holes are filled before `+` gets a say, so `t0{+{"z"}}` for a t0 defined as `"{}!"` plots `z!`.
+A `{` that does not open a hole is kept as it is, so `{ {} }` with `{"k"}` plots `{ k }`.
+The holes are filled before `+` and `^` get a say, so `t0{+{"z"}}` for a t0 defined as `"{}!"` plots `z!`.
+
+When plotting `this and that are the halves of it` we moved outside plot pane. For the time being we can "fix" it by using `\n`.
+A value that is too wide for the pane can be split over several lines with `\n`, which is worth reaching for before reaching for a smaller `s` or anchor change:
+
+```bash
+echo '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d}, t0: {txt "{} and {} are \n the halves of {}" [c:red, s:20]}' \
+-o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{{"this", "that", "it"}})'
+```
+<img src="fig46d.png" width="332" style="border: 2px solid grey;">
+
+Each line is drawn below the one before it, `1.2 * s` apart, so this plots `this and that are` and then, under it, `the halves of it`.
+A doubled backslash plots a `\n` text rather than breaking at it, so `t0: {txt "a \\n b"}` plots `a \n b`. Any other backslash is left as it is, which means `\t` stays those two characters
+rather than becoming a tab of a width you did not pick.
+
+One thing a value still cannot hold is a `"` of its own, since a `"` is what ends the value.
 
 ## Adding axis
 

@@ -57,6 +57,38 @@ const quotedStringParser = quotedStringParserRaw.convert(struct {
     }
 }.conv);
 
+/// Turns the escapes a quoted value may carry into what they mean: `\n` is a
+/// line break, which `plot` draws as another line below, and `\\` is a single
+/// backslash. Any other escape is left as written, so a value can still show a
+/// `\n` of its own by doubling the backslash, and `\t` stays the two characters
+/// rather than becoming a tab of unpredictable width.
+fn unescapeTextValue(arena: std.mem.Allocator, raw: []const u8) mecha.ConvertError![]const u8 {
+    if (std.mem.indexOfScalar(u8, raw, '\\') == null) return try arena.dupe(u8, raw);
+
+    var buf = std.ArrayList(u8).empty;
+    var i: usize = 0;
+    while (i < raw.len) {
+        if (raw[i] == '\\' and i + 1 < raw.len) switch (raw[i + 1]) {
+            'n' => {
+                try buf.append(arena, '\n');
+                i += 2;
+                continue;
+            },
+            '\\' => {
+                try buf.append(arena, '\\');
+                i += 2;
+                continue;
+            },
+            else => {},
+        };
+        try buf.append(arena, raw[i]);
+        i += 1;
+    }
+    return buf.toOwnedSlice(arena);
+}
+
+const quotedTextValueParser = quotedStringParserRaw.convert(unescapeTextValue);
+
 const textCharPred = struct {
     fn pred(c: u8) bool {
         return c != '(' and c != '[' and c != ',' and c != '}' and c != '"' and !std.ascii.isWhitespace(c);
@@ -69,7 +101,9 @@ const unquotedStringParser = unquotedStringParserRaw.convert(struct {
     }
 }.conv);
 
-pub const textValueParser = mecha.oneOf(.{ quotedStringParser, unquotedStringParser });
+// An unquoted value holds no whitespace to begin with, so it has no escape to
+// decode either and is taken as it is.
+pub const textValueParser = mecha.oneOf(.{ quotedTextValueParser, unquotedStringParser });
 
 // ---- point parser ----
 
@@ -257,6 +291,7 @@ const textOverrideValueParser = mecha.oneOf(.{
 const textOverrideBodyParser = mecha.combine(.{
     common.skipOpenBrace,
     mecha.many(mecha.oneOf(.{ mecha.ascii.char('+'), mecha.ascii.char('^') }), .{ .collect = false, .max = 2 }),
+    common.skipWhitespace,
     mecha.opt(textOverrideValueParser),
     common.skipCloseBrace,
 });
@@ -356,7 +391,13 @@ pub fn resolveTextOverlay(arena: std.mem.Allocator, item: TextItem, texts: []con
                 else
                     result.value;
                 if (ov.value) |v| {
-                    result.value = if (ov.append)
+                    // `^` puts the value in front, `+` behind, both wrap, and
+                    // no marker at all replaces what the definition says.
+                    result.value = if (ov.prepend and ov.append)
+                        try std.fmt.allocPrint(arena, "{s}{s}{s}", .{ v, filled, v })
+                    else if (ov.prepend)
+                        try std.mem.concat(arena, u8, &.{ v, filled })
+                    else if (ov.append)
                         try std.mem.concat(arena, u8, &.{ filled, v })
                     else
                         v;
@@ -416,6 +457,43 @@ test "textValueParser" {
     try testing.expectEqualStrings("hello", r2.value.ok);
 }
 
+test "textValueParser decodes escapes in a quoted value" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // `\n` is a line break, so a value can hold more than one line.
+    const r1 = try textValueParser.parse(a, "\"a\\nb\"");
+    try testing.expectEqualStrings("a\nb", r1.value.ok);
+
+    // `\\` is a backslash, which is how a value shows a `\n` of its own.
+    const r2 = try textValueParser.parse(a, "\"a\\\\nb\"");
+    try testing.expectEqualStrings("a\\nb", r2.value.ok);
+
+    // Any other escape is left as written, rather than turned into a character
+    // whose width or meaning the author did not ask for.
+    const r3 = try textValueParser.parse(a, "\"a\\tb\"");
+    try testing.expectEqualStrings("a\\tb", r3.value.ok);
+
+    // A backslash at the very end has nothing to escape, so it stays. Note that
+    // a quoted value has no way to hold a `"` of its own, an escape or not, since
+    // a `"` is what ends the value.
+    const r5 = try textValueParser.parse(a, "\"ab\\\"");
+    try testing.expectEqualStrings("ab\\", r5.value.ok);
+
+    // A real tab is a real tab; only the spelling of a newline is decoded.
+    const r6 = try textValueParser.parse(a, "\"a\tb\"");
+    try testing.expectEqualStrings("a\tb", r6.value.ok);
+
+    // Line breaks may come one after another, leaving an empty line between.
+    const r7 = try textValueParser.parse(a, "\"a\\n\\nb\"");
+    try testing.expectEqualStrings("a\n\nb", r7.value.ok);
+
+    // An unquoted value has no whitespace to begin with, so nothing is decoded.
+    const r8 = try textValueParser.parse(a, "a\\nb");
+    try testing.expectEqualStrings("a\\nb", r8.value.ok);
+}
+
 test "textPointParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -454,6 +532,9 @@ test "textDefParser" {
     try testing.expectEqualStrings("world", r2.value.ok.text.value);
     try testing.expectEqual(common.ColorName.black, r2.value.ok.text.color);
     try testing.expectEqual(@as(u16, 16), r2.value.ok.text.size);
+
+    const r3 = try textDefParser.parse(a, "t2: {txt \"one\\ntwo\" [c:blue]}");
+    try testing.expectEqualStrings("one\ntwo", r3.value.ok.text.value);
 }
 
 test "textItemParser" {
@@ -518,6 +599,31 @@ test "textItemParser" {
     // input, and so turns these into a parse error.
     const r11 = try textItemParser.parse(a, "t0{{}}");
     try testing.expectEqualStrings("{", r11.value.ok.override.?.value.?);
+
+    // `^` prepends, and may be written alongside `+` or with spaces around it.
+    const r12 = try textItemParser.parse(a, "t0{^\"nice \"}");
+    try testing.expect(r12.value.ok.override.?.prepend);
+    try testing.expect(!r12.value.ok.override.?.append);
+    try testing.expectEqualStrings("nice ", r12.value.ok.override.?.value.?);
+
+    const r13 = try textItemParser.parse(a, "t0{ ^ nice }");
+    try testing.expect(r13.value.ok.override.?.prepend);
+    try testing.expectEqualStrings("nice", r13.value.ok.override.?.value.?);
+
+    const r14 = try textItemParser.parse(a, "t0{^+x}");
+    try testing.expect(r14.value.ok.override.?.prepend);
+    try testing.expect(r14.value.ok.override.?.append);
+
+    // Neither marker means the value replaces, and the marker is optional
+    // altogether for a value on its own.
+    const r15 = try textItemParser.parse(a, "t0{\"nice \"}");
+    try testing.expect(!r15.value.ok.override.?.prepend);
+    try testing.expect(!r15.value.ok.override.?.append);
+
+    // Holes are filled regardless of the markers, and are a value of their own.
+    const r16 = try textItemParser.parse(a, "t0{^{\"1\", \"2\"}}");
+    try testing.expect(r16.value.ok.override.?.prepend);
+    try testing.expectEqual(@as(usize, 2), r16.value.ok.override.?.args.len);
 }
 
 test "substituteTextHoles fills holes left to right" {
@@ -574,7 +680,7 @@ test "resolveTextOverlay fills the holes of the definition" {
     try testing.expectError(error.TextHoleCountMismatch, resolveTextOverlay(a, .{ .name = "t1", .override = .{ .args = &[_][]const u8{"1"} } }, &texts));
 }
 
-test "resolveTextOverlay appends with + and replaces without it" {
+test "resolveTextOverlay appends with +, prepends with ^ and replaces without either" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
@@ -583,6 +689,14 @@ test "resolveTextOverlay appends with + and replaces without it" {
 
     const appended = try resolveTextOverlay(a, .{ .name = "t0", .override = .{ .value = " world", .append = true } }, &texts);
     try testing.expectEqualStrings("hello world", appended.?.value);
+
+    const prepended = try resolveTextOverlay(a, .{ .name = "t0", .override = .{ .value = "nice ", .prepend = true } }, &texts);
+    try testing.expectEqualStrings("nice hello", prepended.?.value);
+
+    // Both markers wrap the definition, which is a shorthand of interest mostly
+    // for a value that is not empty.
+    const wrapped = try resolveTextOverlay(a, .{ .name = "t0", .override = .{ .value = "<", .append = true, .prepend = true } }, &texts);
+    try testing.expectEqualStrings("<hello<", wrapped.?.value);
 
     const replaced = try resolveTextOverlay(a, .{ .name = "t0", .override = .{ .value = "world" } }, &texts);
     try testing.expectEqualStrings("world", replaced.?.value);

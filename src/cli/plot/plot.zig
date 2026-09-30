@@ -1161,6 +1161,38 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
 ///       - fixed: drawFixedPairs ((begin, end) segments)
 ///       - single anchor: drawPolylineFromAnchor (input polyline from anchor)
 /// 5. Output: write PNG or return RenderedImage with pixel data
+/// How far one line of a multi line text sits below the previous one, as a
+/// multiple of the text size. z2d keeps the metrics of a loaded font to itself,
+/// so this is a plain factor rather than the ascent and descent of the font at
+/// hand; it sits close enough to the fonts in use.
+fn text_line_height(size: u16) f64 {
+    return @as(f64, @floatFromInt(size)) * 1.2;
+}
+
+/// Draws one text overlay at `plot_x`, `plot_y`, as many lines as the value
+/// holds. The lines are separated by `\n`, which the parser has already decoded
+/// into a real newline, and each one after the first is put a line height below
+/// the previous one. A value without any is a single line, as it always was.
+fn drawTextOverlay(context: *z2d.Context, txt: anytype, plot_x: f64, plot_y: f64, line_height: f64) void {
+    var lines = std.mem.splitScalar(u8, txt.value, '\n');
+    var index: usize = 0;
+    while (lines.next()) |line| {
+        const offset = @as(f64, @floatFromInt(index)) * line_height;
+        if (txt.angle != 0) {
+            const saved = context.transformation;
+            // Data-space angles are CCW with y-up; z2d screen space is y-down,
+            // so we negate the angle to preserve the same visual orientation.
+            const angle_rad = -std.math.degreesToRadians(@as(f64, txt.angle));
+            context.transformation = z2d.Transformation.identity.translate(plot_x, plot_y).rotate(angle_rad);
+            context.showText(line, 0, offset) catch {};
+            context.transformation = saved;
+        } else {
+            context.showText(line, plot_x, plot_y + offset) catch {};
+        }
+        index += 1;
+    }
+}
+
 pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) !RenderedImage {
     if (parsed_data.panes.len == 0) {
         return error.NoPanes;
@@ -1395,17 +1427,7 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
                 context.setSourceToPixel(.{ .rgba = .{ .r = r, .g = g, .b = b, .a = a } });
                 context.setFontSize(@as(f64, @floatFromInt(txt.size)) * pixel_scale);
 
-                if (txt.angle != 0) {
-                    const saved = context.transformation;
-                    // Data-space angles are CCW with y-up; z2d screen space is y-down,
-                    // so we negate the angle to preserve the same visual orientation.
-                    const angle_rad = -std.math.degreesToRadians(@as(f64, txt.angle));
-                    context.transformation = z2d.Transformation.identity.translate(plot_x, plot_y).rotate(angle_rad);
-                    context.showText(txt.value, 0, 0) catch {};
-                    context.transformation = saved;
-                } else {
-                    context.showText(txt.value, plot_x, plot_y) catch {};
-                }
+                drawTextOverlay(&context, txt, plot_x, plot_y, text_line_height(txt.size) * pixel_scale);
             }
         }
 

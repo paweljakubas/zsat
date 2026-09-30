@@ -419,6 +419,40 @@ test "zsat draw appends to a text value with + in outputs" {
     try testing.expect(!std.mem.eql(u8, r, a));
 }
 
+test "zsat draw prepends to a text value with ^ in outputs" {
+    const filenames = [_][]const u8{ "text_prepend.png", "text_prepend_replace.png", "text_prepend_direct.png" };
+    defer for (filenames) |f| std.Io.Dir.cwd().deleteFile(std.testing.io, f) catch {};
+
+    const io = std.testing.io;
+    const stdin_data = "[[1,1]]";
+    const styles = "e0:{vec2d}, t0: {txt \"hello\" [c:red, s:20]}";
+
+    var prepended = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_prepend.png", "--styles", styles, "--outputs", "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{^\"nice \"})" }, .stdin = stdin_data });
+    defer prepended.deinit();
+
+    var replaced = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_prepend_replace.png", "--styles", styles, "--outputs", "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{\"nice \"})" }, .stdin = stdin_data });
+    defer replaced.deinit();
+
+    var direct = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_prepend_direct.png", "--styles", "e0:{vec2d}, t0: {txt \"nice hello\" [c:red, s:20]}", "--outputs", "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)" }, .stdin = stdin_data });
+    defer direct.deinit();
+
+    try testing.expectEqual(@as(u8, 0), prepended.code);
+    try testing.expectEqual(@as(u8, 0), replaced.code);
+    try testing.expectEqual(@as(u8, 0), direct.code);
+
+    const p = try std.Io.Dir.cwd().readFileAlloc(io, "text_prepend.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(p);
+    const r = try std.Io.Dir.cwd().readFileAlloc(io, "text_prepend_replace.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(r);
+    const d = try std.Io.Dir.cwd().readFileAlloc(io, "text_prepend_direct.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(d);
+
+    // "^" keeps what t0 was defined as and puts the value in front of it, no
+    // marker replaces it.
+    try testing.expectEqualSlices(u8, d, p);
+    try testing.expect(!std.mem.eql(u8, r, p));
+}
+
 test "zsat draw fills the {} holes of a text value from outputs" {
     const filenames = [_][]const u8{ "text_holes.png", "text_literal.png" };
     defer for (filenames) |f| std.Io.Dir.cwd().deleteFile(std.testing.io, f) catch {};
@@ -441,6 +475,46 @@ test "zsat draw fills the {} holes of a text value from outputs" {
     defer std.testing.allocator.free(b);
 
     try testing.expectEqualSlices(u8, b, a);
+}
+
+test "zsat draw breaks a text value into lines on \n" {
+    const filenames = [_][]const u8{ "text_lines.png", "text_one_line.png", "text_literal_n.png" };
+    defer for (filenames) |f| std.Io.Dir.cwd().deleteFile(std.testing.io, f) catch {};
+
+    const io = std.testing.io;
+    const stdin_data = "[[1,1]]";
+    const outputs = "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)";
+
+    var lines = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_lines.png", "--styles", "e0:{vec2d}, t0:{txt \"one\\ntwo\" [c:red, s:20]}", "--outputs", outputs }, .stdin = stdin_data });
+    defer lines.deinit();
+
+    // The same two words without the break, to tell the two apart.
+    var one_line = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_one_line.png", "--styles", "e0:{vec2d}, t0:{txt \"onetwo\" [c:red, s:20]}", "--outputs", outputs }, .stdin = stdin_data });
+    defer one_line.deinit();
+
+    // A doubled backslash plots a `\n` of its own, on one line.
+    var literal = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_literal_n.png", "--styles", "e0:{vec2d}, t0:{txt \"a\\\\nb\" [c:red, s:20]}", "--outputs", outputs }, .stdin = stdin_data });
+    defer literal.deinit();
+
+    try testing.expectEqual(@as(u8, 0), lines.code);
+    try testing.expectEqual(@as(u8, 0), one_line.code);
+    try testing.expectEqual(@as(u8, 0), literal.code);
+
+    const a = try std.Io.Dir.cwd().readFileAlloc(io, "text_lines.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(a);
+    const b = try std.Io.Dir.cwd().readFileAlloc(io, "text_one_line.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(b);
+    const c = try std.Io.Dir.cwd().readFileAlloc(io, "text_literal_n.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(c);
+
+    // A break moves the second line below the first, so this is not the one
+    // line rendering, and a literal `\n` is text rather than a break.
+    try testing.expect(!std.mem.eql(u8, b, a));
+    try testing.expect(!std.mem.eql(u8, c, a));
+
+    // Two lines of "one"/"two" against the literal "\n" of the third, which is
+    // one line, so the first is taller than it.
+    try testing.expect(!std.mem.eql(u8, c, b));
 }
 
 test "zsat draw rejects a number of text values not matching the {} holes" {
