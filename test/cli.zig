@@ -419,6 +419,75 @@ test "zsat draw appends to a text value with + in outputs" {
     try testing.expect(!std.mem.eql(u8, r, a));
 }
 
+test "zsat draw fills the {} holes of a text value from outputs" {
+    const filenames = [_][]const u8{ "text_holes.png", "text_literal.png" };
+    defer for (filenames) |f| std.Io.Dir.cwd().deleteFile(std.testing.io, f) catch {};
+
+    const io = std.testing.io;
+
+    var filled = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_holes.png", "--styles", "e0:{vec2d}, t0:{txt \"{} - {}\" [c:red, s:20]}", "--outputs", "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{{\"1\", \"2\"}})" }, .stdin = "[[1,1]]" });
+    defer filled.deinit();
+
+    // The same text written out in full, holes and all.
+    var literal = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_literal.png", "--styles", "e0:{vec2d}, t0:{txt \"1 - 2\" [c:red, s:20]}", "--outputs", "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)" }, .stdin = "[[1,1]]" });
+    defer literal.deinit();
+
+    try testing.expectEqual(@as(u8, 0), filled.code);
+    try testing.expectEqual(@as(u8, 0), literal.code);
+
+    const a = try std.Io.Dir.cwd().readFileAlloc(io, "text_holes.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(a);
+    const b = try std.Io.Dir.cwd().readFileAlloc(io, "text_literal.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(b);
+
+    try testing.expectEqualSlices(u8, b, a);
+}
+
+test "zsat draw rejects a number of text values not matching the {} holes" {
+    defer cleanupOutputFiles();
+    const styles = "e0:{vec2d}, t0:{txt \"{} - {}\" [c:red, s:20]}";
+
+    for ([_][]const u8{ "t0{{\"1\"}}", "t0{{\"1\", \"2\", \"3\"}}" }) |given| {
+        const outputs = try std.fmt.allocPrint(std.testing.allocator, "(out) -> ((a {{(0,0)}}) out, (a {{(0.5,0.5)}}) {s})", .{given});
+        defer std.testing.allocator.free(outputs);
+
+        var argv = [_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", styles, "--outputs", outputs };
+        var result = try cmdtest.run(std.testing.io, .{ .argv = &argv, .stdin = "[[1,1]]" });
+        defer result.deinit();
+
+        try testing.expect(result.code != 0);
+        try testing.expect(std.mem.indexOf(u8, result.stderr, "'t0' is defined with 2 '{}' hole(s)") != null);
+    }
+
+    // A value for a definition that has no holes to fill is just as much a
+    // mismatch as the other way round.
+    const outputs = try std.fmt.allocPrint(std.testing.allocator, "(out) -> ((a {{(0,0)}}) out, (a {{(0.5,0.5)}}) {s})", .{"t0{{\"1\"}}"});
+    defer std.testing.allocator.free(outputs);
+
+    var argv = [_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{vec2d}, t0:{txt \"plain\" [c:red, s:20]}", "--outputs", outputs };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = &argv, .stdin = "[[1,1]]" });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "'t0' is defined with 0 '{}' hole(s)") != null);
+}
+
+test "zsat draw rejects a malformed list of text values" {
+    defer cleanupOutputFiles();
+    const styles = "e0:{vec2d}, t0:{txt \"{} - {}\" [c:red, s:20]}";
+
+    for ([_][]const u8{ "t0{{}}", "t0{{\"1\",}}", "t0{{,}}" }) |given| {
+        const outputs = try std.fmt.allocPrint(std.testing.allocator, "(out) -> ((a {{(0,0)}}) out, (a {{(0.5,0.5)}}) {s})", .{given});
+        defer std.testing.allocator.free(outputs);
+
+        var argv = [_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", styles, "--outputs", outputs };
+        var result = try cmdtest.run(std.testing.io, .{ .argv = &argv, .stdin = "[[1,1]]" });
+        defer result.deinit();
+
+        try testing.expect(result.code != 0);
+    }
+}
+
 test "zsat draw saves a style into an existing namespace" {
     defer cleanupOutputFiles();
     const io = std.testing.io;

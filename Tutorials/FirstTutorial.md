@@ -751,6 +751,25 @@ echo '[[1,1]]' | zsat draw \
 
 The text plotted is `hello world`. An unquoted value works as well, so `t0{+!}` appends just `!`, and `t0{}` or `t0{+}` keep the defined value untouched.
 
+A text value can also be a template. Put as many `{}` holes in it as you like, before, after or between any amount of text, and fill them in from `--outputs` with a list of values:
+
+```bash
+echo '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d}, t0: {txt "{} and {} are the halves of {}" [c:red, s:20]}' \
+-o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{{"this", "that", "it"}})'
+```
+
+<img src="fig46b.png" width="332" style="border: 2px solid grey;">
+
+
+The text plotted is `this and that are the halves of it`. The values are quoted or not, whichever is more convenient, and they fill the holes left to right. Their number has to match the number of holes, otherwise the pairing would only be a guess, so this is reported rather than guessed:
+
+```
+Error: text object 't0' is defined with 3 '{}' hole(s) in --styles, but 2 value(s) were given in --outputs.
+```
+
+A `{` that does not open a hole is kept as it is, so `{ {} }` with `{"k"}` plots `{ k }`. The holes are filled before `+` gets a say, so `t0{+{"z"}}` for a t0 defined as `"{}!"` plots `z!`.
+
 ## Adding axis
 
 In one of the previous examples we used additional `aqua` dashed lines as axes. See, below

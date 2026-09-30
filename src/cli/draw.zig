@@ -1336,6 +1336,7 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
         error.PaneInMappingInvalid => "Error: an invalid pane was referenced in the frames mapping.",
         error.BorderReferenceInvalid => "Error: a pane references a border that was not defined in --styles.",
         error.TextReferenceInvalid => "Error: an output references a text object that was not defined in --styles.",
+        error.TextHoleCountMismatch => Text.textHoleErrorDetail() orelse "Error: the number of values given for a text object in --outputs does not match the number of '{}' holes in the value defined for it in --styles.",
         error.AxisBaseInvalid => "Error: an axis definition references a base axis that is not defined in --styles (the base must be declared before the axis that inherits from it).",
         error.AxisReferenceInvalid => "Error: an output references an axis object that was not defined in --styles.",
         error.PointScaleNotSupported => "Error: the 'scale' output transformation does not make sense for point (pt2d) output. Remove 'scale' from your --outputs argument.",

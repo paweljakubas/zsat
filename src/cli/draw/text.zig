@@ -22,15 +22,26 @@ pub const TextDefinition = struct {
 
 pub const TextOverride = struct {
     value: ?[]const u8 = null,
-    // `+` before the value appends to what the definition says instead of
-    // replacing it, so `t0{+" world"}` plots "hello world" for a t0 defined as
-    // "hello".
+    // `+` and `^` decide where the given value lands relative to what the
+    // definition says, so `t0{+" world"}` plots "hello world" for a t0 defined
+    // as "hello", and `t0{^"nice "}` plots "nice hello". Neither marker replaces.
     append: bool = false,
+    prepend: bool = false,
+    // Values filling the `{}` holes of the value defined in --styles, given as
+    // `t0{{"1", "2"}}` for a t0 defined as "{} - {}", matched left to right.
+    args: []const []const u8 = &.{},
 };
 
 pub const TextItem = struct {
     name: []const u8,
     override: ?TextOverride = null,
+};
+
+/// What `--outputs` puts between the braces of a text reference: either a value
+/// on its own, or the list of values filling the holes of the definition.
+const TextGivenValue = union(enum) {
+    value: []const u8,
+    args: []const []const u8,
 };
 
 // ---- value parser ----
@@ -223,10 +234,30 @@ const textItemNumberParser = mecha.combine(.{
 });
 const textItemNumberParserP = @TypeOf(textItemNumberParser);
 
+const textOverrideArgsParserRaw = mecha.combine(.{
+    common.skipOpenBrace,
+    mecha.many(textValueParser, .{ .collect = true, .min = 1, .separator = textSeparatorParser }),
+    common.skipCloseBrace,
+});
+const textOverrideArgsParser = textOverrideArgsParserRaw.convert(struct {
+    fn conv(_: std.mem.Allocator, res: [][]const u8) mecha.ConvertError!TextGivenValue {
+        return TextGivenValue{ .args = res };
+    }
+}.conv);
+
+const textOverrideValueParser = mecha.oneOf(.{
+    textOverrideArgsParser,
+    textValueParser.convert(struct {
+        fn conv(_: std.mem.Allocator, res: []const u8) mecha.ConvertError!TextGivenValue {
+            return TextGivenValue{ .value = res };
+        }
+    }.conv),
+});
+
 const textOverrideBodyParser = mecha.combine(.{
     common.skipOpenBrace,
-    mecha.opt(mecha.ascii.char('+')),
-    mecha.opt(textValueParser),
+    mecha.many(mecha.oneOf(.{ mecha.ascii.char('+'), mecha.ascii.char('^') }), .{ .collect = false, .max = 2 }),
+    mecha.opt(textOverrideValueParser),
     common.skipCloseBrace,
 });
 const textOverrideBodyParserP = @TypeOf(textOverrideBodyParser);
@@ -250,8 +281,12 @@ const textItemWithOverrideParser = textItemOverrideParser.convert(struct {
         const body = res[1];
         const name = try std.fmt.allocPrint(arena, "t{d}", .{number});
         var override = TextOverride{};
-        override.append = body[0] != null;
-        if (body[1]) |v| override.value = v;
+        override.append = std.mem.indexOfScalar(u8, body[0], '+') != null;
+        override.prepend = std.mem.indexOfScalar(u8, body[0], '^') != null;
+        if (body[1]) |given| switch (given) {
+            .value => |v| override.value = v,
+            .args => |args| override.args = args,
+        };
         return TextItem{ .name = name, .override = override };
     }
 }.conv);
@@ -263,16 +298,70 @@ pub const textItemParser = mecha.oneOf(.{
 
 // ---- resolve text overlay from definition + item ----
 
+threadlocal var holeErrorDetail: ?[]const u8 = null;
+
+/// Explains the last `error.TextHoleCountMismatch`, naming the text object and
+/// both counts.
+pub fn textHoleErrorDetail() ?[]const u8 {
+    return holeErrorDetail;
+}
+
+fn countTextHoles(template: []const u8) usize {
+    var count: usize = 0;
+    var i: usize = 0;
+    while (i + 1 < template.len) : (i += 1) {
+        if (template[i] == '{' and template[i + 1] == '}') count += 1;
+    }
+    return count;
+}
+
+/// Fills each `{}` hole of `template` with the matching entry of `args`, in
+/// order, so a t0 defined as "{} - {}" plots "1 - 2" when given the args
+/// ["1", "2"]. Holes may come before, after or between any amount of text, and
+/// their count has to match: pairing them up otherwise would only be a guess.
+/// A `{` not followed by `}` is kept as it is, so literal text is still
+/// expressible.
+pub fn substituteTextHoles(arena: std.mem.Allocator, owner: []const u8, template: []const u8, args: []const []const u8) ![]const u8 {
+    const holes = countTextHoles(template);
+    if (holes != args.len) {
+        holeErrorDetail = try std.fmt.allocPrint(arena, "Error: text object '{s}' is defined with {d} '{{}}' hole(s) in --styles, but {d} value(s) were given in --outputs.", .{ owner, holes, args.len });
+        return error.TextHoleCountMismatch;
+    }
+
+    var buf = std.ArrayList(u8).empty;
+    var used: usize = 0;
+    var i: usize = 0;
+    while (i < template.len) {
+        if (template[i] == '{' and i + 1 < template.len and template[i + 1] == '}') {
+            try buf.appendSlice(arena, args[used]);
+            used += 1;
+            i += 2;
+        } else {
+            try buf.append(arena, template[i]);
+            i += 1;
+        }
+    }
+    return buf.toOwnedSlice(arena);
+}
+
 pub fn resolveTextOverlay(arena: std.mem.Allocator, item: TextItem, texts: []const TextDefinition) !?Text {
     for (texts) |def| {
         if (std.mem.eql(u8, def.name, item.name)) {
             var result = def.text;
             if (item.override) |ov| {
+                // The holes belong to the definition, so they are filled before
+                // `+` or a replacement value gets to say anything about it.
+                const filled = if (ov.args.len > 0)
+                    try substituteTextHoles(arena, item.name, result.value, ov.args)
+                else
+                    result.value;
                 if (ov.value) |v| {
                     result.value = if (ov.append)
-                        try std.mem.concat(arena, u8, &.{ result.value, v })
+                        try std.mem.concat(arena, u8, &.{ filled, v })
                     else
                         v;
+                } else {
+                    result.value = filled;
                 }
             }
             // duplicate strings into arena if needed
@@ -404,6 +493,85 @@ test "textItemParser" {
     try testing.expectEqualStrings("t0", r7.value.ok.name);
     try testing.expect(r7.value.ok.override.?.append);
     try testing.expect(r7.value.ok.override.?.value == null);
+
+    // `{{...}}` carries the values filling the `{}` holes of the definition.
+    const r8 = try textItemParser.parse(a, "t0{{\"1\", \"2\"}}");
+    try testing.expectEqualStrings("t0", r8.value.ok.name);
+    try testing.expect(!r8.value.ok.override.?.append);
+    try testing.expect(r8.value.ok.override.?.value == null);
+    try testing.expectEqual(@as(usize, 2), r8.value.ok.override.?.args.len);
+    try testing.expectEqualStrings("1", r8.value.ok.override.?.args[0]);
+    try testing.expectEqualStrings("2", r8.value.ok.override.?.args[1]);
+
+    const r9 = try textItemParser.parse(a, "t0{ { x , y } }");
+    try testing.expectEqual(@as(usize, 2), r9.value.ok.override.?.args.len);
+    try testing.expectEqualStrings("x", r9.value.ok.override.?.args[0]);
+    try testing.expectEqualStrings("y", r9.value.ok.override.?.args[1]);
+
+    // A single value is a value, not a one element list.
+    const r10 = try textItemParser.parse(a, "t0{{\"1\"}}");
+    try testing.expectEqual(@as(usize, 1), r10.value.ok.override.?.args.len);
+    try testing.expectEqualStrings("1", r10.value.ok.override.?.args[0]);
+
+    // mecha stops at the first match, so a list that is empty or dangling is not
+    // rejected here; it is `--outputs` that insists on consuming its whole
+    // input, and so turns these into a parse error.
+    const r11 = try textItemParser.parse(a, "t0{{}}");
+    try testing.expectEqualStrings("{", r11.value.ok.override.?.value.?);
+}
+
+test "substituteTextHoles fills holes left to right" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const two = [_][]const u8{ "1", "2" };
+    try testing.expectEqualStrings("1 - 2", try substituteTextHoles(a, "t0", "{} - {}", &two));
+
+    // Holes may be preceded, followed and surrounded by any text.
+    try testing.expectEqualStrings("<1|b|2>", try substituteTextHoles(a, "t0", "<{}|b|{}>", &two));
+    try testing.expectEqualStrings("1", try substituteTextHoles(a, "t0", "{}", &[_][]const u8{"1"}));
+    try testing.expectEqualStrings("a1 b2", try substituteTextHoles(a, "t0", "a{} b{}", &two));
+
+    // A brace that does not open a hole is text.
+    try testing.expectEqualStrings("{ k }", try substituteTextHoles(a, "t0", "{ {} }", &[_][]const u8{"k"}));
+    try testing.expectEqualStrings("}{", try substituteTextHoles(a, "t0", "}{", &.{}));
+    try testing.expectEqualStrings("", try substituteTextHoles(a, "t0", "", &.{}));
+
+    // Values may be empty or multi character.
+    try testing.expectEqualStrings("-ab", try substituteTextHoles(a, "t0", "{}-{}", &[_][]const u8{ "", "ab" }));
+
+    // Pairing holes up by guesswork would be worse than saying so.
+    try testing.expectError(error.TextHoleCountMismatch, substituteTextHoles(a, "t0", "{} - {}", &[_][]const u8{"1"}));
+    try testing.expectError(error.TextHoleCountMismatch, substituteTextHoles(a, "t0", "{} - {}", &[_][]const u8{ "1", "2", "3" }));
+    try testing.expectError(error.TextHoleCountMismatch, substituteTextHoles(a, "t0", "no holes", &[_][]const u8{"1"}));
+    try testing.expectError(error.TextHoleCountMismatch, substituteTextHoles(a, "t0", "{}", &.{}));
+    try testing.expect(std.mem.indexOf(u8, textHoleErrorDetail().?, "'t0'") != null);
+}
+
+test "resolveTextOverlay fills the holes of the definition" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const texts = [_]TextDefinition{
+        .{ .name = "t0", .text = .{ .value = "{} - {}", .x = 0, .y = 0 } },
+        .{ .name = "t1", .text = .{ .value = "plain", .x = 0, .y = 0 } },
+    };
+
+    const filled = try resolveTextOverlay(a, .{ .name = "t0", .override = .{ .args = &[_][]const u8{ "1", "2" } } }, &texts);
+    try testing.expectEqualStrings("1 - 2", filled.?.value);
+
+    // Without values the holes stay as they are, so a literal `{}` still works.
+    const literal = try resolveTextOverlay(a, .{ .name = "t0" }, &texts);
+    try testing.expectEqualStrings("{} - {}", literal.?.value);
+
+    const untouched = try resolveTextOverlay(a, .{ .name = "t1", .override = .{} }, &texts);
+    try testing.expectEqualStrings("plain", untouched.?.value);
+
+    // A count that does not match is reported rather than papered over.
+    try testing.expectError(error.TextHoleCountMismatch, resolveTextOverlay(a, .{ .name = "t0", .override = .{ .args = &[_][]const u8{"1"} } }, &texts));
+    try testing.expectError(error.TextHoleCountMismatch, resolveTextOverlay(a, .{ .name = "t1", .override = .{ .args = &[_][]const u8{"1"} } }, &texts));
 }
 
 test "resolveTextOverlay appends with + and replaces without it" {
