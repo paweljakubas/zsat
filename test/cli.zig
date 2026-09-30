@@ -517,6 +517,51 @@ test "zsat draw breaks a text value into lines on \n" {
     try testing.expect(!std.mem.eql(u8, c, b));
 }
 
+test "zsat draw lets a text value hold a quote of its own" {
+    const filenames = [_][]const u8{ "text_quote.png", "text_quote_other.png" };
+    defer for (filenames) |f| std.Io.Dir.cwd().deleteFile(std.testing.io, f) catch {};
+
+    const io = std.testing.io;
+    const stdin_data = "[[1,1]]";
+    const outputs = "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)";
+
+    var quoted = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_quote.png", "--styles", "e0:{vec2d}, t0:{txt \"say \\\"hi\\\"\" [c:red, s:20]}", "--outputs", outputs }, .stdin = stdin_data });
+    defer quoted.deinit();
+
+    // The same words without the quotes, to tell the two apart.
+    var plain = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_quote_other.png", "--styles", "e0:{vec2d}, t0:{txt \"say hi\" [c:red, s:20]}", "--outputs", outputs }, .stdin = stdin_data });
+    defer plain.deinit();
+
+    try testing.expectEqual(@as(u8, 0), quoted.code);
+    try testing.expectEqual(@as(u8, 0), plain.code);
+
+    const a = try std.Io.Dir.cwd().readFileAlloc(io, "text_quote.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(a);
+    const b = try std.Io.Dir.cwd().readFileAlloc(io, "text_quote_other.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(b);
+
+    // The quotes are drawn, so this is wider than the same words without them.
+    try testing.expect(!std.mem.eql(u8, b, a));
+}
+
+test "zsat draw rejects a lone quote or trailing backslash in a text value" {
+    defer cleanupOutputFiles();
+
+    // A backslash before the closing quote is an escape, so it opens the value
+    // rather than ending it, and a bare `"` leaves the value short of the rest.
+    for ([_][]const u8{
+        "e0:{vec2d}, t0:{txt \"say hi\\\" [c:red]}",
+        "e0:{vec2d}, t0:{txt \"say hi\"\" [c:red]}",
+    }) |styles| {
+        const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", styles, "--outputs", "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)" };
+        var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
+        defer result.deinit();
+
+        try testing.expect(result.code != 0);
+        try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse styles"));
+    }
+}
+
 test "zsat draw rejects a number of text values not matching the {} holes" {
     defer cleanupOutputFiles();
     const styles = "e0:{vec2d}, t0:{txt \"{} - {}\" [c:red, s:20]}";

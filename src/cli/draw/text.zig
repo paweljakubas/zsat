@@ -46,9 +46,31 @@ const TextGivenValue = union(enum) {
 
 // ---- value parser ----
 
+/// A quoted value holds anything but the `"` that ends it. A `\` has to open an
+/// escape, since letting a lone one through would make `\"` ambiguous: the two
+/// readings disagree about where the value ends. The escape itself is a backslash
+/// and whatever follows, which `unescapeTextValue` then gives a meaning to.
+const quotedStringEscapeParser = mecha.combine(.{
+    mecha.ascii.char('\\').discard(),
+    mecha.ascii.wrap(struct {
+        fn pred(_: u8) bool {
+            return true;
+        }
+    }.pred).discard(),
+}).discard();
+
+const quotedStringContentParserRaw = mecha.many(mecha.oneOf(.{
+    quotedStringEscapeParser,
+    mecha.ascii.not(mecha.ascii.wrap(struct {
+        fn pred(c: u8) bool {
+            return c == '"' or c == '\\';
+        }
+    }.pred)).discard(),
+}), .{ .collect = false }).asStr();
+
 const quotedStringParserRaw = mecha.combine(.{
     mecha.ascii.char('"').discard(),
-    mecha.many(mecha.ascii.not(mecha.ascii.char('"')), .{ .collect = false }).asStr(),
+    quotedStringContentParserRaw,
     mecha.ascii.char('"').discard(),
 });
 const quotedStringParser = quotedStringParserRaw.convert(struct {
@@ -57,11 +79,11 @@ const quotedStringParser = quotedStringParserRaw.convert(struct {
     }
 }.conv);
 
-/// Turns the escapes a quoted value may carry into what they mean: `\n` is a
-/// line break, which `plot` draws as another line below, and `\\` is a single
-/// backslash. Any other escape is left as written, so a value can still show a
-/// `\n` of its own by doubling the backslash, and `\t` stays the two characters
-/// rather than becoming a tab of unpredictable width.
+/// Turns the escapes a quoted value may carry into what they mean: `\"` is a
+/// `"`, `\n` is a line break, which `plot` draws as another line below, and `\\`
+/// is a single backslash. Any other escape is left as written, so a value can
+/// still show a `\n` of its own by doubling the backslash, and `\t` stays the
+/// two characters rather than becoming a tab of unpredictable width.
 fn unescapeTextValue(arena: std.mem.Allocator, raw: []const u8) mecha.ConvertError![]const u8 {
     if (std.mem.indexOfScalar(u8, raw, '\\') == null) return try arena.dupe(u8, raw);
 
@@ -69,6 +91,11 @@ fn unescapeTextValue(arena: std.mem.Allocator, raw: []const u8) mecha.ConvertErr
     var i: usize = 0;
     while (i < raw.len) {
         if (raw[i] == '\\' and i + 1 < raw.len) switch (raw[i + 1]) {
+            '"' => {
+                try buf.append(arena, '"');
+                i += 2;
+                continue;
+            },
             'n' => {
                 try buf.append(arena, '\n');
                 i += 2;
@@ -475,23 +502,39 @@ test "textValueParser decodes escapes in a quoted value" {
     const r3 = try textValueParser.parse(a, "\"a\\tb\"");
     try testing.expectEqualStrings("a\\tb", r3.value.ok);
 
-    // A backslash at the very end has nothing to escape, so it stays. Note that
-    // a quoted value has no way to hold a `"` of its own, an escape or not, since
-    // a `"` is what ends the value.
-    const r5 = try textValueParser.parse(a, "\"ab\\\"");
-    try testing.expectEqualStrings("ab\\", r5.value.ok);
+    // `\"` is a `"` of the value's own, which is how a value gets to hold the
+    // character that would otherwise end it.
+    const r4 = try textValueParser.parse(a, "\"a\\\"b\"");
+    try testing.expectEqualStrings("a\"b", r4.value.ok);
+
+    const r5 = try textValueParser.parse(a, "\"say \\\"hi\\\"\"");
+    try testing.expectEqualStrings("say \"hi\"", r5.value.ok);
+
+    // An unescaped `"` still ends the value, leaving the rest of the input for
+    // `--styles` or `--outputs` to refuse rather than for the value to swallow.
+    const r6 = try textValueParser.parse(a, "\"a\"b\"");
+    try testing.expectEqualStrings("a", r6.value.ok);
+    try testing.expectEqual(@as(usize, 3), r6.index);
+
+    // An escaped quote and the end of the value read apart, so a backslash
+    // before the closing quote leaves the value open rather than ending it.
+    const open = try textValueParser.parse(a, "\"ab\\\"");
+    switch (open.value) {
+        .ok => return error.TestUnexpectedResult,
+        .err => {},
+    }
 
     // A real tab is a real tab; only the spelling of a newline is decoded.
-    const r6 = try textValueParser.parse(a, "\"a\tb\"");
-    try testing.expectEqualStrings("a\tb", r6.value.ok);
+    const r7 = try textValueParser.parse(a, "\"a\tb\"");
+    try testing.expectEqualStrings("a\tb", r7.value.ok);
 
     // Line breaks may come one after another, leaving an empty line between.
-    const r7 = try textValueParser.parse(a, "\"a\\n\\nb\"");
-    try testing.expectEqualStrings("a\n\nb", r7.value.ok);
+    const r8 = try textValueParser.parse(a, "\"a\\n\\nb\"");
+    try testing.expectEqualStrings("a\n\nb", r8.value.ok);
 
     // An unquoted value has no whitespace to begin with, so nothing is decoded.
-    const r8 = try textValueParser.parse(a, "a\\nb");
-    try testing.expectEqualStrings("a\\nb", r8.value.ok);
+    const r9 = try textValueParser.parse(a, "a\\nb");
+    try testing.expectEqualStrings("a\\nb", r9.value.ok);
 }
 
 test "textPointParser" {

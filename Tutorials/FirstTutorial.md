@@ -806,7 +806,26 @@ Each line is drawn below the one before it, `1.2 * s` apart, so this plots `this
 A doubled backslash plots a `\n` text rather than breaking at it, so `t0: {txt "a \\n b"}` plots `a \n b`. Any other backslash is left as it is, which means `\t` stays those two characters
 rather than becoming a tab of a width you did not pick.
 
-One thing a value still cannot hold is a `"` of its own, since a `"` is what ends the value.
+A `"` of your own goes in as `\"`, which is the only way to hold the character that would otherwise end the value:
+
+```bash
+echo '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d}, t0: {txt "say \"hi\"" [c:red, s:20]}' \
+-o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)'
+```
+<img src="fig46e.png" width="332" style="border: 2px solid grey;">
+
+
+This plots `say "hi"`. A lone `"` still ends the value, and a backslash before the closing quote is an escape that opens the value rather than ending it, so both are reported as a parse error instead of quietly giving you something else.
+
+To summarize, a backslash in a value always means something, and these are what it can mean:
+
+| written | plotted |
+| --- | --- |
+| `\n` | a break, with the next line below |
+| `\\` | a `\` |
+| `\"` | a `"` |
+| anything else, `\t` included | the two characters as written |
 
 ## Adding axis
 
