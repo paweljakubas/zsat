@@ -227,7 +227,6 @@ As mentioned in the data section, objects that require different treatment must 
 ```bash
 printf '[[1,1]]\n[[0,1]]' | zsat draw \
 --styles 'e1: e0{[l:15, c: aqua]}, e2: e0{[l:5, c: red]}' \
---datum '(vec1, vec2) -> (vec1 -> e1, vec2 -> e2)' \
 --outputs '(out1, out2) -> ((anchor {(0,0)}) out1, (anchor {(0,0)}) out2)'
 ```
 <img src="fig11.png" width="332" style="border: 2px solid grey;">
@@ -238,10 +237,33 @@ By separating vectors with `\n`, we indicate that they should be treated as sepa
 We also defined two styles: `e1` and `e2`, both based on the default style `e0`, setting only the fields we want to overwrite with new values.
 We could also use `e1` to define `e2`: `e1: e0{[l:15, c: aqua]}, e2: e1{[d: [30,30] 5]}`.
 Here, `e2` would have line width `15`, `aqua` color, and be dashed, in contrast to `e1`, which would be continuous.
-So we defined two styles; now in `--datum` we map those styles to data objects.
+Since no `--datum` was given, the styles are associated with the data in the order they were defined:
+`[[1,1]]` takes `e1` and `[[0,1]]` takes `e2`.
+With three data inputs and two styles the association wraps around, so the third one takes `e1` again:
+
+```bash
+printf '[[1,1]]\n[[0,1]]\n[[1,0]]' | zsat draw \
+--styles 'e1: e0{[l:15, c: aqua]}, e2: e0{[l:5, c: red]}' \
+--debug
+```
+```bash
+--datum '(vec, vec, vec) -> (vec -> e1, vec -> e2, vec -> e1)'
+```
+
+Only the styles that render the data at hand take part in this, so point styles (`pt2d`) are never associated with vector inputs and line styles (`vec2d`) are never associated with point inputs.
+Styles that no input picks up are simply unused.
+
+`--datum` becomes necessary when the association is not the definition order — for instance when the same style is shared, or when the styles are named differently than the data:
+
+```bash
+printf '[[1,1]]\n[[0,1]]' | zsat draw --debug \
+--styles 'e1: e0{[l:15, c: aqua]}, e2: e0{[l:5, c: red]}' \
+--datum '(vec1, vec2) -> (vec1 -> e2, vec2 -> e2)'
+```
+
 `(vec1, vec2)` are handles (one could name them as they want) for data objects as they are delivered in stdin.
 Using a tuple also conveys order, so `vec1` is the handle for `[[1,1]]` and `vec2` for `[[0,1]]`.
-`vec1 -> e1` means the data object captured by `vec1` will have the `e1` style attached to it.
+`vec1 -> e2` means the data object captured by `vec1` will have the `e2` style attached to it.
 You do not have to use all defined styles — it is perfectly fine to define five but use only one.
 Hence, using `--datum '(vec1, vec2) -> (vec1 -> e1, vec2 -> e1)'` or even `--datum '(vec1, vec2) -> (vec1 -> e0, vec2 -> e0)'` (if we also added `e0` or `e0: e0` in styles; otherwise `e0` is not exposed for later use) is perfectly fine, though superfluous.
 Finally, we need to place each object in the pane space.
@@ -591,31 +613,47 @@ printf '[[1,45]]' | zsat draw \
 ```
 <img src="fig31.png" width="332" style="border: 2px solid grey;">
 
-HERE
 
 **Multi-segment data**
 
-We have seen how separate data is delivered (via newline-separated stdin) and handled independently.
-If we want data to be treated as a single object where segments relate to one another, multi-segment vectors are the way to go.
+We have seen how single, one-segment data is delivered (via newline-separated stdin) and handled independently.
+If we want data to be treated as a single object where segments relate one to another, multi-segment vectors are the way to go.
 
 ```bash
 printf '[[1,45], [1,10], [2,30]]' | zsat draw \
-  -s 'e0:{vec2d polar all}' \
-  -o '(out) -> (a {(0,0)}) out'
+-s 'e0:{vec2d polar all}' \
+-o '(out) -> (a {(0,0)}) out'
 ```
 <img src="fig32.png" width="332" style="border: 2px solid grey;">
 
+As we know it is the same as
+
+```bash
+printf '[[1,45], [1,10], [2,30]]' | zsat draw \
+-s 'e0:{vec2d polar}'
+```
+
 The 3-segment vector is constructed so that the second segment starts where the first ends, and the third starts where the second ends.
-The structure behaves as a whoe: it adopts the style and undergoes transformations together.
+The structure behaves as a whole: all segments assume the same style and undergo transformations in coherent fashion.
 See the example below.
 
 ```bash
 printf '[[1,45], [1,10], [2,30]]\n[[3.5,3.5]]' | zsat draw \
-  -s 'e0:{vec2d polar all}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
-  -d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
-  -o '(out0, out1) -> ((m (y=x) & a {(0,0)}) out0, (a {(0,0)}) out1)'
+-s 'e0:{vec2d polar all}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
+-d '(vec0, vec1) -> (vec0 -> e0, vec1 -> e1)' \
+-o '(out0, out1) -> ((m (y=x) & a {(0,0)}) out0, (a {(0,0)}) out1)'
 ```
 <img src="fig33.png" width="332" style="border: 2px solid grey;">
+
+Data inputs are rotated with regards to styles, meaning the above could minimally and eqivalently be written as
+
+```bash
+printf '[[1,45], [1,10], [2,30]]\n[[3.5,3.5]]' | zsat draw \
+-s 'e0:{vec2d polar all}, e1:{[l:5, c: aqua, d: [40,10] 0]}' \
+-o '(out0, out1) -> ((m (y=x) & a {(0,0)}) out0, (a {(0,0)}) out1)'
+```
+
+as `--datum` maps data inputs along how styles goes.
 
 ## Adding text
 
@@ -794,10 +832,11 @@ If two sets of points are provided on the input, one can use two point styles fo
 ```bash
 printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}' | zsat draw \
   -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d [sh:circle, s:25, c:aqua]}' \
-  -d '(pt0, pt1) -> (pt0 -> e0, pt1 -> e1)' \
   -o '(out1, out2) -> (out1, out2)'
 ```
 <img src="fig52.png" width="332" style="border: 2px solid grey;">
+
+Again `--datum` is not needed: both styles are point styles, so the first set of points takes `e0` and the second one `e1`.
 
 Points and vectors, obviously, can be plotted together:
 
@@ -805,7 +844,6 @@ Points and vectors, obviously, can be plotted together:
 printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}\n[[1,0.75]]' zsat draw \
   -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d [sh:circle, s:25, c:aqua]},\
       e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
-  -d '(pt0, pt1, vec0) -> (pt0 -> e0, pt1 -> e1, vec0 -> e2)' \
   -o '(out1, out2, out3) -> (out1, out2, a {(0,0)} out3)'
 ```
 <img src="fig53.png" width="332" style="border: 2px solid grey;">
@@ -815,7 +853,6 @@ And transformations work for points and vectors can be part of that (notice that
 ```bash
 printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}\n[[1,0.75]]' | zsat draw \
   -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d all [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
-  -d '(pt0, pt1, vec0) -> (pt0 -> e0, pt1 -> e1, vec0 -> e2)' \
   -o '(out1, out2, out3) -> (out1, (m out3) out2, a {(0,0)} out3)'
 ```
 <img src="fig54.png" width="332" style="border: 2px solid grey;">
@@ -825,7 +862,6 @@ And here we project `aqua` points on the line:
 ```bash
 printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}\n[[1,0.75]]' | zsat draw \
   -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d all [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
-  -d '(pt0, pt1, vec0) -> (pt0 -> e0, pt1 -> e1, vec0 -> e2)' \
   -o '(out1, out2, out3) -> (out1, (p out3) out2, a {(0,0)} out3)'
 ```
 <img src="fig55.png" width="332" style="border: 2px solid grey;">
@@ -835,7 +871,6 @@ It is reasonable to introduce `center` aka `c` operation for bunch of points (se
 ```bash
 printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.33,0.45),(0.75,0.75)}\n[[1,0.75]]' | zsat draw \
   -s 'e0:{pt2d all [sh:square, s:15, c: grey]}, e1:{pt2d [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
-  -d '(pt0, pt1, vec0) -> (pt0 -> e0, pt1 -> e1, vec0 -> e2)' \
   -o '(out1, out2, out3) -> (c out1, out2, a {(0,0)} out3)'
 ```
 <img src="fig56.png" width="332" style="border: 2px solid grey;">
@@ -845,7 +880,6 @@ printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.33,0.45),(0.75,0.75)}\n[[1,0
 ```bash
 printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.33,0.45),(0.75,0.75)}\n[[1,0.75]]' | zsat draw \
   -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d all [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
-  -d '(pt0, pt1, vec0) -> (pt0 -> e0, pt1 -> e1, vec0 -> e2)' \
   -o '(out1, out2, out3) -> (out1, a {(0.75, 0.25)} out2, a {(0,0)} out3)'
 ```
 <img src="fig57.png" width="332" style="border: 2px solid grey;">

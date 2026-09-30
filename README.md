@@ -70,19 +70,20 @@ Usage: zsat draw [options]
 To explore help more try: zsat draw objects --help
 
 Flags:
-   --out            Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal.
-   -d, --datum      Mapping data streams to the defined styles.
-                    Default: "(vec) -> (vec -> e0)"
-   -s, --styles     Style(s) definition to be used in further steps when constructing the figure.
-                    Default: "e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}"
-   --debug          Dump the drawing representation for a command invoked.
-   -o, --outputs    Input(s) transformation definition of the outputs.
-                    Default: "(out) -> (anchor {(0,0)}) out"
-   -f, --frames     Frame(s) definition of the figure.
-                    Default: "(out) -> out -> p0"
-   -p, --panes      Pane(s) definition to be used in frame construction of the figure.
-                    Default: "p0:{size: 600x600}"
-   -h, --help       Shows the help for a command
+   --out             Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal.
+   --overwrite       Let --save replace a key that is already defined in the target namespace instead of failing.
+   --save            Persist a style defined in --styles into ~/.config/zsat/zsat.conf as NS::KEY, e.g. --save mynamespace::e1. The namespace is created when it does not exist yet.
+   -d, --datum       Mapping data streams to the defined styles. Omitted, the first data input is associated with the firstly defined style, the second one with the secondly defined style, and so on, wrapping around when there are more inputs than styles.
+   -s, --styles      Style(s) definition to be used in further steps when constructing the figure.
+                     Default: "e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}"
+   --debug           Dump the drawing representation for a command invoked.
+   -o, --outputs     Input(s) transformation definition of the outputs.
+                     Default: "(out) -> (anchor {(0,0)}) out"
+   -f, --frames      Frame(s) definition of the figure.
+                     Default: "(out) -> out -> p0"
+   -p, --panes       Pane(s) definition to be used in frame construction of the figure.
+                     Default: "p0:{size: 600x600}"
+   -h, --help        Shows the help for a command
 ```
 
 To explore available concepts and objects, run:

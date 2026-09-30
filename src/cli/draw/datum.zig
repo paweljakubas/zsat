@@ -247,6 +247,42 @@ pub fn rotatedString(arena: std.mem.Allocator, connection: Connection, rows: u8)
     return buf.toOwnedSlice(arena);
 }
 
+/// Serializes a fully expanded connection, one mapping pair per data row, in the
+/// syntax accepted by `connectionParser`. Used to show the mapping that was
+/// derived from the defined styles when --datum is omitted.
+pub fn explicitString(arena: std.mem.Allocator, data_name: []const u8, element_names: []const []const u8) ![]const u8 {
+    var buf = std.ArrayList(u8).empty;
+    try buf.append(arena, '(');
+    for (element_names, 0..) |_, i| {
+        if (i > 0) try buf.appendSlice(arena, ", ");
+        try buf.appendSlice(arena, data_name);
+    }
+    try buf.appendSlice(arena, ") -> (");
+    for (element_names, 0..) |element, i| {
+        if (i > 0) try buf.appendSlice(arena, ", ");
+        try buf.appendSlice(arena, data_name);
+        try buf.appendSlice(arena, " -> ");
+        try buf.appendSlice(arena, element);
+    }
+    try buf.append(arena, ')');
+    return buf.toOwnedSlice(arena);
+}
+
+test "explicitString serializes one mapping per row" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const one = [_][]const u8{"e0"};
+    try testing.expectEqualStrings("(vec) -> (vec -> e0)", try explicitString(a, "vec", &one));
+
+    const two = [_][]const u8{ "e0", "e1" };
+    try testing.expectEqualStrings("(vec, vec) -> (vec -> e0, vec -> e1)", try explicitString(a, "vec", &two));
+
+    const mixed = [_][]const u8{ "e0", "e0", "p0" };
+    try testing.expectEqualStrings("(vec, vec, vec) -> (vec -> e0, vec -> e0, vec -> p0)", try explicitString(a, "vec", &mixed));
+}
+
 const ConnectionValidationCheck = enum {
     elementCheck,
     inputCheck,

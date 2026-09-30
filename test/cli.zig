@@ -183,6 +183,22 @@ test "zsat draw with duplicate use alias" {
     try testing.expect(result.code != 0);
 }
 
+test "zsat draw omitted datum ignores definitions merged in from the config" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    // The config brings in e0 and p0; the styles named here come first, and
+    // only they take part in the association.
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "e1:{vec2d [c:aqua]}, e2:{vec2d [c:red]}" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[1,1]]\n[[0,1]]\n[[1,0]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--datum '(vec, vec, vec) -> (vec -> e1, vec -> e2, vec -> e1)'") != null);
+}
+
 test "zsat draw with use namespace directive" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
@@ -196,6 +212,7 @@ test "zsat draw with use namespace directive" {
     try testing.expectEqual(@as(u8, 0), result.code);
     try testing.expect(std.mem.indexOf(u8, result.stdout, "--styles 'e0:{vec2d xy fixed last [l:25, c: red") != null);
     try testing.expect(std.mem.indexOf(u8, result.stdout, "p1:{pt2d") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--datum '(vec) -> (vec -> e0)'") != null);
 }
 
 test "zsat draw debug expands default datum with multiple inputs" {
@@ -642,6 +659,85 @@ test "zsat draw rotates datum mappings with fewer inputs" {
     try testing.expect(!std.mem.eql(u8, a, c));
 }
 
+test "zsat draw associates inputs with styles in order when datum is omitted" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "e0:{vec2d}, e1:{vec2d [c:red]}" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]\n[[0,1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--datum '(vec, vec) -> (vec -> e0, vec -> e1)'") != null);
+}
+
+test "zsat draw rotates the omitted datum over more inputs than styles" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "e0:{vec2d}, e1:{vec2d [c:red]}" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]\n[[-1,1]]\n[[-1,-1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--datum '(vec, vec, vec) -> (vec -> e0, vec -> e1, vec -> e0)'") != null);
+}
+
+test "zsat draw omitted datum renders the same as the spelled out rotation" {
+    const filenames = [_][]const u8{ "implicit_a.png", "implicit_b.png" };
+    defer for (filenames) |f| std.Io.Dir.cwd().deleteFile(std.testing.io, f) catch {};
+
+    const stdin_3 = "[[1,1]]\n[[-1,1]]\n[[-1,-1]]";
+    const styles = "e0:{vec2d}, e1:{vec2d [c:red]}";
+
+    var r1 = try cmdtest.run(std.testing.io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "implicit_a.png", "--styles", styles }, .stdin = stdin_3 });
+    defer r1.deinit();
+
+    var r2 = try cmdtest.run(std.testing.io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "implicit_b.png", "--styles", styles, "--datum", "(v0, v1, v2) -> (v0 -> e0, v1 -> e1, v2 -> e0)" }, .stdin = stdin_3 });
+    defer r2.deinit();
+
+    try testing.expectEqual(@as(u8, 0), r1.code);
+    try testing.expectEqual(@as(u8, 0), r2.code);
+
+    const a = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "implicit_a.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(a);
+    const b = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "implicit_b.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(b);
+
+    try testing.expectEqualSlices(u8, a, b);
+}
+
+test "zsat draw explicit datum overrides the implicit association" {
+    const filenames = [_][]const u8{ "explicit_a.png", "explicit_b.png" };
+    defer for (filenames) |f| std.Io.Dir.cwd().deleteFile(std.testing.io, f) catch {};
+
+    const styles = "e0:{vec2d}, e1:{vec2d [c:red]}";
+    const stdin_2 = "[[1,1]]\n[[0,1]]";
+
+    var r1 = try cmdtest.run(std.testing.io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "explicit_a.png", "--styles", styles }, .stdin = stdin_2 });
+    defer r1.deinit();
+
+    // Reversing the association must not be silently ignored.
+    var r2 = try cmdtest.run(std.testing.io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "explicit_b.png", "--styles", styles, "--datum", "(v0, v1) -> (v0 -> e1, v1 -> e0)" }, .stdin = stdin_2 });
+    defer r2.deinit();
+
+    try testing.expectEqual(@as(u8, 0), r1.code);
+    try testing.expectEqual(@as(u8, 0), r2.code);
+
+    const a = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "explicit_a.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(a);
+    const b = try std.Io.Dir.cwd().readFileAlloc(std.testing.io, "explicit_b.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(b);
+
+    try testing.expect(!std.mem.eql(u8, a, b));
+}
+
+test "zsat draw omitted datum only associates styles matching the data shape" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "p0:{pt2d [sh:circle, s:20, c: aqua]}, e0:{vec2d [l:5, c: black]}" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "{(0,0)}\n[[1,0]]\n{(1,1)}" });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--datum '(vec, vec, vec) -> (vec -> p0, vec -> e0, vec -> p0)'") != null);
+}
+
 test "zsat draw with invalid element in mapping" {
     defer cleanupOutputFiles();
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e5)" };
@@ -786,8 +882,11 @@ test "zsat draw -h cleaned output" {
     try testing.expect(!std.mem.containsAtLeast(u8, result.stdout, 1, " [Int]"));
 
     // Defaults should appear on their own line prefixed with "Default:"
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "Default: \"(vec) -> (vec -> e0)\""));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "Default: \"e0:{vec2d xy fixed last"));
+
+    // --datum has no literal default: the association follows the defined styles
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "Default: \"(vec) -> (vec -> e0)\"") == null);
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "the first data input is associated with the firstly defined style"));
 }
 
 test "zsat draw vec2d --help" {

@@ -89,6 +89,15 @@ const ParsedStyleInput = struct {
     rest: []const u8,
 };
 
+// Definitions gathered for one draw call, together with the names in the order
+// the user spelled them out. The two differ whenever definitions are merged in
+// from the default namespace without being asked for by name: those stay
+// referenceable but take no part in the implicit datum association.
+const CollectedStyles = struct {
+    definitions: []RawDefinition,
+    names: [][]const u8,
+};
+
 fn skipSeparators(value: []const u8, index: usize) usize {
     var cursor = index;
     while (cursor < value.len) : (cursor += 1) {
@@ -215,12 +224,13 @@ fn upsertRawDefinition(alloc: std.mem.Allocator, definitions: *std.ArrayList(Raw
     try definitions.append(alloc, .{ .name = name, .text = text });
 }
 
-fn addNamespaceDefinitions(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), store: *const config.Store, namespace: []const u8) !bool {
+fn addNamespaceDefinitions(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), named: ?*std.ArrayList([]const u8), store: *const config.Store, namespace: []const u8) !bool {
     var found = false;
     for (store.definitions) |definition| {
         if (!std.mem.eql(u8, definition.namespace, namespace)) continue;
         found = true;
         try upsertRawDefinition(alloc, definitions, definition.name, definition.text);
+        if (named) |list| try list.append(alloc, definition.name);
     }
     return found;
 }
@@ -391,16 +401,18 @@ fn saveToConfig(alloc: std.mem.Allocator, ctx: zli.CommandContext, environ: std.
     };
 }
 
-fn addImportedDefinitions(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), store: ?*const config.Store, default_store: *const config.Store, directive: ImportDirective) !void {
+fn addImportedDefinitions(alloc: std.mem.Allocator, definitions: *std.ArrayList(RawDefinition), named: *std.ArrayList([]const u8), store: ?*const config.Store, default_store: *const config.Store, directive: ImportDirective) !void {
     const loaded = namespaceStore(store, default_store, directive.namespace);
     if (!loaded.hasNamespace(directive.namespace)) return reportMissingNamespace(alloc, directive.namespace, store, default_store);
     for (loaded.definitions) |definition| {
         if (!std.mem.eql(u8, definition.namespace, directive.namespace)) continue;
-        try upsertRawDefinition(alloc, definitions, try prefixedName(alloc, directive.alias, definition.name), definition.text);
+        const name = try prefixedName(alloc, directive.alias, definition.name);
+        try upsertRawDefinition(alloc, definitions, name, definition.text);
+        try named.append(alloc, name);
     }
 }
 
-fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store: ?*const config.Store, default_store: *const config.Store) ![]RawDefinition {
+fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store: ?*const config.Store, default_store: *const config.Store, name_fallback: bool) !CollectedStyles {
     const parsed_input = try parseImportDirectives(alloc, styles_str);
     defer alloc.free(parsed_input.imports);
     const parts = try splitStyleInput(alloc, parsed_input.rest);
@@ -417,6 +429,10 @@ fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store
     }
 
     var definitions = std.ArrayList(RawDefinition).empty;
+    // The names in the order the user spelled them out. This is the order the
+    // implicit datum association follows, hence it is tracked apart from
+    // `definitions`, which also holds definitions merged in on their own.
+    var named = std.ArrayList([]const u8).empty;
     const alias_required = parsed_input.imports.len > 1;
     var aliases_seen = std.ArrayList([]const u8).empty;
     defer aliases_seen.deinit(alloc);
@@ -429,7 +445,7 @@ fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store
         } else if (alias_required) {
             return error.ParseStylesFailed;
         }
-        try addImportedDefinitions(alloc, &definitions, store, default_store, directive);
+        try addImportedDefinitions(alloc, &definitions, &named, store, default_store, directive);
     }
 
     if (references.items.len > 0) {
@@ -441,18 +457,27 @@ fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store
             const loaded = namespaceStore(store, default_store, target_namespace);
             if (!loaded.hasNamespace(target_namespace)) return reportMissingNamespace(alloc, target_namespace, store, default_store);
             try addReferencedDefinition(alloc, &definitions, loaded, default_store, &visited, target_namespace, reference.name, prefix);
+            try named.append(alloc, try prefixedName(alloc, prefix, reference.name));
         }
     } else if (parsed_input.imports.len == 0) {
+        // Nothing was named in --styles, so the definitions of the default
+        // namespace are the ones in play. They only count as named when the
+        // user did not spell out styles of their own either, as otherwise they
+        // are merely there to be referenced (a style can inherit from `e0`).
         const loaded = namespaceStore(store, default_store, config.default_namespace);
-        _ = try addNamespaceDefinitions(alloc, &definitions, loaded, config.default_namespace);
+        _ = try addNamespaceDefinitions(alloc, &definitions, if (name_fallback) &named else null, loaded, config.default_namespace);
     }
 
     for (inline_parts.items) |part| {
         const name = config.definitionName(part) orelse return error.ParseStylesFailed;
         try upsertRawDefinition(alloc, &definitions, name, part);
+        try named.append(alloc, name);
     }
 
-    return definitions.toOwnedSlice(alloc);
+    return CollectedStyles{
+        .definitions = try definitions.toOwnedSlice(alloc),
+        .names = try named.toOwnedSlice(alloc),
+    };
 }
 
 const style_flag = zli.Flag{
@@ -466,9 +491,9 @@ const style_flag = zli.Flag{
 const datum_flag = zli.Flag{
     .name = "datum",
     .shortcut = "d",
-    .description = "Mapping data streams to the defined styles.",
+    .description = "Mapping data streams to the defined styles. Omitted, the first data input is associated with the firstly defined style, the second one with the secondly defined style, and so on, wrapping around when there are more inputs than styles.",
     .type = .String,
-    .default_value = .{ .String = "(vec) -> (vec -> e0)" },
+    .default_value = .{ .String = "" },
 };
 
 const outputs_flag = zli.Flag{
@@ -639,6 +664,62 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
     return cmd;
 }
 
+/// The kind of style a data row can be rendered with: a row carrying any vector
+/// is a vec2d row, a row made of points only is a pt2d one.
+fn rowStyleType(row: Inputs.InputElementRow) Styles.StyleType {
+    for (row.row) |element| switch (element) {
+        .point => {},
+        .vector, .vectors => return .vec2d,
+    };
+    return .pt2d;
+}
+
+fn containsIndex(indices: []const usize, needle: usize) bool {
+    for (indices) |index| {
+        if (index == needle) return true;
+    }
+    return false;
+}
+
+/// The n-th style of `order` rendering `wanted` data, or null when none does.
+fn nthMatchingStyle(styles: []const Styles.Style, order: []const usize, wanted: Styles.StyleType, n: usize) ?usize {
+    var count: usize = 0;
+    for (order) |i| {
+        if (i < styles.len and styles[i].styleValue.styleType == wanted) count += 1;
+    }
+    if (count == 0) return null;
+
+    var seen: usize = 0;
+    for (order) |i| {
+        if (i >= styles.len or styles[i].styleValue.styleType != wanted) continue;
+        if (seen == n % count) return i;
+        seen += 1;
+    }
+    return null;
+}
+
+/// Builds the datum used when --datum is omitted. Row i is associated with the
+/// (i % count)-th style rendering that kind of data, `order` telling which
+/// styles are in play and in which sequence: the first input goes with the
+/// firstly named style that renders it, the second with the secondly named one,
+/// and further rows wrap around. Styles rendering the other kind of data are
+/// left out entirely, so they are simply never associated, and a row that no
+/// named style renders falls back to the remaining styles, then to the first.
+fn implicitDatumString(alloc: std.mem.Allocator, inputs: Inputs.Inputs, style_name_list: []const []const u8, styles: []const Styles.Style, order: []const usize) ![]const u8 {
+    const all = try alloc.alloc(usize, styles.len);
+    for (all, 0..) |_, i| all[i] = i;
+
+    const per_row = try alloc.alloc([]const u8, inputs.input.len);
+    for (inputs.input, 0..) |row, i| {
+        const wanted = rowStyleType(row);
+        const pick = nthMatchingStyle(styles, order, wanted, i) orelse
+            nthMatchingStyle(styles, all, wanted, i) orelse
+            (if (order.len > 0) order[0] else 0);
+        per_row[i] = style_name_list[pick];
+    }
+    return Datum.explicitString(alloc, "vec", per_row);
+}
+
 fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process.Environ) !ParsedData {
     const debug = ctx.flag("debug", bool);
     const styles_str = ctx.flag("styles", []const u8);
@@ -674,10 +755,13 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
     var default_store = try config.parse(alloc, config.default_content);
     defer default_store.deinit();
     const store_ptr: ?*const config.Store = if (loaded_store) |*store| store else null;
-    const effective_styles_str = if (store_ptr != null and std.mem.eql(u8, styles_str, config.default_style)) "" else styles_str;
+    const styles_given = !std.mem.eql(u8, styles_str, config.default_style);
+    const effective_styles_str = if (store_ptr != null and !styles_given) "" else styles_str;
 
-    var raw_definitions = try collectRawDefinitions(alloc, effective_styles_str, store_ptr, &default_store);
+    const collected = try collectRawDefinitions(alloc, effective_styles_str, store_ptr, &default_store, !styles_given);
+    var raw_definitions = collected.definitions;
     defer alloc.free(raw_definitions);
+    const named = collected.names;
     var has_builtin_e0 = false;
     for (raw_definitions) |definition| {
         if (std.mem.eql(u8, definition.name, "e0")) has_builtin_e0 = true;
@@ -752,7 +836,28 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
 
     const styles = try Styles.resolveStyles(alloc, raw_styles);
 
+    // Indices into `styles` of the styles the user named, in the order they
+    // named them. Borders, texts and axes are named too, yet they are no
+    // styles, hence they are skipped here, and a name spelled out twice counts
+    // once so that redefining it does not weigh in the association twice.
+    var named_indices = std.ArrayList(usize).empty;
+    for (named) |name| {
+        for (style_name_list, 0..) |style_name, i| {
+            if (!std.mem.eql(u8, style_name, name)) continue;
+            if (!containsIndex(named_indices.items, i)) try named_indices.append(alloc, i);
+            break;
+        }
+    }
+
+    // When --datum is omitted, the association is derived from the styles: data
+    // row i takes the (i % count)-th of them, so the first input goes with the
+    // firstly defined style, the second with the secondly defined one, and
+    // further rows wrap around. Styles no row picks up are simply left unused.
     var effective_datum_str = datum_str;
+    if (std.mem.trim(u8, datum_str, " \t\r\n").len == 0) {
+        effective_datum_str = try implicitDatumString(alloc, inputs, style_name_list, styles, named_indices.items);
+    }
+
     const datum_parse_result = try Datum.connectionParser.parse(alloc, effective_datum_str);
     const datum = switch (datum_parse_result.value) {
         .ok => |d| d,
