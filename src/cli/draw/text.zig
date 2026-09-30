@@ -22,6 +22,10 @@ pub const TextDefinition = struct {
 
 pub const TextOverride = struct {
     value: ?[]const u8 = null,
+    // `+` before the value appends to what the definition says instead of
+    // replacing it, so `t0{+" world"}` plots "hello world" for a t0 defined as
+    // "hello".
+    append: bool = false,
 };
 
 pub const TextItem = struct {
@@ -221,6 +225,7 @@ const textItemNumberParserP = @TypeOf(textItemNumberParser);
 
 const textOverrideBodyParser = mecha.combine(.{
     common.skipOpenBrace,
+    mecha.opt(mecha.ascii.char('+')),
     mecha.opt(textValueParser),
     common.skipCloseBrace,
 });
@@ -245,7 +250,8 @@ const textItemWithOverrideParser = textItemOverrideParser.convert(struct {
         const body = res[1];
         const name = try std.fmt.allocPrint(arena, "t{d}", .{number});
         var override = TextOverride{};
-        if (body) |v| override.value = v;
+        override.append = body[0] != null;
+        if (body[1]) |v| override.value = v;
         return TextItem{ .name = name, .override = override };
     }
 }.conv);
@@ -262,7 +268,12 @@ pub fn resolveTextOverlay(arena: std.mem.Allocator, item: TextItem, texts: []con
         if (std.mem.eql(u8, def.name, item.name)) {
             var result = def.text;
             if (item.override) |ov| {
-                if (ov.value) |v| result.value = v;
+                if (ov.value) |v| {
+                    result.value = if (ov.append)
+                        try std.mem.concat(arena, u8, &.{ result.value, v })
+                    else
+                        v;
+                }
             }
             // duplicate strings into arena if needed
             result.value = try arena.dupe(u8, result.value);
@@ -372,4 +383,48 @@ test "textItemParser" {
     const r3 = try textItemParser.parse(a, "t2{}");
     try testing.expectEqualStrings("t2", r3.value.ok.name);
     try testing.expect(r3.value.ok.override.?.value == null);
+
+    const r4 = try textItemParser.parse(a, "t0{+\" world\"}");
+    try testing.expectEqualStrings("t0", r4.value.ok.name);
+    try testing.expect(r4.value.ok.override.?.append);
+    try testing.expectEqualStrings(" world", r4.value.ok.override.?.value.?);
+
+    const r5 = try textItemParser.parse(a, "t0{+tail}");
+    try testing.expectEqualStrings("t0", r5.value.ok.name);
+    try testing.expect(r5.value.ok.override.?.append);
+    try testing.expectEqualStrings("tail", r5.value.ok.override.?.value.?);
+
+    // Without `+` the value replaces what the definition says.
+    const r6 = try textItemParser.parse(a, "t0{\"world\"}");
+    try testing.expectEqualStrings("t0", r6.value.ok.name);
+    try testing.expect(!r6.value.ok.override.?.append);
+    try testing.expectEqualStrings("world", r6.value.ok.override.?.value.?);
+
+    const r7 = try textItemParser.parse(a, "t0{+}");
+    try testing.expectEqualStrings("t0", r7.value.ok.name);
+    try testing.expect(r7.value.ok.override.?.append);
+    try testing.expect(r7.value.ok.override.?.value == null);
+}
+
+test "resolveTextOverlay appends with + and replaces without it" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const texts = [_]TextDefinition{.{ .name = "t0", .text = .{ .value = "hello", .x = 0, .y = 0 } }};
+
+    const appended = try resolveTextOverlay(a, .{ .name = "t0", .override = .{ .value = " world", .append = true } }, &texts);
+    try testing.expectEqualStrings("hello world", appended.?.value);
+
+    const replaced = try resolveTextOverlay(a, .{ .name = "t0", .override = .{ .value = "world" } }, &texts);
+    try testing.expectEqualStrings("world", replaced.?.value);
+
+    const untouched = try resolveTextOverlay(a, .{ .name = "t0", .override = .{} }, &texts);
+    try testing.expectEqualStrings("hello", untouched.?.value);
+
+    const by_reference = try resolveTextOverlay(a, .{ .name = "t0" }, &texts);
+    try testing.expectEqualStrings("hello", by_reference.?.value);
+
+    const missing = try resolveTextOverlay(a, .{ .name = "t9" }, &texts);
+    try testing.expect(missing == null);
 }

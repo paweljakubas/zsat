@@ -665,16 +665,16 @@ Text definitions use the `txt` (or `t`) keyword:
 
 ```bash
 echo '[[1,1]]' | zsat draw --debug \
-  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
-  -o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)'
+-s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
+-o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)'
 stdin:
 [[1,1]]
 
---styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}, t0: {txt "hello" [c:red, s:20, f:default, o:100]}
---datum (vec) -> (vec -> e0)
---outputs (out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)
---panes p0:{size: 600x600, border: none}
---frames (out) -> out -> p0
+--styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "hello" [c:red, s:20, f:default, o:100]}'
+--datum '(vec) -> (vec -> e0)'
+--outputs '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)'
+--panes 'p0:{size: 600x600, border: none}'
+--frames '(out) -> out -> p0'
 ```
 <img src="fig42.png" width="332" style="border: 2px solid grey;">
 
@@ -684,61 +684,47 @@ Text attributes inside `[...]` support both full names and abbreviations:
 - `font` / `f` — font name
 - `opacity` / `o` — opacity from 0 to 100
 
-Unspecified attributes inherit from defaults (`c: black`, `s: 16`, `f: default`, `o: 100`). This inheritance property implies a minimal definition to be `t0: {txt "hello"}`.
+Unspecified attributes inherit from defaults (`c: black`, `s: 16`, `f: default`, `o: 100`).
+The inheritance property settings implies a minimal definition of text to have the following form: `t0: {txt "hello"}`.
 
 **Positioning and rotating text**
 
-Like for a vector a text must be anchored in `--outputs` to appear in the pane. This can be done explicitely via 'a' or by operation that assumes pinning.
+Like for a vector a text must be anchored in `--outputs` to appear in the pane. This can be done explicitely via 'a' or by operation that contains intrinsically the pinning.
 The defined text below undergoes rotating operation via `r` around the point `(0.5, 0.5)`.
 
 ```bash
-echo '[[1,1]]' | zsat draw --debug \
-  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
-  -o '(out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}]) t0)'
-stdin:
-[[1,1]]
-
---styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}, t0: {txt "hello" [c:red, s:20, f:default, o:100]}
---datum (vec) -> (vec -> e0)
---outputs (out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}]) t0)
---panes p0:{size: 600x600, border: none}
---frames (out) -> out -> p0
+echo '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
+-o '(out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}]) t0)'
 ```
 <img src="fig43.png" width="332" style="border: 2px solid grey;">
 
-Here the text is anchored at the point `(0.5,0.5)` and rotated 45 degrees counter-clockwise around itself.
+Here the text is implicitely anchored at the point `(0.5,0.5)` and rotated by 45 degrees counter-clockwise.
 Meaning it is the same as if we compose two operations together:
 
 ```bash
 echo '[[1,1]]' | ./zig-out/bin/zsat draw \
-  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
-  -o '(out) -> ((a {(0,0)}) out, (r [45 a (self)] & a {(0.5,0.5)}) t0)'
+-s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
+-o '(out) -> ((a {(0,0)}) out, (r [45 a (self)] & a {(0.5,0.5)}) t0)'
 ```
 
-Please notice that when rotation is done against not itself then the rotation is done to the whole text with internal orientation intact.
+Notice that when rotation is done against not itself then the rotation is done to the whole text with internal orientation intact.
 Rotation around itself results in internal rotation. This behaviour is by design and is found intuitive by the author.
 
-In general, one should not expect for the composition to be commutative. Indeed, rotation followed by anchoring gives another result that the its flipped composition.
+In general, one should not expect the composition to be commutative. Indeed, rotation followed by anchoring gives another result than
+when the order of composition is flipped.
 
 ```bash
-echo '[[1,1]]' | zsat draw --debug \
-  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:30]}' \
-  -o '(out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}] & a {(0.8,0.8)}) t0)'
-stdin:
-[[1,1]]
-
---styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}, t0: {txt "hello" [c:red, s:20, f:default, o:100]}
---datum (vec) -> (vec -> e0)
---outputs (out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}] & a {(0.8,0.8)}) t0)
---panes p0:{size: 600x600, border: none}
---frames (out) -> out -> p0
+echo '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:30]}' \
+-o '(out) -> ((a {(0,0)}) out, (r [45 a {(0.5,0.5)}] & a {(0.8,0.8)}) t0)'
 ```
 <img src="fig44.png" width="332" style="border: 2px solid grey;">
 
 ```bash
 echo '[[1,1]]' | zsat draw \
-  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:30]}' \
-  -o '(out) -> ((a {(0,0)}) out, (a {(0.8,0.8)} & r [45 a {(0.5,0.5)}]) t0)'
+-s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:30]}' \
+-o '(out) -> ((a {(0,0)}) out, (a {(0.8,0.8)} & r [45 a {(0.5,0.5)}]) t0)'
 ```
 <img src="fig45.png" width="332" style="border: 2px solid grey;">
 
@@ -746,19 +732,24 @@ echo '[[1,1]]' | zsat draw \
 Text can also override its default or previously defined value inline in `--outputs` without redefining the style, just by referencing:
 
 ```bash
-echo '[[1,1]]' | zsat draw --debug \
-  -s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
-  -o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{"world"})'
-stdin:
-[[1,1]]
-
---styles e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}}, t0: {txt "hello" [c:red, s:20, f:default, o:100]}
---datum (vec) -> (vec -> e0)
---outputs (out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{"world"})
---panes p0:{size: 600x600, border: none}
---frames (out) -> out -> p0
+echo '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
+-o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{"world"})'
 ```
 <img src="fig46.png" width="332" style="border: 2px solid grey;">
+
+Here `t0{"world"}` **replaces** the defined `"hello"`. Prefixing the value with `+` is **appending** to it instead, which saves quoting the whole thing again:
+
+```bash
+echo '[[1,1]]' | zsat draw \
+-s 'e0:{vec2d}, t0: {txt "hello" [c:red, s:20]}' \
+-o '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{+" world"})'
+```
+
+<img src="fig46a.png" width="332" style="border: 2px solid grey;">
+
+
+The text plotted is `hello world`. An unquoted value works as well, so `t0{+!}` appends just `!`, and `t0{}` or `t0{+}` keep the defined value untouched.
 
 ## Adding axis
 

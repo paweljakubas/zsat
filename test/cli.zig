@@ -386,6 +386,39 @@ test "zsat draw saves a style into a new namespace" {
     try testing.expect(std.mem.indexOf(u8, use_result.stdout, "c: blue") != null);
 }
 
+test "zsat draw appends to a text value with + in outputs" {
+    const filenames = [_][]const u8{ "text_append.png", "text_replace.png", "text_direct.png" };
+    defer for (filenames) |f| std.Io.Dir.cwd().deleteFile(std.testing.io, f) catch {};
+
+    const io = std.testing.io;
+    const stdin_data = "[[1,1]]";
+    const styles = "e0:{vec2d}, t0: {txt \"hello\" [c:red, s:20]}";
+
+    var appended = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_append.png", "--styles", styles, "--outputs", "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{+\" world\"})" }, .stdin = stdin_data });
+    defer appended.deinit();
+
+    var replaced = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_replace.png", "--styles", styles, "--outputs", "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0{\" world\"})" }, .stdin = stdin_data });
+    defer replaced.deinit();
+
+    var direct = try cmdtest.run(io, .{ .argv = &[_][]const u8{ zsat_path, "draw", "--out", "text_direct.png", "--styles", "e0:{vec2d}, t0: {txt \"hello world\" [c:red, s:20]}", "--outputs", "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)" }, .stdin = stdin_data });
+    defer direct.deinit();
+
+    try testing.expectEqual(@as(u8, 0), appended.code);
+    try testing.expectEqual(@as(u8, 0), replaced.code);
+    try testing.expectEqual(@as(u8, 0), direct.code);
+
+    const a = try std.Io.Dir.cwd().readFileAlloc(io, "text_append.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(a);
+    const r = try std.Io.Dir.cwd().readFileAlloc(io, "text_replace.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(r);
+    const d = try std.Io.Dir.cwd().readFileAlloc(io, "text_direct.png", std.testing.allocator, .limited(1 << 20));
+    defer std.testing.allocator.free(d);
+
+    // "+" keeps what t0 was defined as, no "+" replaces it.
+    try testing.expectEqualSlices(u8, d, a);
+    try testing.expect(!std.mem.eql(u8, r, a));
+}
+
 test "zsat draw saves a style into an existing namespace" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
