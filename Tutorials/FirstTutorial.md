@@ -961,6 +961,16 @@ printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.33,0.45),(0.75,0.75)}\n[[1,0
 ```
 <img src="fig57.png" width="332" style="border: 2px solid grey;">
 
+`shift` aka `s` for point(s) works in such a way that it shifts the set of points by vector
+
+```bash
+printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.33,0.45),(0.75,0.75)}\n[[1,0.75]]' | zsat draw \
+-s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d all [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
+-o '(out1, out2, out3) -> (out1, s [[0.25, -0.25]] out2, a {(0,0)} out3)'
+```
+<img src="fig58.png" width="332" style="border: 2px solid grey;">
+
+## Persistent styles
 
 ## Exploring the tool through help
 

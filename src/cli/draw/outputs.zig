@@ -99,6 +99,7 @@ pub const OneArgFunctionPartial = union(enum) {
     project: ProjectPartial,
     orthogonal: OrthogonalPartial,
     center: CenterPartial,
+    shift: ShiftPartial,
 };
 
 //Anchor obj to point
@@ -151,6 +152,11 @@ pub const OrthogonalPartial = struct {
 
 //Replaces the current set of points with their center (centroid)
 pub const CenterPartial = struct {};
+
+//Shifts all points by a vector
+pub const ShiftPartial = struct {
+    vectors: []const inputs.Vector,
+};
 
 pub const ElementReference = union(enum) {
     self,
@@ -702,6 +708,42 @@ test "scalePartialParser" {
     try testing.expectEqualDeep(s4, r4.value.ok.elements[0]);
 }
 
+
+const shiftPartialParserRawInner = mecha.combine(.{
+    common.skipWhitespace,
+    mecha.oneOf(.{
+        mecha.string("shift"),
+        mecha.string("sh"),
+        mecha.string("s"),
+        mecha.string("translate"),
+        mecha.string("tr"),
+    }).discard(),
+    common.skipWhitespace,
+    inputs.vectorsParser,
+    common.skipWhitespace,
+});
+const shiftPartialParserRawWithout = shiftPartialParserRawInner;
+const shiftPartialParserRawWith = mecha.combine(.{
+    common.skipOpenBracket,
+    shiftPartialParserRawInner,
+    common.skipCloseBracket,
+});
+
+const shiftPartialParserRaw = mecha.oneOf(.{
+    shiftPartialParserRawWith,
+    shiftPartialParserRawWithout,
+});
+const shiftPartialParserRawP = @TypeOf(shiftPartialParserRaw);
+fn toShiftPartial(arena: std.mem.Allocator, res: shiftPartialParserRawP.T) mecha.ConvertError!ShiftPartial {
+    var args = try arena.alloc(inputs.Vector, res.len);
+    for (res, 0..) |v, i| {
+        args[i] = v;
+    }
+    arena.free(res);
+    return ShiftPartial{ .vectors = args };
+}
+const shiftPartialParser = shiftPartialParserRaw.convert(toShiftPartial);
+
 const anchorPartialParserRawInner = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{
@@ -1084,6 +1126,10 @@ fn toCenterPartialUnion(_: std.mem.Allocator, res: CenterPartial) mecha.ConvertE
     return OneArgFunctionPartial{ .center = res };
 }
 const centerPartialUnionParser = centerPartialParser.convert(toCenterPartialUnion);
+fn toShiftPartialUnion(_: std.mem.Allocator, res: ShiftPartial) mecha.ConvertError!OneArgFunctionPartial {
+    return OneArgFunctionPartial{ .shift = res };
+}
+const shiftPartialUnionParser = shiftPartialParser.convert(toShiftPartialUnion);
 
 test "centerPartialParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
@@ -1124,6 +1170,7 @@ test "centerPartialParser" {
 const oneArgFunctionPartialParser = mecha.oneOf(.{
     anchorPartialUnionParser,
     rotatePartialUnionParser,
+    shiftPartialUnionParser,
     scalePartialUnionParser,
     mirrorPartialUnionParser,
     projectPartialUnionParser,
@@ -2158,6 +2205,32 @@ test "toExplicitPoint pt2d center is point centroid" {
     try testing.expectApproxEqAbs(@as(f32, 2.0 / 3.0), op.anchor.point.point.y, 0.0001);
 }
 
+
+test "toExplicitPoint pt2d shift translates all points" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const p1 = inputs.InputElement{ .point = .{ .x = 0.0, .y = 0.0 } };
+    const p2 = inputs.InputElement{ .point = .{ .x = 1.0, .y = 0.0 } };
+    const row = inputs.InputElementRow{ .row = &[2]inputs.InputElement{ p1, p2 } };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const r = try connectionParser.parse(a, "(pt) -> (s [[0.5, 1.5]]) pt");
+    const validated = try validateConnection(a, @intCast(r.value.ok.outputs.len), r.value.ok);
+    const transformed = try toExplicitPoint(a, inp, validated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(@as(usize, 2), transformed.transformationPairs[0].operation.ops.len);
+    const op1 = transformed.transformationPairs[0].operation.ops[0];
+    const op2 = transformed.transformationPairs[0].operation.ops[1];
+    try testing.expect(op1 == .anchor);
+    try testing.expect(op2 == .anchor);
+    try testing.expectApproxEqAbs(@as(f32, 0.5), op1.anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.5), op1.anchor.point.point.y, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.5), op2.anchor.point.point.x, 0.0001);
+    try testing.expectApproxEqAbs(@as(f32, 1.5), op2.anchor.point.point.y, 0.0001);
+}
+
 test "connectionParser with text items" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -2506,6 +2579,18 @@ fn appendOp(buf: *std.ArrayList(u8), arena: std.mem.Allocator, op: OneArgFunctio
     switch (op) {
         .none => {},
         .center => try buf.appendSlice(arena, "center"),
+        .shift => |sh| {
+            try buf.appendSlice(arena, "shift [");
+            for (sh.vectors, 0..) |v, i| {
+                if (i > 0) try buf.appendSlice(arena, ", ");
+                try buf.appendSlice(arena, "[");
+                try buf.appendSlice(arena, try std.fmt.allocPrint(arena, "{d}", .{v.x}));
+                try buf.appendSlice(arena, ", ");
+                try buf.appendSlice(arena, try std.fmt.allocPrint(arena, "{d}", .{v.y}));
+                try buf.appendSlice(arena, "]");
+            }
+            try buf.appendSlice(arena, "]");
+        },
         .anchor => |a| {
             try buf.appendSlice(arena, "anchor ");
             try appendGeneralPoint(buf, arena, a.point);
@@ -4506,6 +4591,22 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
                                 poly = try processOrthogonalOp(allocator, prev_poly, target, orientation, ctx_begin, false);
                             },
                         }
+                    } else if (op == .shift) {
+                        const prev_poly = polylines[poly_count - 1];
+                        var cur = prev_poly;
+                        var owned = false;
+                        for (op.shift.vectors) |v| {
+                            var shifted = try allocator.alloc(inputs.Point, cur.len);
+                            for (cur, 0..) |p, j| {
+                                shifted[j] = inputs.Point{ .x = p.x + v.x, .y = p.y + v.y };
+                            }
+                            if (owned and cur.ptr != prev_poly.ptr) {
+                                allocator.free(cur);
+                            }
+                            cur = shifted;
+                            owned = true;
+                        }
+                        poly = cur;
                     } else if (op == .center) {
                         const prev_poly = polylines[poly_count - 1];
                         poly = try allocator.alloc(inputs.Point, 1);

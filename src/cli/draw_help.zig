@@ -125,6 +125,7 @@ pub const vec2d_output_help =
     \\  p   -- project
     \\  o   -- orthogonal
     \\  c   -- center
+    \\  s/sh -- shift (translate)
     \\
     \\ANGLE syntax:
     \\  90        -- 90 degrees
@@ -271,6 +272,7 @@ pub const pt2d_output_help =
     \\  m   -- mirror
     \\  p   -- project
     \\  c   -- center
+    \\  s/sh -- shift (translate)
     \\
     \\ANGLE syntax:
     \\  90        -- 90 degrees
