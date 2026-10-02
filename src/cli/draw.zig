@@ -501,7 +501,7 @@ const outputs_flag = zli.Flag{
     .shortcut = "o",
     .description = "Input(s) transformation definition of the outputs.",
     .type = .String,
-    .default_value = .{ .String = "(out) -> (anchor {(0,0)}) out" },
+    .default_value = .{ .String = config.default_outputs },
 };
 
 const panes_flag = zli.Flag{
@@ -883,14 +883,29 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
 
     const datumValidated = try Datum.validateConnection(alloc, numberOfDatum, elements, datum);
 
-    const outputs_parse_result = try Outputs.connectionParser.parse(alloc, output_str);
+    // The default --outputs anchors a vector at the origin, which is what a
+    // displacement wants. A point is already an absolute position, so that
+    // anchor would displace the whole cloud by its centroid and leave the plot
+    // hugging a corner. When every row is drawn as a point, the identity is the
+    // default instead. An explicit --outputs is always left alone.
+    var effective_output_str = output_str;
+    const outputs_given = !std.mem.eql(u8, output_str, config.default_outputs);
+    if (!outputs_given) {
+        var all_points = inputs.input.len > 0;
+        for (0..inputs.input.len) |row_idx| {
+            if (!isPt2dRow(styles, datumValidated.mappings, row_idx)) all_points = false;
+        }
+        if (all_points) effective_output_str = config.default_outputs_for(true);
+    }
+
+    const outputs_parse_result = try Outputs.connectionParser.parse(alloc, effective_output_str);
     const outputsConnection = switch (outputs_parse_result.value) {
         .ok => |o| o,
         .err => {
             return error.ParseOutputsFailed;
         },
     };
-    if (outputs_parse_result.index != output_str.len) {
+    if (outputs_parse_result.index != effective_output_str.len) {
         return error.ParseOutputsFailed;
     }
 
@@ -951,7 +966,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
     // Show the rotated form in --debug, mirroring how the datum mapping is
     // expanded over the rows. Keyed off the parsed (pre-rotation) connection
     // so the display matches the rotation applied above.
-    var effective_outputs_str = output_str;
+    var effective_outputs_str = effective_output_str;
     if (outputsConnection.transformationPairs.len > 0 and inputs.input.len != outputsConnection.transformationPairs.len) {
         const rows: u8 = @intCast(inputs.input.len);
         effective_outputs_str = try Outputs.rotatedString(alloc, outputsConnection, rows);
@@ -1367,7 +1382,8 @@ fn runInternal(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.p
     const out_filename = ctx.flag("out", []const u8);
     const force_file = out_filename.len > 0;
     const term_supports = checkTerminalSupportsKitty(environ);
-    const should_display = !force_file and term_supports;
+        const stdout_is_tty = try std.Io.File.stdout().isTty(ctx.io);
+    const should_display = !force_file and term_supports and stdout_is_tty;
 
     if (std.mem.eql(u8, out_filename, "/dev/null")) {
         return;

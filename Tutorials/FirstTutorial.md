@@ -894,7 +894,7 @@ printf '[[1,1]]\n[[2,0.5]]' | zsat draw \
 
 ## Point2d data and its characteristic
 
-Point 2D is also available.
+Point 2D object is also available and invoked from `pt2d` keyword.
 
 ```bash
 printf '{(0,0), (1,0), (0,1), (1,1)}' | zsat draw  \
@@ -907,29 +907,30 @@ If two sets of points are provided on the input, one can use two point styles fo
 
 ```bash
 printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}' | zsat draw \
-  -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d [sh:circle, s:25, c:aqua]}' \
-  -o '(out1, out2) -> (out1, out2)'
+-s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d [sh:circle, s:25, c:aqua]}' \
+-o '(out1, out2) -> (out1, out2)'
 ```
 <img src="fig52.png" width="332" style="border: 2px solid grey;">
 
+Notice that both `-o '(pt) -> pt'` and `-o '(out1, out2) -> (out1, out2)'` are redundant as they represent default values for one and two point rows, respectively.
 Again `--datum` is not needed: both styles are point styles, so the first set of points takes `e0` and the second one `e1`.
 
 Points and vectors, obviously, can be plotted together:
 
 ```bash
-printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}\n[[1,0.75]]' zsat draw \
-  -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d [sh:circle, s:25, c:aqua]},\
-      e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
-  -o '(out1, out2, out3) -> (out1, out2, a {(0,0)} out3)'
+printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}\n[[1,0.75]]' | zsat draw \
+-s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d [sh:circle, s:25, c:aqua]},
+    e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
+-o '(out1, out2, out3) -> (out1, out2, a {(0,0)} out3)'
 ```
 <img src="fig53.png" width="332" style="border: 2px solid grey;">
 
-And transformations work for points and vectors can be part of that (notice that `all` is added to `e1` and we mirrored `aqua` points against vector):
+And transformations work for points and vectors can be part of that (notice that `all` is added to `e1` style and we mirrored `aqua` points against vector):
 
 ```bash
 printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}\n[[1,0.75]]' | zsat draw \
-  -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d all [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
-  -o '(out1, out2, out3) -> (out1, (m out3) out2, a {(0,0)} out3)'
+-s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d all [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
+-o '(out1, out2, out3) -> (out1, (m out3) out2, a {(0,0)} out3)'
 ```
 <img src="fig54.png" width="332" style="border: 2px solid grey;">
 
@@ -937,17 +938,17 @@ And here we project `aqua` points on the line:
 
 ```bash
 printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.5,0.5),(0.75,0.75)}\n[[1,0.75]]' | zsat draw \
-  -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d all [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
-  -o '(out1, out2, out3) -> (out1, (p out3) out2, a {(0,0)} out3)'
+-s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d all [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
+-o '(out1, out2, out3) -> (out1, (p out3) out2, a {(0,0)} out3)'
 ```
 <img src="fig55.png" width="332" style="border: 2px solid grey;">
 
-It is reasonable to introduce `center` aka `c` operation for bunch of points (see `(0.5, 0.5)` being the center here)
+It is reasonable to introduce `center` aka `c` operation for bunch of points (notice `(0.5, 0.5)` being the center here)
 
 ```bash
 printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.33,0.45),(0.75,0.75)}\n[[1,0.75]]' | zsat draw \
-  -s 'e0:{pt2d all [sh:square, s:15, c: grey]}, e1:{pt2d [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
-  -o '(out1, out2, out3) -> (c out1, out2, a {(0,0)} out3)'
+-s 'e0:{pt2d all [sh:square, s:15, c: grey]}, e1:{pt2d [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
+-o '(out1, out2, out3) -> (c out1, out2, a {(0,0)} out3)'
 ```
 <img src="fig56.png" width="332" style="border: 2px solid grey;">
 
@@ -955,8 +956,8 @@ printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.33,0.45),(0.75,0.75)}\n[[1,0
 
 ```bash
 printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.33,0.45),(0.75,0.75)}\n[[1,0.75]]' | zsat draw \
-  -s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d all [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
-  -o '(out1, out2, out3) -> (out1, a {(0.75, 0.25)} out2, a {(0,0)} out3)'
+-s 'e0:{pt2d [sh:square, s:15, c: grey]}, e1:{pt2d all [sh:circle, s:25, c:aqua]}, e2:{vec2d [l:5, c: black, d: [40,10] 0]}' \
+-o '(out1, out2, out3) -> (out1, a {(0.75, 0.25)} out2, a {(0,0)} out3)'
 ```
 <img src="fig57.png" width="332" style="border: 2px solid grey;">
 

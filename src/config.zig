@@ -2,6 +2,19 @@ const std = @import("std");
 
 pub const default_namespace = "sleek";
 pub const default_style = "e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}";
+
+// The default --outputs. A vector is a displacement, so anchoring it at the
+// origin gives the plot a meaningful zero. A point (pt2d) is already an
+// absolute position, so anchoring it would displace every point by -centroid
+// and shift the whole cloud off the pane; for points the identity is the
+// sensible default instead. See default_outputs_for.
+pub const default_outputs = "(out) -> (anchor {(0,0)}) out";
+pub const default_outputs_points = "(pt) -> pt";
+
+/// The --outputs default to use for a plot whose styles are all point (pt2d).
+pub fn default_outputs_for(all_points: bool) []const u8 {
+    return if (all_points) default_outputs_points else default_outputs;
+}
 pub const default_content =
     "- " ++ default_namespace ++ "\n" ++
     default_style ++ "\n" ++
