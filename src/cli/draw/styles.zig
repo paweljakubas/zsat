@@ -1485,8 +1485,13 @@ pub fn resolveStyles(arena: std.mem.Allocator, styles: []const Style) ![]Style {
     var map = std.StringHashMap(StyleValue).init(arena);
     defer map.deinit();
 
+    const keys = try arena.alloc([]const u8, styles.len);
+    for (styles, 0..) |style, i| keys[i] = try styleKey(arena, style);
+
     // A base naming a style nothing has defined yet falls back to the defaults,
-    // which is what `e0` starts out as.
+    // which is what `e0` starts out as. A definition collected as `e0` -- from
+    // `use ns` or written inline -- overwrites that as it is resolved, so a
+    // redefinition is what everything after it inherits from.
     try map.put("e0", defaultStyleValue);
 
     var result = try arena.alloc(Style, styles.len);
@@ -1522,7 +1527,7 @@ pub fn resolveStyles(arena: std.mem.Allocator, styles: []const Style) ![]Style {
         if (style.styleValue.plotSteps) |ps| resolved.plotSteps = ps;
 
         result[i].styleValue = resolved;
-        try map.put(try styleKey(arena, result[i]), result[i].styleValue);
+        try map.put(keys[i], result[i].styleValue);
     }
 
     return result;

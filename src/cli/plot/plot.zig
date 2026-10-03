@@ -1112,7 +1112,6 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
                 // Center the label on the tick along its reading direction.
                 // For monospace fonts, char width ≈ font_size * 0.6.
                 const text_width = font_size * 0.6 * @as(f64, @floatFromInt(val_str.len));
-                const x_local = -text_width * 0.5;
                 // The label extends away from the axis on the tick side. With
                 // showText placing the text top at y (glyphs grow downward in
                 // the local frame), above labels sit on the negative local y
@@ -1126,19 +1125,33 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
                 const anchor_x = plot_vx + nx * (tick_ext + spacing);
                 const anchor_y = plot_vy + ny * (tick_ext + spacing);
 
-                // Rotate the label about the middle of its text box and place
-                // that middle exactly on the anchor point. z2d's translate
-                // appends to the CTM (CTM * T), so the sequence below maps the
-                // pivot point to the anchor: point p -> anchor + R*(p - pivot).
+                // Which point of the text box lands on the anchor. The text is
+                // always drawn at local x=0 and only the pivot moves, so the
+                // mapping p -> anchor + R*(p - pivot) picks which edge is
+                // pinned. `center` is the historical behaviour and keeps the
+                // label symmetric about the tick, but a longer number then
+                // grows in both directions and can reach back across the axis
+                // line. `start` pins the leading edge and `end` the trailing
+                // edge, so the near edge stays exactly `spacing` off the axis
+                // whatever the digit count.
+                const pivot_cx = switch (vals.style.alignment) {
+                    .center => text_width * 0.5,
+                    .start => 0.0,
+                    .end => text_width,
+                };
+
+                // Rotate the label about that pivot and place the pivot exactly
+                // on the anchor point. z2d's translate appends to the CTM
+                // (CTM * T), so the sequence below maps the pivot point to the
+                // anchor: point p -> anchor + R*(p - pivot).
                 // showText grows glyphs downward from the box top; for digit
                 // labels the ink middle sits roughly 0.6 * font_size below it.
-                const text_cx = x_local + text_width * 0.5;
                 const text_cy = y_local + font_size * 0.6;
                 const saved_ctm = context.getTransformation();
                 context.translate(anchor_x, anchor_y);
                 context.rotate(axis_angle + angle_offset);
-                context.translate(-text_cx, -text_cy);
-                context.showText(val_str, x_local, y_local) catch {};
+                context.translate(-pivot_cx, -text_cy);
+                context.showText(val_str, 0, y_local) catch {};
                 context.setTransformation(saved_ctm);
             }
         }

@@ -298,6 +298,153 @@ const all_kinds_config_content =
     \\
 ;
 
+/// A namespace imported without an alias, so that its definitions keep their
+/// bare names and a later one can redefine them.
+const bare_import_config_content =
+    \\- base
+    \\e0:{vec2d [l:10, c: blue]}
+    \\t0:{txt "imported"}
+    \\a0:{axis line:[c:blue]}
+    \\p0:{pt2d [sh:square, c: grey]}
+    \\b0:{border [w:5]}
+    \\
+;
+
+test "zsat draw reaches every kind through a namespace imported without an alias" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(bare_import_config_content);
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{
+        zsat_path,
+        "draw",
+        "--out",
+        "/dev/null",
+        "--styles",
+        "use base",
+        "--datum",
+        "(vec) -> (vec -> e0)",
+        "--outputs",
+        "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)",
+        "--panes",
+        "p0:{size: 600x600, border: b0}",
+    };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw lets a definition after an import override it" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(bare_import_config_content);
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{
+        zsat_path,
+        "draw",
+        "--out",
+        "/dev/null",
+        "--debug",
+        "--styles",
+        "use base, e0:{vec2d [l:99, c: red]}, e1: e0{}",
+        "--datum",
+        "(vec) -> (vec -> e1)",
+    };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    // `e1` inherits the redefinition that came before it, not the `e0` that
+    // `use base` brought in.
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "e0:{vec2d xy fixed last [l:99, c: red") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "e1:{vec2d xy fixed last [l:99, c: red") != null);
+}
+
+test "zsat draw names a definition an import already brought in" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(bare_import_config_content);
+    defer fixture.deinit();
+
+    // A bare key after `use ns` is not a new definition but a name for one the
+    // import brought in, which is why it needs no body.
+    const argv = &[_][]const u8{
+        zsat_path,
+        "draw",
+        "--out",
+        "/dev/null",
+        "--styles",
+        "use base, e0, t0, a0",
+        "--datum",
+        "(vec) -> (vec -> e0)",
+        "--outputs",
+        "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)",
+        "--panes",
+        "p0:{size: 600x600, border: b0}",
+    };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw says which definitions a bare key could have named" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(bare_import_config_content);
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use base, e5", "--outputs", "(out) -> (out)" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "'e5' names no definition in --styles. Defined: e0, t0, a0, p0, b0.") != null);
+}
+
+test "zsat draw does not let a bare key reach an aliased definition" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(bare_import_config_content);
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use base as s, s::e0, e0", "--outputs", "(out) -> (out)" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "'e0' names no definition in --styles. Defined: s::e0") != null);
+}
+
+test "zsat draw requires the prefix when a namespace is imported under an alias" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(bare_import_config_content);
+    defer fixture.deinit();
+
+    // Importing without an alias keeps the bare names; importing with one
+    // moves them, so the bare name stops resolving.
+    const argv = &[_][]const u8{
+        zsat_path,
+        "draw",
+        "--out",
+        "/dev/null",
+        "--styles",
+        "use base as s, s::e0, s::p0",
+        "--datum",
+        "(vec) -> (vec -> p0)",
+    };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "--datum draws with style 'p0', which --styles does not define.") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "s::p0") != null);
+}
+
 test "zsat draw names a text and a border from an aliased namespace" {
     defer cleanupOutputFiles();
     const io = std.testing.io;
@@ -1106,7 +1253,8 @@ test "zsat draw with invalid element in mapping" {
     var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[2,1.1]]" });
     defer result.deinit();
 
-    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "invalid element was found"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "--datum draws with style 'e5', which --styles does not define."));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "Defined styles: e0, p0."));
 }
 
 test "zsat draw with invalid data in mapping" {

@@ -14,6 +14,17 @@ pub const TickForm = enum {
     square,
 };
 
+// Where a value label sits relative to the offset anchor that `spacing`
+// places off the axis. `center` pins the label's middle on the anchor, so a
+// longer number grows in both directions. `start`/`end` pin one edge, which
+// keeps the distance from the axis line fixed no matter how many digits the
+// label has.
+pub const TickAlign = enum {
+    center,
+    start,
+    end,
+};
+
 // ---- style structs ----
 
 pub const AxisLineStyle = struct {
@@ -38,6 +49,7 @@ pub const ValueStyle = struct {
     spacing: u16 = 2,
     form: TickForm = .above,
     angle: inputs.Angle = .{ .degrees = 0 },
+    alignment: TickAlign = .center,
 };
 
 /// Parse-time partial representation of a ticks style. Fields are null when
@@ -59,6 +71,7 @@ const PartialValueStyle = struct {
     spacing: ?u16 = null,
     form: ?TickForm = null,
     angle: ?inputs.Angle = null,
+    alignment: ?TickAlign = null,
 };
 
 pub const TickDefinition = struct {
@@ -461,6 +474,7 @@ const ValueAttribute = union(enum) {
     spacing: u16,
     form: TickForm,
     angle: inputs.Angle,
+    alignment: TickAlign,
 };
 
 const valueColorParserRaw = mecha.combine(.{
@@ -554,6 +568,51 @@ const valueAngleUnionParser = valueAngleParserRaw.convert(struct {
     }
 }.conv);
 
+const TickAlignT = enum {
+    center,
+    c,
+    start,
+    s,
+    end,
+    e,
+};
+
+fn toTickAlign(_: std.mem.Allocator, res: []const u8) mecha.ConvertError!TickAlign {
+    if (std.meta.stringToEnum(TickAlignT, res)) |validA| {
+        return switch (validA) {
+            .center => .center,
+            .c => .center,
+            .start => .start,
+            .s => .start,
+            .end => .end,
+            .e => .end,
+        };
+    }
+    return error.ConversionFailed;
+}
+
+const tickAlignParser = mecha.oneOf(.{
+    mecha.string("center"),
+    mecha.string("c"),
+    mecha.string("start"),
+    mecha.string("s"),
+    mecha.string("end"),
+    mecha.string("e"),
+}).convert(toTickAlign);
+
+const valueAlignParserRaw = mecha.combine(.{
+    mecha.oneOf(.{ mecha.string("align"), mecha.string("al") }).discard(),
+    common.skipWhitespace,
+    mecha.ascii.char(':').discard(),
+    common.skipWhitespace,
+    tickAlignParser,
+});
+const valueAlignUnionParser = valueAlignParserRaw.convert(struct {
+    fn conv(_: std.mem.Allocator, res: TickAlign) mecha.ConvertError!ValueAttribute {
+        return ValueAttribute{ .alignment = res };
+    }
+}.conv);
+
 const valueAttributeUnionParser = mecha.oneOf(.{
     valueColorUnionParser,
     valueOpacityUnionParser,
@@ -562,6 +621,7 @@ const valueAttributeUnionParser = mecha.oneOf(.{
     valueSpacingUnionParser,
     valueFormUnionParser,
     valueAngleUnionParser,
+    valueAlignUnionParser,
 });
 
 const manyValueAttributeUnionParser = mecha.many(valueAttributeUnionParser, .{ .collect = true, .min = 1, .separator = common.skipComma });
@@ -576,6 +636,7 @@ fn manyToPartialValueStyle(_: std.mem.Allocator, fields: []ValueAttribute) mecha
         .spacing => |v| res.spacing = v,
         .form => |v| res.form = v,
         .angle => |v| res.angle = v,
+        .alignment => |v| res.alignment = v,
     };
     return res;
 }
@@ -597,6 +658,37 @@ test "valueAttributesParser" {
 
     const r2 = try valueAttributesParser.parse(a, "a:1r4p");
     try testing.expectEqual(inputs.Angle{ .radians = 0.25 * inputs.pi }, r2.value.ok.angle.?);
+
+    const r3 = try valueAttributesParser.parse(a, "al:start");
+    try testing.expectEqual(TickAlign.start, r3.value.ok.alignment.?);
+    try testing.expectEqual(TickAlign.end, (try valueAttributesParser.parse(a, "align:end")).value.ok.alignment.?);
+    try testing.expectEqual(TickAlign.center, (try valueAttributesParser.parse(a, "al:c")).value.ok.alignment.?);
+    try testing.expectEqual(TickAlign.start, (try valueAttributesParser.parse(a, "al:s")).value.ok.alignment.?);
+    try testing.expectEqual(TickAlign.end, (try valueAttributesParser.parse(a, "al:e")).value.ok.alignment.?);
+
+    // Unspecified stays null so a base axis can supply it; the `center`
+    // default is applied later, when the style resolves into a ValueStyle.
+    try testing.expect((try valueAttributesParser.parse(a, "c:red")).value.ok.alignment == null);
+}
+
+test "tickAlignParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    try testing.expectEqual(TickAlign.center, (try tickAlignParser.parse(a, "center")).value.ok);
+    try testing.expectEqual(TickAlign.start, (try tickAlignParser.parse(a, "start")).value.ok);
+    try testing.expectEqual(TickAlign.end, (try tickAlignParser.parse(a, "end")).value.ok);
+    try testing.expectEqual(TickAlign.center, (try tickAlignParser.parse(a, "c")).value.ok);
+    try testing.expectEqual(TickAlign.start, (try tickAlignParser.parse(a, "s")).value.ok);
+    try testing.expectEqual(TickAlign.end, (try tickAlignParser.parse(a, "e")).value.ok);
+
+    // Only the documented names and their one-letter forms convert; anything
+    // else fails. Note `al:sideways` still prefix-matches the `s` abbreviation
+    // and yields `start`, which is harmless because the enclosing style parser
+    // requires the whole attribute body to be consumed, so the caller is what
+    // ultimately rejects an unknown name.
+    try testing.expect((try tickAlignParser.parse(a, "zzz")).value == .err);
 }
 
 // ---- import text parser for font value ----
@@ -848,14 +940,17 @@ pub const axisItemParser = axisItemRefNameParser.convert(struct {
 // ---- resolve axes (inheritance) and overlays ----
 
 threadlocal var baseErrorDetail: ?[]const u8 = null;
-
 /// The names of the axes resolved so far, for the error message.
 fn definedAxisNames(arena: std.mem.Allocator, map: std.StringHashMap(Axis)) ![]const u8 {
     if (map.count() == 0) return "none";
     var names: std.ArrayList([]const u8) = .empty;
     var it = map.keyIterator();
     while (it.next()) |name| try names.append(arena, name.*);
-    return std.mem.join(arena, ", ", names.items);
+    return joinNames(arena, names.items);
+}
+
+fn joinNames(arena: std.mem.Allocator, names: []const []const u8) ![]const u8 {
+    return std.mem.join(arena, ", ", names);
 }
 
 /// Explains the last `error.AxisBaseInvalid`, naming the base that was looked
@@ -910,6 +1005,7 @@ pub fn resolveAxes(arena: std.mem.Allocator, defs: []const AxisDefinition) ![]Re
                 if (s.spacing) |sp| values.style.spacing = sp;
                 if (s.form) |fo| values.style.form = fo;
                 if (s.angle) |an| values.style.angle = an;
+                if (s.alignment) |al| values.style.alignment = al;
             }
             resolved.values = values;
         }
@@ -1043,6 +1139,30 @@ test "resolveAxes style overrides merge field by field" {
     try testing.expectEqual(@as(u16, 5), ts.size);
     try testing.expectEqual(@as(u16, 12), ts.height);
     try testing.expectEqual(TickForm.above, ts.form);
+}
+
+test "resolveAxes value alignment defaults to center and is inheritable" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try axisDefParser.parse(a, "a1: {axis values:[vals:0,1, style:[a:-90]]}");
+    try testing.expectEqual(TickAlign.center, (try resolveAxes(a, &[_]AxisDefinition{r1.value.ok}))[0].axis.values.?.style.alignment);
+
+    const r2 = try axisDefParser.parse(a, "a2: {axis values:[vals:0,1, style:[al:start]]}");
+    try testing.expectEqual(TickAlign.start, (try resolveAxes(a, &[_]AxisDefinition{r2.value.ok}))[0].axis.values.?.style.alignment);
+
+    // A derived axis keeps the base's alignment when it only overrides other fields.
+    const r3 = try axisDefParser.parse(a, "a3: a2 {values:[vals:0,1, style:[f:below]]}");
+    const defs = [_]AxisDefinition{ r2.value.ok, r3.value.ok };
+    const resolved = try resolveAxes(a, &defs);
+    try testing.expectEqual(TickAlign.start, resolved[1].axis.values.?.style.alignment);
+    try testing.expectEqual(TickForm.below, resolved[1].axis.values.?.style.form);
+
+    // ...and can override it back.
+    const r4 = try axisDefParser.parse(a, "a4: a2 {values:[vals:0,1, style:[al:end]]}");
+    const defs2 = [_]AxisDefinition{ r2.value.ok, r4.value.ok };
+    try testing.expectEqual(TickAlign.end, (try resolveAxes(a, &defs2))[1].axis.values.?.style.alignment);
 }
 
 test "resolveAxes undefined base is an error" {

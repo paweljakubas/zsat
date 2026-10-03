@@ -218,8 +218,8 @@ pub fn validateConnection(arena: std.mem.Allocator, numberOfDatum: u8, elements:
     const outArr = try arena.alloc(DataElementMapping, numberOfDatum);
     for (0..numberOfDatum) |i| {
         const theTarget = connection.mappingPairs[i % connection.mappingPairs.len];
-        const elemIx = try indexOfPos(ConnectionValidationCheck.elementCheck, elements, theTarget.elementName);
-        _ = try indexOfPos(ConnectionValidationCheck.inputCheck, srcArr, theTarget.dataName);
+        const elemIx = try indexOfPos(arena, ConnectionValidationCheck.elementCheck, elements, theTarget.elementName);
+        _ = try indexOfPos(arena, ConnectionValidationCheck.inputCheck, srcArr, theTarget.dataName);
         outArr[i] = DataElementMapping{ .index = @intCast(i), .from = i, .to = elemIx };
     }
 
@@ -288,7 +288,17 @@ const ConnectionValidationCheck = enum {
     inputCheck,
 };
 
-fn indexOfPos(check: ConnectionValidationCheck, vec: []const []const u8, elem: []const u8) !usize {
+threadlocal var elementErrorDetail: ?[]const u8 = null;
+
+/// Explains the last `error.ElementInMappingInvalid`, naming the style the
+/// `--datum` mapping asked for and the styles `--styles` collected. A name that
+/// moved because of `use ns as p` is worth spelling out here, since that is the
+/// usual reason for it not being found.
+pub fn elementMappingErrorDetail() ?[]const u8 {
+    return elementErrorDetail;
+}
+
+fn indexOfPos(arena: std.mem.Allocator, check: ConnectionValidationCheck, vec: []const []const u8, elem: []const u8) !usize {
     for (vec, 0..) |vecElem, ix| {
         const cmp = std.mem.eql(u8, vecElem, elem);
         if (cmp) {
@@ -296,7 +306,13 @@ fn indexOfPos(check: ConnectionValidationCheck, vec: []const []const u8, elem: [
         }
     }
     const err = switch (check) {
-        .elementCheck => DataElementError.ElementInMappingInvalid,
+        .elementCheck => blk: {
+            elementErrorDetail = if (vec.len == 0)
+                try std.fmt.allocPrint(arena, "Error: --datum draws with style '{s}', but --styles defines no style to draw with.", .{elem})
+            else
+                try std.fmt.allocPrint(arena, "Error: --datum draws with style '{s}', which --styles does not define. Defined styles: {s}.", .{ elem, try std.mem.join(arena, ", ", vec) });
+            break :blk DataElementError.ElementInMappingInvalid;
+        },
         .inputCheck => DataElementError.DataInMappingInvalid,
     };
     return err;

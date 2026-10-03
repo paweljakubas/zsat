@@ -14,6 +14,7 @@ const Panes = @import("draw/panes.zig");
 const Border = @import("draw/border.zig");
 const Text = @import("draw/text.zig");
 const Axis = @import("draw/axis.zig");
+const common = @import("draw/common.zig");
 const config = @import("config");
 
 const Plot = @import("plot");
@@ -382,6 +383,48 @@ fn reportMissingDefinition(alloc: std.mem.Allocator, missing: []const u8, namesp
     return error.StyleReferenceNotFound;
 }
 
+threadlocal var stylesErrorDetail: ?[]const u8 = null;
+
+/// The bare key a `--styles` item spells on its own, e.g. the `e0` of
+/// `use sleek, e0`. A namespace-qualified name, an inline definition, or
+/// anything that is not a definition name is not one, so this says nothing
+/// about those and the caller falls through to its own handling.
+fn bareDefinitionKey(arena: std.mem.Allocator, part: []const u8) ?[]const u8 {
+    const item = std.mem.trim(u8, part, " \t");
+    // A qualifier belongs to the `ns::key` form, which is handled elsewhere and
+    // must keep its namespace to be found.
+    if (item.len == 0 or std.mem.indexOf(u8, item, "::") != null) return null;
+    return matchBareKey(arena, common.lineStyleRefParser, item) orelse
+        matchBareKey(arena, common.pointStyleRefParser, item) orelse
+        matchBareKey(arena, common.textRefParser, item) orelse
+        matchBareKey(arena, common.borderRefParser, item) orelse
+        matchBareKey(arena, common.axisRefParser, item);
+}
+
+/// `anytype` because the five reference parsers are five unrelated types; what
+/// they have in common is that each turns its own letter into a bare key.
+fn matchBareKey(arena: std.mem.Allocator, parser: anytype, item: []const u8) ?[]const u8 {
+    const r = parser.parse(arena, item) catch return null;
+    if (r.index != item.len) return null;
+    return switch (r.value) {
+        .ok => |name| name,
+        .err => null,
+    };
+}
+
+/// Explains a `--styles` key that no definition answers to, listing the names
+/// that would. An aliased import is the usual reason: the definition is there,
+/// but under its prefix.
+fn reportUnnamedDefinition(alloc: std.mem.Allocator, key: []const u8, definitions: []const RawDefinition) error{OutOfMemory}!void {
+    if (definitions.len == 0) {
+        stylesErrorDetail = try std.fmt.allocPrint(alloc, "Error: '{s}' names no definition. Define it, e.g. '{s}:{{...}}', or bring a namespace in with 'use ns' first.", .{ key, key });
+        return;
+    }
+    var names: std.ArrayList([]const u8) = .empty;
+    for (definitions) |definition| try names.append(alloc, definition.name);
+    stylesErrorDetail = try std.fmt.allocPrint(alloc, "Error: '{s}' names no definition in --styles. Defined: {s}.", .{ key, try std.mem.join(alloc, ", ", names.items) });
+}
+
 fn findRawDefinition(definitions: []const RawDefinition, name: []const u8) ?[]const u8 {
     for (definitions) |definition| {
         if (std.mem.eql(u8, definition.name, name)) return definition.text;
@@ -489,9 +532,24 @@ fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store
     }
 
     for (inline_parts.items) |part| {
-        const name = config.definitionName(part) orelse return error.ParseStylesFailed;
-        try upsertRawDefinition(alloc, &definitions, name, part);
-        try named.append(alloc, name);
+        if (config.definitionName(part)) |name| {
+            try upsertRawDefinition(alloc, &definitions, name, part);
+            try named.append(alloc, name);
+            continue;
+        }
+        // A bare key after a `use ns` names a definition the import already
+        // brought in rather than defining one, and says that the implicit
+        // --datum association should reach for it. `use sleek, e0, a0` is
+        // therefore sleek's `e0` and `a0`, not two new definitions.
+        if (bareDefinitionKey(alloc, part)) |key| {
+            if (findRawDefinition(definitions.items, key) != null) {
+                try named.append(alloc, key);
+                continue;
+            }
+            try reportUnnamedDefinition(alloc, key, definitions.items);
+            return error.ParseStylesFailed;
+        }
+        return error.ParseStylesFailed;
     }
 
     return CollectedStyles{
@@ -1052,19 +1110,22 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
     }
 
     // Validate pane border references
-    for (panes) |pane| {
-        if (pane.paneValue.border == .ref) {
-            const name = pane.paneValue.border.ref;
-            var found = false;
-            for (borders) |bdef| {
-                if (std.mem.eql(u8, bdef.name, name)) {
-                    found = true;
-                    break;
+    {
+        const border_names = try namesOf(alloc, Border.BorderDefinition, borders, "name");
+        for (panes) |pane| {
+            if (pane.paneValue.border == .ref) {
+                const name = pane.paneValue.border.ref;
+                var found = false;
+                for (borders) |bdef| {
+                    if (std.mem.eql(u8, bdef.name, name)) {
+                        found = true;
+                        break;
+                    }
                 }
-            }
-            if (!found) {
-                try reportUnknownReference(alloc, "border", name, try namesOf(alloc, Border.BorderDefinition, borders, "name"));
-                return error.BorderReferenceInvalid;
+                if (!found) {
+                    try reportUnknownReference(alloc, "border", name, border_names);
+                    return error.BorderReferenceInvalid;
+                }
             }
         }
     }
@@ -1374,7 +1435,7 @@ fn getNextOutputFilename(alloc: std.mem.Allocator, io: std.Io) ![]u8 {
 fn friendlyErrorMessage(err: anyerror) []const u8 {
     return switch (err) {
         error.ParseInputsFailed => "Error: failed to parse input data. Please check your input format.",
-        error.ParseStylesFailed => "Error: failed to parse styles. Please check your --styles argument.",
+        error.ParseStylesFailed => stylesErrorDetail orelse "Error: failed to parse styles. Please check your --styles argument.",
         error.SaveTargetNotFound => saveErrorDetail orelse "Error: the key given to --save is not defined in --styles.",
         error.KeyAlreadyExists => saveErrorDetail orelse "Error: the key given to --save already exists in the target namespace. Use --overwrite to replace it.",
         error.HomeDirectoryMissing => saveErrorDetail orelse "Error: could not locate the home directory.",
@@ -1384,7 +1445,7 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
         error.ParseOutputsFailed => "Error: failed to parse outputs. Please check your --outputs argument.",
         error.ParsePanesFailed => "Error: failed to parse panes. Please check your --panes argument.",
         error.ParseFramesFailed => "Error: failed to parse frames. Please check your --frames argument.",
-        error.ElementInMappingInvalid => "Error: an invalid element was found in the datum mapping.",
+        error.ElementInMappingInvalid => Datum.elementMappingErrorDetail() orelse "Error: an invalid element was found in the datum mapping.",
         error.DataInMappingInvalid => "Error: invalid data type in the datum mapping.",
         error.WrongNumberOfOutputs => "Error: the number of outputs does not match the expected count.",
         error.ArgumentInPairInvalid => "Error: invalid argument in output transformation pair.",
