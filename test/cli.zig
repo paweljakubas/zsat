@@ -286,6 +286,147 @@ test "zsat draw with use namespace directive with alias" {
     try testing.expect(std.mem.indexOf(u8, result.stdout, "s::p1:{pt2d") != null);
 }
 
+/// A namespace holding one definition of every kind, so that the alias can be
+/// exercised for text, border and axis as well as for styles.
+const all_kinds_config_content =
+    \\- all
+    \\e0:{vec2d}
+    \\p0:{pt2d [sh:square, c: grey]}
+    \\t0:{txt "aliased" [c:red]}
+    \\a0:{axis}
+    \\b0:{border [w:5]}
+    \\
+;
+
+test "zsat draw names a text and a border from an aliased namespace" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(all_kinds_config_content);
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{
+        zsat_path,
+        "draw",
+        "--out",
+        "/dev/null",
+        "--styles",
+        "use all as s, s::e0, s::t0, s::b0",
+        "--datum",
+        "(vec) -> (vec -> s::e0)",
+        "--outputs",
+        "(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) s::t0)",
+        "--panes",
+        "p0:{size: 600x600, border: s::b0}",
+    };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw names an axis from an aliased namespace" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(all_kinds_config_content);
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{
+        zsat_path,
+        "draw",
+        "--out",
+        "/dev/null",
+        "--styles",
+        "use all as s, s::e0, s::a0",
+        "--datum",
+        "(vec) -> (vec -> s::e0)",
+        "--outputs",
+        "(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} s::a0)",
+    };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw inherits an axis from an aliased namespace" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(all_kinds_config_content);
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{
+        zsat_path,
+        "draw",
+        "--out",
+        "/dev/null",
+        "--styles",
+        "use all as s, s::e0, s::a0, a1: s::a0{ticks:[pos:0,0.1,..,1.1]}",
+        "--datum",
+        "(vec) -> (vec -> s::e0)",
+        "--outputs",
+        "(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a1)",
+    };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw inherits line and point styles from an aliased namespace" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(all_kinds_config_content);
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{
+        zsat_path,
+        "draw",
+        "--out",
+        "/dev/null",
+        "--debug",
+        "--styles",
+        "use all as s, e1: s::e0{[c: red]}, p1: s::p0{[s: 4]}",
+        "--datum",
+        "(vec) -> (vec -> e1)",
+    };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    // `e1` keeps the line width of its base and only overrides the colour,
+    // `p1` keeps the shape and colour of its base and only overrides the size.
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "e1:{vec2d xy fixed last [l:10, c: red") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "p1:{pt2d xy fixed last [sh:square, s:4, c: grey") != null);
+}
+
+test "zsat draw reports the collected name when a bare name is used through an alias" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(all_kinds_config_content);
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use all as s, s::b0", "--panes", "p0:{size: 600x600, border: b0}" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "border 'b0' is not defined in --styles. Defined border: s::b0.") != null);
+}
+
+test "zsat draw reports the collected axis name when a bare name is used through an alias" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(all_kinds_config_content);
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "use all as s, s::a0", "--outputs", "(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a0)" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "axis 'a0' is not defined in --styles. Defined axis: s::a0.") != null);
+}
+
 test "zsat draw with use of unknown namespace" {
     defer cleanupOutputFiles();
     const io = std.testing.io;

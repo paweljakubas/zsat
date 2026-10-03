@@ -91,10 +91,12 @@ const PartialValue = struct {
 };
 
 /// Parse-time partial representation of an axis definition. `base` references
-/// another axis (aM) whose resolved style is used as a starting point, and the
-/// fields present in the body override it following the style update rules.
+/// another axis by the name it is known under (`aM`, or `ns::aM` when it came
+/// from a namespace import) whose resolved style is used as a starting point,
+/// and the fields present in the body override it following the style update
+/// rules.
 const PartialAxis = struct {
-    base: ?u8 = null,
+    base: ?[]const u8 = null,
     line: ?AxisLineStyle = null,
     ticks: ?PartialTick = null,
     values: ?PartialValue = null,
@@ -805,7 +807,7 @@ const axisDefParserRaw = mecha.combine(.{
     axisDefNumberParser,
     mecha.opt(mecha.ascii.char(':').discard()),
     common.skipWhitespace,
-    mecha.opt(axisDefNumberParser),
+    mecha.opt(common.axisRefParser),
     common.skipWhitespace,
     mecha.opt(axisDefBodySectionParser),
 });
@@ -831,37 +833,56 @@ pub const axisDefParser = axisDefParserRaw.convert(toAxisDef);
 
 // ---- item parser for outputs: a0 ----
 
-const axisItemNumberParser = mecha.combine(.{
+const axisItemRefNameParser = mecha.combine(.{
     common.skipWhitespace,
-    mecha.ascii.char('a').discard(),
-    mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 2 }).asStr().convert(mecha.toInt(u8, 10)),
+    common.axisRefParser,
 });
-const axisItemNumberParserP = @TypeOf(axisItemNumberParser);
+const axisItemRefNameParserP = @TypeOf(axisItemRefNameParser);
 
-pub const axisItemParser = axisItemNumberParser.convert(struct {
-    fn conv(arena: std.mem.Allocator, res: axisItemNumberParserP.T) mecha.ConvertError!AxisItem {
-        const name = try std.fmt.allocPrint(arena, "a{d}", .{res});
-        return AxisItem{ .name = name };
+pub const axisItemParser = axisItemRefNameParser.convert(struct {
+    fn conv(_: std.mem.Allocator, res: axisItemRefNameParserP.T) mecha.ConvertError!AxisItem {
+        return AxisItem{ .name = res };
     }
 }.conv);
 
 // ---- resolve axes (inheritance) and overlays ----
 
+threadlocal var baseErrorDetail: ?[]const u8 = null;
+
+/// The names of the axes resolved so far, for the error message.
+fn definedAxisNames(arena: std.mem.Allocator, map: std.StringHashMap(Axis)) ![]const u8 {
+    if (map.count() == 0) return "none";
+    var names: std.ArrayList([]const u8) = .empty;
+    var it = map.keyIterator();
+    while (it.next()) |name| try names.append(arena, name.*);
+    return std.mem.join(arena, ", ", names.items);
+}
+
+/// Explains the last `error.AxisBaseInvalid`, naming the base that was looked
+/// for and the axes --styles actually defines. An axis is known by exactly the
+/// name it was collected under, so `sleek::a0` is not `a0` unless it was
+/// imported under that name.
+pub fn axisBaseErrorDetail() ?[]const u8 {
+    return baseErrorDetail;
+}
+
 /// Resolves a list of axis definitions into concrete styles, following the
 /// style update rules: each definition starts from its base axis (or the
 /// defaults when no base is given) and the fields written in its body override
-/// the corresponding inherited values. A base must be defined before it is
-/// referenced.
+/// the corresponding inherited values. A base is named the way the definition
+/// it refers to is known -- `aM`, or `ns::aM` when that came from a namespace
+/// import -- and must be defined before it is referenced.
 pub fn resolveAxes(arena: std.mem.Allocator, defs: []const AxisDefinition) ![]ResolvedAxis {
-    var map = std.AutoHashMap(u8, Axis).init(arena);
+    var map = std.StringHashMap(Axis).init(arena);
     defer map.deinit();
 
     var result = try arena.alloc(ResolvedAxis, defs.len);
     for (defs, 0..) |def, i| {
-        var resolved: Axis = if (def.axis.base) |base|
-            map.get(base) orelse return error.AxisBaseInvalid
-        else
-            Axis{};
+        var resolved: Axis = if (def.axis.base) |base| blk: {
+            if (map.get(base)) |found| break :blk found;
+            baseErrorDetail = try std.fmt.allocPrint(arena, "Error: base axis '{s}' of '{s}' is not defined in --styles. Defined axes: {s}.", .{ base, def.name, try definedAxisNames(arena, map) });
+            return error.AxisBaseInvalid;
+        } else Axis{};
 
         if (def.axis.line) |l| resolved.line = l;
 
@@ -894,7 +915,7 @@ pub fn resolveAxes(arena: std.mem.Allocator, defs: []const AxisDefinition) ![]Re
         }
 
         result[i] = ResolvedAxis{ .name = def.name, .axis = resolved };
-        try map.put(def.number, resolved);
+        try map.put(def.name, resolved);
     }
     return result;
 }
@@ -1033,4 +1054,43 @@ test "resolveAxes undefined base is an error" {
 
     const defs = [_]AxisDefinition{r1.value.ok};
     try testing.expectError(error.AxisBaseInvalid, resolveAxes(a, &defs));
+}
+
+test "resolveAxes follows a namespaced base name" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try axisDefParser.parse(a, "a1: {axis line:[c:grey], ticks:[pos:0,0.5,..,2]}");
+    const r2 = try axisDefParser.parse(a, "a2: s::a1 {values:[vals:1,2,3]}");
+
+    // A definition head is always bare; the name it is known by is stamped on
+    // afterwards, which is what makes it `s::a1` rather than `a1` here.
+    var base = r1.value.ok;
+    base.name = "s::a1";
+    const defs = [_]AxisDefinition{ base, r2.value.ok };
+    const resolved = try resolveAxes(a, &defs);
+
+    // The base is looked up under its collected name, `s::a1`, and everything
+    // the child does not mention is inherited from it.
+    try testing.expectEqualStrings("a2", resolved[1].name);
+    try testing.expectEqual(common.ColorName.grey, resolved[1].axis.line.color);
+    try testing.expectEqual(@as(usize, 5), resolved[1].axis.ticks.?.positions.len);
+    try testing.expectEqualSlices(f32, &.{ 1, 2, 3 }, resolved[1].axis.values.?.vals);
+}
+
+test "resolveAxes names the base and the axes it could have used" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try axisDefParser.parse(a, "a1: {axis line:[c:grey]}");
+    const r2 = try axisDefParser.parse(a, "a2: a1 {line:[c:red]}");
+
+    var base = r1.value.ok;
+    base.name = "s::a1";
+    const defs = [_]AxisDefinition{ base, r2.value.ok };
+    try testing.expectError(error.AxisBaseInvalid, resolveAxes(a, &defs));
+    try testing.expect(std.mem.indexOf(u8, axisBaseErrorDetail().?, "base axis 'a1' of 'a2'") != null);
+    try testing.expect(std.mem.indexOf(u8, axisBaseErrorDetail().?, "Defined axes: s::a1.") != null);
 }

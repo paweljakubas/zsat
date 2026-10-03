@@ -292,6 +292,26 @@ fn findImportAlias(imports: []const ImportDirective, namespace: []const u8) ?Imp
 threadlocal var namespaceErrorDetail: ?[]const u8 = null;
 threadlocal var definitionErrorDetail: ?[]const u8 = null;
 threadlocal var saveErrorDetail: ?[]const u8 = null;
+threadlocal var referenceErrorDetail: ?[]const u8 = null;
+
+/// Reports which definitions of a kind `--styles` actually offers, so that a
+/// reference written the wrong way round says so. A definition is known by
+/// exactly the name it was collected under: `use ns` and `ns::key` collect under
+/// the bare name, `use ns as p` collects under `p::key`.
+fn reportUnknownReference(alloc: std.mem.Allocator, kind: []const u8, missing: []const u8, names: []const []const u8) error{OutOfMemory}!void {
+    if (names.len == 0) {
+        referenceErrorDetail = try std.fmt.allocPrint(alloc, "Error: {s} '{s}' is not defined in --styles. No {s} was defined.", .{ kind, missing, kind });
+        return;
+    }
+    const joined = try std.mem.join(alloc, ", ", names);
+    referenceErrorDetail = try std.fmt.allocPrint(alloc, "Error: {s} '{s}' is not defined in --styles. Defined {s}: {s}.", .{ kind, missing, kind, joined });
+}
+
+fn namesOf(alloc: std.mem.Allocator, comptime T: type, defs: []const T, comptime field: []const u8) ![][]const u8 {
+    const names = try alloc.alloc([]const u8, defs.len);
+    for (defs, 0..) |def, i| names[i] = @field(def, field);
+    return names;
+}
 
 fn availableNamespaces(alloc: std.mem.Allocator, store: ?*const config.Store, default_store: *const config.Store) ![][]const u8 {
     const source: *const config.Store = if (store) |loaded| blk: {
@@ -813,9 +833,26 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
                 try styles_list.append(alloc, .{ .styleNumber = p.styleNumber, .styleValue = p.styleValue, .name = definition.name });
                 try style_names.append(alloc, definition.name);
             },
-            .border => |b| try borders_list.append(alloc, b),
-            .text => |t| try texts_list.append(alloc, t),
-            .axis => |a| try axes_list.append(alloc, a),
+            .border => |b| {
+                // Styles, texts, borders and axes are all known by the name
+                // they were collected under, which is what a `use ns as p`
+                // prefix renames. Referencing one therefore means spelling that
+                // name, and the number in the definition text is only what the
+                // parser could recover on its own.
+                var named_border = b;
+                named_border.name = definition.name;
+                try borders_list.append(alloc, named_border);
+            },
+            .text => |t| {
+                var named_text = t;
+                named_text.name = definition.name;
+                try texts_list.append(alloc, named_text);
+            },
+            .axis => |a| {
+                var named_axis = a;
+                named_axis.name = definition.name;
+                try axes_list.append(alloc, named_axis);
+            },
         }
     }
 
@@ -929,6 +966,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
                     try text_overlays_list.append(alloc, overlay);
                 }
             } else {
+                try reportUnknownReference(alloc, "text", tout.item.name, try namesOf(alloc, Text.TextDefinition, texts, "name"));
                 return error.TextReferenceInvalid;
             }
         }
@@ -943,6 +981,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
             if (try Axis.resolveAxisOverlay(alloc, aout.item, resolved_axes, aout.from, aout.to)) |overlay| {
                 try axis_overlays_list.append(alloc, overlay);
             } else {
+                try reportUnknownReference(alloc, "axis", aout.item.name, try namesOf(alloc, Axis.AxisDefinition, axes, "name"));
                 return error.AxisReferenceInvalid;
             }
         }
@@ -1024,6 +1063,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
                 }
             }
             if (!found) {
+                try reportUnknownReference(alloc, "border", name, try namesOf(alloc, Border.BorderDefinition, borders, "name"));
                 return error.BorderReferenceInvalid;
             }
         }
@@ -1349,11 +1389,11 @@ fn friendlyErrorMessage(err: anyerror) []const u8 {
         error.WrongNumberOfOutputs => "Error: the number of outputs does not match the expected count.",
         error.ArgumentInPairInvalid => "Error: invalid argument in output transformation pair.",
         error.PaneInMappingInvalid => "Error: an invalid pane was referenced in the frames mapping.",
-        error.BorderReferenceInvalid => "Error: a pane references a border that was not defined in --styles.",
-        error.TextReferenceInvalid => "Error: an output references a text object that was not defined in --styles.",
+        error.BorderReferenceInvalid => referenceErrorDetail orelse "Error: a pane references a border that was not defined in --styles.",
+        error.TextReferenceInvalid => referenceErrorDetail orelse "Error: an output references a text object that was not defined in --styles.",
         error.TextHoleCountMismatch => Text.textHoleErrorDetail() orelse "Error: the number of values given for a text object in --outputs does not match the number of '{}' holes in the value defined for it in --styles.",
-        error.AxisBaseInvalid => "Error: an axis definition references a base axis that is not defined in --styles (the base must be declared before the axis that inherits from it).",
-        error.AxisReferenceInvalid => "Error: an output references an axis object that was not defined in --styles.",
+        error.AxisBaseInvalid => Axis.axisBaseErrorDetail() orelse "Error: an axis definition references a base axis that is not defined in --styles (the base must be declared before the axis that inherits from it).",
+        error.AxisReferenceInvalid => referenceErrorDetail orelse "Error: an output references an axis object that was not defined in --styles.",
         error.PointScaleNotSupported => "Error: the 'scale' output transformation does not make sense for point (pt2d) output. Remove 'scale' from your --outputs argument.",
         error.PointOrthogonalNotSupported => "Error: the 'orthogonal' output transformation does not make sense for point (pt2d) output. Remove 'orthogonal' from your --outputs argument.",
         else => "Error: an unexpected error occurred.",

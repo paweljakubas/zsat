@@ -972,6 +972,38 @@ printf '{(0,0), (1,0), (0,1), (1,1)}\n{(0.3,0.3),(0.33,0.45),(0.75,0.75)}\n[[1,0
 
 ## Persistent styles
 
+When installing `zsat` for the first time one probably noticed that in te **$HOME/.config/** directory **zsat** directory along with **zsat.conf** file have been created.
+The config file is
+
+```bash
+cat $HOME/.config/zsat/zsat.conf
+- sleek
+e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}
+t0: {txt "txt" [c:red, s:20]}
+a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o:80, s:5, h:12, f:above]], values:[vals:0,1,2,3, style:[c:black, o:80, s:25, sp:4, f:above]]}
+p0:{pt2d [sh:square, s:15, c: grey]}
+b0: {border [w:25, c:lightgrey]}
+```
+and contains some predefined styles defined as `key:value` and gather in namespace `sleek`.
+One can use them without defining oneself in commands, also create their own ones for further reuse. As we can see it saves precious time and persist the styles the user founds especially universal, useful and worth repreating.
+
+```bash
+echo '[[1,1]]' | zsat draw \
+-s 'use sleek, sleek::e0, sleek::a0' \
+-o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a0)'
+```
+<img src="fig59.png" width="332" style="border: 2px solid grey;">
+
+We reused axis and line style as they are defined in `zsat.conf`, but we can reuse them and work on top of them plus we can omit using `sleek` namespace by adding alias.
+
+```bash
+echo '[[1,1]]' | zsat draw \
+-s 'use sleek as s, s::e0, s::b0, a1: s::a0{ticks:[pos:0,0.1,..,1.1],values:[vals:0,0.25,0.5,0.75,1.0]}' \
+-o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a1)' \
+-p 'p0:{size: 600x600, border: s::b0}'
+```
+<img src="fig60.png" width="332" style="border: 2px solid grey;">
+
 ## Exploring the tool through help
 
 `zsat` provides built-in documentation through subcommands. Instead of remembering every detail, you can query the tool directly.

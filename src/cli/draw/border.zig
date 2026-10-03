@@ -10,6 +10,10 @@ pub const Border = struct {
 };
 
 pub const BorderDefinition = struct {
+    /// The `bN` the definition was written as, kept alongside `name` because
+    /// that is the name --styles collected it under, which a namespace alias
+    /// prefixes, whereas a definition is always written with the bare one.
+    number: u8,
     name: []const u8,
     w: Border,
 };
@@ -212,7 +216,7 @@ fn toBorderDef(arena: std.mem.Allocator, res: borderDefParserRawP.T) mecha.Conve
     const number = res[0];
     const border_val = res[2];
     const name = try std.fmt.allocPrint(arena, "b{d}", .{number});
-    return BorderDefinition{ .name = name, .w = border_val };
+    return BorderDefinition{ .number = number, .name = name, .w = border_val };
 }
 pub const borderDefParser = borderDefParserRaw.convert(toBorderDef);
 
@@ -262,17 +266,15 @@ test "paneBorderInlineParser" {
     try testing.expectEqual(Border{ .width = 15, .opacity = 100, .color = .black }, r2.value.ok);
 }
 
-// Parser for pane border reference: "border: b0" (returns []const u8)
+// Parser for pane border reference: "border: b0" or "border: ns::b0" (returns
+// the name the definition is known by)
 pub const paneBorderRefParser = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{ mecha.string("border"), mecha.string("b") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
-    mecha.combine(.{
-        mecha.ascii.char('b'),
-        mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1 }),
-    }).asStr(),
+    common.borderRefParser,
 }).convert(struct {
     fn conv(_: std.mem.Allocator, res: []const u8) mecha.ConvertError![]const u8 {
         return res;
@@ -289,4 +291,7 @@ test "paneBorderRefParser" {
 
     const r2 = try paneBorderRefParser.parse(a, "b: b12");
     try testing.expectEqualStrings("b12", r2.value.ok);
+
+    const r3 = try paneBorderRefParser.parse(a, "border: sleek::b3");
+    try testing.expectEqualStrings("sleek::b3", r3.value.ok);
 }

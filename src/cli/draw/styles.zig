@@ -57,7 +57,11 @@ pub const StyleValue = struct {
     coordinateOrientation: ?CoordinateOrientation = null,
     plotSteps: ?PlotSteps = null,
     attributes: ?Attributes = null,
-    baseStyle: ?u8 = null,
+    // The style this one inherits from, spelled as it was written: `e0`, or
+    // `ns::e0` / `p::e0` when it was collected from a namespace import. It is a
+    // name rather than a number so that the two namespaces of an aliased import
+    // stay apart. See resolveStyles for how it is looked up.
+    baseStyle: ?[]const u8 = null,
 };
 
 const StyleValueUnion = union(enum) {
@@ -1203,7 +1207,7 @@ const styleParserRaw = mecha.combine(.{
     styleNumberParserRaw,
     mecha.opt(mecha.ascii.char(':').discard()),
     common.skipWhitespace,
-    mecha.opt(styleNumberParserRaw),
+    mecha.opt(common.lineStyleRefParser),
     common.skipWhitespace,
     mecha.opt(bodyParser),
 });
@@ -1244,7 +1248,7 @@ const pointStyleParserRaw = mecha.combine(.{
     pointStyleNumberParserRaw,
     mecha.opt(mecha.ascii.char(':').discard()),
     common.skipWhitespace,
-    mecha.opt(pointStyleNumberParserRaw),
+    mecha.opt(common.pointStyleRefParser),
     common.skipWhitespace,
     mecha.opt(bodyParser),
 });
@@ -1254,7 +1258,7 @@ fn toPointStyle(_: std.mem.Allocator, res: pointStyleParserRawP.T) mecha.Convert
     const base = res[2];
     const body = res[3];
     var styleValue = StyleValue{ .styleType = .pt2d };
-    if (base) |base_number| styleValue.baseStyle = pointStyleOffset + base_number;
+    if (base) |base_name| styleValue.baseStyle = base_name;
     if (body) |fields| {
         for (fields) |field| switch (field) {
             .styleType => |style_type| styleValue.styleType = style_type,
@@ -1419,25 +1423,25 @@ test "styleParser" {
     // Test reference style with base
     const r8 = try styleParser.parse(a, "e0: e0{[l:15, c: red]}");
     const exp_value8 = StyleValue{
-        .baseStyle = 0,
+        .baseStyle = "e0",
         .attributes = styles6,
     };
     const exp_element8 = Style{
         .styleNumber = 0,
         .styleValue = exp_value8,
     };
-    try testing.expectEqual(exp_element8, r8.value.ok);
+    try testing.expectEqualDeep(exp_element8, r8.value.ok);
 
     // Test copy style
     const r9 = try styleParser.parse(a, "e1: e0");
     const exp_value9 = StyleValue{
-        .baseStyle = 0,
+        .baseStyle = "e0",
     };
     const exp_element9 = Style{
         .styleNumber = 1,
         .styleValue = exp_value9,
     };
-    try testing.expectEqual(exp_element9, r9.value.ok);
+    try testing.expectEqualDeep(exp_element9, r9.value.ok);
 }
 
 const styleSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
@@ -1467,11 +1471,23 @@ pub const defaultStyleValue = StyleValue{
     },
 };
 
+/// The name a style is known by: the one --styles collected it under, or, for a
+/// style parsed on its own, the `eN`/`pN` its number spells. Point styles live
+/// above `pointStyleOffset` in the numbering, which is what tells the two apart.
+fn styleKey(arena: std.mem.Allocator, style: Style) ![]const u8 {
+    if (style.name) |name| return name;
+    if (style.styleNumber < pointStyleOffset)
+        return std.fmt.allocPrint(arena, "e{d}", .{style.styleNumber});
+    return std.fmt.allocPrint(arena, "p{d}", .{style.styleNumber - pointStyleOffset});
+}
+
 pub fn resolveStyles(arena: std.mem.Allocator, styles: []const Style) ![]Style {
-    var map = std.AutoHashMap(u8, StyleValue).init(arena);
+    var map = std.StringHashMap(StyleValue).init(arena);
     defer map.deinit();
 
-    try map.put(0, defaultStyleValue);
+    // A base naming a style nothing has defined yet falls back to the defaults,
+    // which is what `e0` starts out as.
+    try map.put("e0", defaultStyleValue);
 
     var result = try arena.alloc(Style, styles.len);
     for (styles, 0..) |style, i| {
@@ -1506,7 +1522,7 @@ pub fn resolveStyles(arena: std.mem.Allocator, styles: []const Style) ![]Style {
         if (style.styleValue.plotSteps) |ps| resolved.plotSteps = ps;
 
         result[i].styleValue = resolved;
-        try map.put(result[i].styleNumber, result[i].styleValue);
+        try map.put(try styleKey(arena, result[i]), result[i].styleValue);
     }
 
     return result;
@@ -1619,7 +1635,7 @@ test "styleParser pt2d" {
     const r2 = try styleParser.parse(a, "e1: e0");
     const exp_element2 = Style{
         .styleNumber = 1,
-        .styleValue = StyleValue{ .baseStyle = 0 },
+        .styleValue = StyleValue{ .baseStyle = "e0" },
     };
     try testing.expectEqualDeep(exp_element2, r2.value.ok);
 }

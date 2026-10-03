@@ -16,6 +16,11 @@ pub const Text = struct {
 };
 
 pub const TextDefinition = struct {
+    /// The `tN` the definition was written as. Kept alongside `name` because
+    /// that is the name --styles collected it under, which a namespace alias
+    /// prefixes, whereas a definition is always written -- and reported -- with
+    /// the bare one.
+    number: u8,
     name: []const u8,
     text: Text,
 };
@@ -282,18 +287,17 @@ fn toTextDef(arena: std.mem.Allocator, res: textDefParserRawP.T) mecha.ConvertEr
         text_val.font = attrs.font;
         text_val.opacity = attrs.opacity;
     }
-    return TextDefinition{ .name = name, .text = text_val };
+    return TextDefinition{ .number = number, .name = name, .text = text_val };
 }
 pub const textDefParser = textDefParserRaw.convert(toTextDef);
 
 // ---- text item parser for outpus: tN or tN{"value", (x,y)} ----
 
-const textItemNumberParser = mecha.combine(.{
+const textItemRefNameParser = mecha.combine(.{
     common.skipWhitespace,
-    mecha.ascii.char('t').discard(),
-    mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 2 }).asStr().convert(mecha.toInt(u8, 10)),
+    common.textRefParser,
 });
-const textItemNumberParserP = @TypeOf(textItemNumberParser);
+const textItemRefNameParserP = @TypeOf(textItemRefNameParser);
 
 const textOverrideArgsParserRaw = mecha.combine(.{
     common.skipOpenBrace,
@@ -325,23 +329,21 @@ const textOverrideBodyParser = mecha.combine(.{
 const textOverrideBodyParserP = @TypeOf(textOverrideBodyParser);
 
 const textItemOverrideParser = mecha.combine(.{
-    textItemNumberParser,
+    textItemRefNameParser,
     textOverrideBodyParser,
 });
 const textItemOverrideParserP = @TypeOf(textItemOverrideParser);
 
-const textItemRefParser = textItemNumberParser.convert(struct {
-    fn conv(arena: std.mem.Allocator, res: textItemNumberParserP.T) mecha.ConvertError!TextItem {
-        const name = try std.fmt.allocPrint(arena, "t{d}", .{res});
-        return TextItem{ .name = name, .override = null };
+const textItemRefParser = textItemRefNameParser.convert(struct {
+    fn conv(_: std.mem.Allocator, res: textItemRefNameParserP.T) mecha.ConvertError!TextItem {
+        return TextItem{ .name = res, .override = null };
     }
 }.conv);
 
 const textItemWithOverrideParser = textItemOverrideParser.convert(struct {
-    fn conv(arena: std.mem.Allocator, res: textItemOverrideParserP.T) mecha.ConvertError!TextItem {
-        const number = res[0];
+    fn conv(_: std.mem.Allocator, res: textItemOverrideParserP.T) mecha.ConvertError!TextItem {
+        const name = res[0];
         const body = res[1];
-        const name = try std.fmt.allocPrint(arena, "t{d}", .{number});
         var override = TextOverride{};
         override.append = std.mem.indexOfScalar(u8, body[0], '+') != null;
         override.prepend = std.mem.indexOfScalar(u8, body[0], '^') != null;
@@ -463,7 +465,9 @@ pub fn serializeTextDefinitions(allocator: std.mem.Allocator, texts: []const Tex
         if (i > 0) try parts.append(allocator, try allocator.dupe(u8, ", "));
         const text_str = try serializeText(allocator, def.text);
         defer allocator.free(text_str);
-        const full = try std.fmt.allocPrint(allocator, "{s}: {s}", .{ def.name, text_str });
+        // The bare `tN`, not `def.name`: a definition is always written this
+        // way, so the reported --styles stays something that can be fed back in.
+        const full = try std.fmt.allocPrint(allocator, "t{d}: {s}", .{ def.number, text_str });
         try parts.append(allocator, full);
     }
 
@@ -704,8 +708,8 @@ test "resolveTextOverlay fills the holes of the definition" {
     const a = arena.allocator();
 
     const texts = [_]TextDefinition{
-        .{ .name = "t0", .text = .{ .value = "{} - {}", .x = 0, .y = 0 } },
-        .{ .name = "t1", .text = .{ .value = "plain", .x = 0, .y = 0 } },
+        .{ .number = 0, .name = "t0", .text = .{ .value = "{} - {}", .x = 0, .y = 0 } },
+        .{ .number = 1, .name = "t1", .text = .{ .value = "plain", .x = 0, .y = 0 } },
     };
 
     const filled = try resolveTextOverlay(a, .{ .name = "t0", .override = .{ .args = &[_][]const u8{ "1", "2" } } }, &texts);
@@ -728,7 +732,7 @@ test "resolveTextOverlay appends with +, prepends with ^ and replaces without ei
     defer arena.deinit();
     const a = arena.allocator();
 
-    const texts = [_]TextDefinition{.{ .name = "t0", .text = .{ .value = "hello", .x = 0, .y = 0 } }};
+    const texts = [_]TextDefinition{.{ .number = 0, .name = "t0", .text = .{ .value = "hello", .x = 0, .y = 0 } }};
 
     const appended = try resolveTextOverlay(a, .{ .name = "t0", .override = .{ .value = " world", .append = true } }, &texts);
     try testing.expectEqualStrings("hello world", appended.?.value);

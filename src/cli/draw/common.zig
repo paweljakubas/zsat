@@ -532,3 +532,84 @@ test "floatFromDecimal" {
     const r3 = try floatFromDecimal.parse(fa, "-10.1");
     try testing.expectEqual(-10.1, r3.value.ok);
 }
+
+/// The `ns::` in front of a definition reference: the namespace the definition
+/// was collected from. The identifier stops at the first `:` so that the `::`
+/// can be required rather than assumed.
+const qualifierIdentParser = mecha.many(mecha.oneOf(.{
+    mecha.ascii.range('a', 'z'),
+    mecha.ascii.range('A', 'Z'),
+    mecha.ascii.range('0', '9'),
+    mecha.ascii.char('_'),
+    mecha.ascii.char('-'),
+}), .{ .collect = false, .min = 1 });
+
+const qualifierParser = mecha.combine(.{
+    qualifierIdentParser,
+    mecha.ascii.char(':').discard(),
+    mecha.ascii.char(':').discard(),
+});
+
+const refDigitsParser = mecha.ascii.range('0', '9').many(.{ .collect = false, .min = 1, .max = 2 });
+
+// A reference to a definition, spelled the way references are written: bare
+// `a0`, or qualified `ns::a0` once the definition came in through `use ns`, or
+// `p::a0` when it came through `use ns as p`. The whole spelling comes back out,
+// because that is exactly the name the definition was collected under, which
+// makes resolving a reference a plain comparison and lets an alias shadow the
+// bare name it renamed. No leading whitespace is consumed, matching how the
+// plain number parsers are used.
+//
+// One parser per kind rather than a function taking the letter: a mecha parser
+// built inside a function sends this compiler into a stack overflow, so the
+// letter is spelled out instead.
+pub const lineStyleRefParser = mecha.combine(.{
+    mecha.opt(qualifierParser),
+    mecha.ascii.char('e').discard(),
+    refDigitsParser,
+}).asStr();
+pub const pointStyleRefParser = mecha.combine(.{
+    mecha.opt(qualifierParser),
+    mecha.ascii.char('p').discard(),
+    refDigitsParser,
+}).asStr();
+pub const textRefParser = mecha.combine(.{
+    mecha.opt(qualifierParser),
+    mecha.ascii.char('t').discard(),
+    refDigitsParser,
+}).asStr();
+pub const borderRefParser = mecha.combine(.{
+    mecha.opt(qualifierParser),
+    mecha.ascii.char('b').discard(),
+    refDigitsParser,
+}).asStr();
+pub const axisRefParser = mecha.combine(.{
+    mecha.opt(qualifierParser),
+    mecha.ascii.char('a').discard(),
+    refDigitsParser,
+}).asStr();
+
+test "definition refs" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const bare = try axisRefParser.parse(a, "a0");
+    try testing.expectEqualStrings("a0", bare.value.ok);
+
+    const qualified = try axisRefParser.parse(a, "sleek::a12");
+    try testing.expectEqualStrings("sleek::a12", qualified.value.ok);
+
+    const aliased = try textRefParser.parse(a, "p::t0");
+    try testing.expectEqualStrings("p::t0", aliased.value.ok);
+
+    // The identifier only counts as a qualifier when a `::` follows it, so a
+    // bare name is not read as a qualifier that then fails to complete.
+    const trailing = try axisRefParser.parse(a, "a0, e1");
+    try testing.expectEqualStrings("a0", trailing.value.ok);
+    try testing.expectEqual(@as(usize, 2), trailing.index);
+
+    // Another kind of definition is not a reference.
+    const wrong_kind = try axisRefParser.parse(a, "t0");
+    try testing.expectEqual(@as(usize, 0), wrong_kind.index);
+}
