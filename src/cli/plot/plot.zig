@@ -1134,7 +1134,7 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
                 // line. `start` pins the leading edge and `end` the trailing
                 // edge, so the near edge stays exactly `spacing` off the axis
                 // whatever the digit count.
-                const pivot_cx = switch (vals.style.alignment) {
+                const pivot_cx = switch (vals.style.edge) {
                     .center => text_width * 0.5,
                     .start => 0.0,
                     .end => text_width,

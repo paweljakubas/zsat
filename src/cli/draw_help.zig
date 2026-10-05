@@ -386,6 +386,11 @@ pub const border_help =
     \\  bN: {border [ATTR1, ATTR2, ...]}
     \\  bN: {border}               -- use all defaults
     \\
+    \\Namespaces (reusable definitions in ~/.config/zsat/zsat.conf):
+    \\  use NS        -- import every definition of NS, usable as b0, ...
+    \\  use NS as P   -- import under the prefix P, usable as P::b0, ...
+    \\  With more than one namespace, alias every one of them.
+    \\
     \\Attributes (defaults: w=10, c=black, o=100):
     \\  width:N  or  w:N   -- border thickness in pixels
     \\  opacity:N  or  o:N -- opacity from 0 to 100
@@ -393,6 +398,7 @@ pub const border_help =
     \\
     \\Using borders in --panes:
     \\  border: bN               -- reference a named border defined in --styles
+    \\  border: NS::bN           -- the same, from a stored namespace
     \\  border: [ATTR1, ...]     -- inline border definition
     \\
     \\When a border is present, the plot elements are inset by the border
@@ -440,7 +446,8 @@ pub const axis_help =
     \\  color:NAME  or  c:NAME
     \\  opacity:N  or  o:N
     \\
-    \\VALUE STYLE attributes (defaults: s=12, c=black, o=100, sp=2, f=above, a=0):
+    \\VALUE STYLE attributes (defaults: s=12, c=black, o=100, sp=2, f=above,
+    \\a=0, al=center):
     \\  size:N  or  s:N      -- font size in pixels
     \\  font:PATH            -- font file; "default" uses the built-in font
     \\  spacing:N  or  sp:N  -- gap between the tick and its label in pixels
@@ -450,6 +457,9 @@ pub const axis_help =
     \\                         along the axis (horizontal text on a horizontal
     \\                         axis). ANGLE uses the same syntax as rotate:
     \\                         90, -45, 1r4p (=pi/4), p (=pi), etc.
+    \\  edge:MODE  or  e:MODE   -- which point of the label sits on the
+    \\                         offset: center | start | end
+    \\                         (one-letter forms: c, s, e)
     \\  color:NAME  or  c:NAME
     \\  opacity:N  or  o:N
     \\
@@ -457,8 +467,43 @@ pub const axis_help =
     \\points to (form above/below), offset by the spacing -- regardless of
     \\whether the axis is horizontal, tilted, or vertical.
     \\
+    \\The edge mode picks which point of the label lands on that offset, and it
+    \\matters because labels differ in width. With e=center the middle of the
+    \\label sits on the offset, so the label grows both ways and a long value
+    \\reaches back across the axis line. With e=start the leading edge sits on
+    \\the offset and the label extends away from the axis; with e=end the
+    \\trailing edge sits on it and the label extends back toward the axis. Pin
+    \\an edge to keep the distance from the axis line constant regardless of how
+    \\many digits the value has:
+    \\
+    \\  values:[style:[f:below, a:-90, e:start]]  -- labels grow away from
+    \\                                              a vertical axis
+    \\  values:[style:[f:above, e:end]]            -- right-aligned columns
+    \\
+    \\start and end name the label's reading direction, which rotates with the
+    \\angle, so e:start is not necessarily the leftmost edge on screen.
+    \\
     \\The form direction is relative to the axis direction from the FROM point
     \\to the TO point: above lies to the left of the direction, below to the right.
+    \\
+    \\NAMESPACES (reusable definitions in ~/.config/zsat/zsat.conf):
+    \\  use NS        -- import every definition of NS, usable as a0, e0, ...
+    \\  use NS as P   -- import every definition of NS under the prefix P,
+    \\                   usable as P::a0, P::e0, ...
+    \\
+    \\A single 'use NS' keeps the bare names (a0, e0) available.
+    \\A key may also be named directly after the import, which names a
+    \\definition the import already brought in:  use NS, a0, e0.
+    \\
+    \\With more than one namespace, alias every one of them:
+    \\  use sleek1 as s1, use sleek2 as s2, s1::a0, s2::a0
+    \\
+    \\Storing a definition back with --save NS::KEY:
+    \\  zsat draw --save myns::a1 --styles 'a1:{axis}'
+    \\  --save writes the definition of KEY given in --styles into namespace NS of
+    \\  ~/.config/zsat/zsat.conf, where it can later be used as NS::KEY. The
+    \\  namespace is created when it is not there yet. Storing a key that already
+    \\  exists in that namespace fails, unless --overwrite is given.
     \\
     \\Axis inheritance (style update rules):
     \\  aN: aM {ATTRIBUTES}  -- axis aN copies axis aM, then overrides the given

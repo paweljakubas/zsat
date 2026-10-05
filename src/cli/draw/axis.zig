@@ -14,12 +14,13 @@ pub const TickForm = enum {
     square,
 };
 
-// Where a value label sits relative to the offset anchor that `spacing`
-// places off the axis. `center` pins the label's middle on the anchor, so a
-// longer number grows in both directions. `start`/`end` pin one edge, which
-// keeps the distance from the axis line fixed no matter how many digits the
-// label has.
-pub const TickAlign = enum {
+// Which point of a value label sits on the offset that `spacing` places off
+// the axis. `center` puts the middle there, so a longer number grows in both
+// directions. `start`/`end` put an edge there, which keeps the distance from
+// the axis line fixed no matter how many digits the label has. The names refer
+// to the label's reading direction, which rotates with `angle`, so `start` is
+// not necessarily the leftmost edge on screen.
+pub const TickEdge = enum {
     center,
     start,
     end,
@@ -49,7 +50,7 @@ pub const ValueStyle = struct {
     spacing: u16 = 2,
     form: TickForm = .above,
     angle: inputs.Angle = .{ .degrees = 0 },
-    alignment: TickAlign = .center,
+    edge: TickEdge = .center,
 };
 
 /// Parse-time partial representation of a ticks style. Fields are null when
@@ -71,7 +72,7 @@ const PartialValueStyle = struct {
     spacing: ?u16 = null,
     form: ?TickForm = null,
     angle: ?inputs.Angle = null,
-    alignment: ?TickAlign = null,
+    edge: ?TickEdge = null,
 };
 
 pub const TickDefinition = struct {
@@ -474,7 +475,7 @@ const ValueAttribute = union(enum) {
     spacing: u16,
     form: TickForm,
     angle: inputs.Angle,
-    alignment: TickAlign,
+    edge: TickEdge,
 };
 
 const valueColorParserRaw = mecha.combine(.{
@@ -568,7 +569,7 @@ const valueAngleUnionParser = valueAngleParserRaw.convert(struct {
     }
 }.conv);
 
-const TickAlignT = enum {
+const TickEdgeT = enum {
     center,
     c,
     start,
@@ -577,9 +578,9 @@ const TickAlignT = enum {
     e,
 };
 
-fn toTickAlign(_: std.mem.Allocator, res: []const u8) mecha.ConvertError!TickAlign {
-    if (std.meta.stringToEnum(TickAlignT, res)) |validA| {
-        return switch (validA) {
+fn toTickEdge(_: std.mem.Allocator, res: []const u8) mecha.ConvertError!TickEdge {
+    if (std.meta.stringToEnum(TickEdgeT, res)) |validE| {
+        return switch (validE) {
             .center => .center,
             .c => .center,
             .start => .start,
@@ -591,25 +592,25 @@ fn toTickAlign(_: std.mem.Allocator, res: []const u8) mecha.ConvertError!TickAli
     return error.ConversionFailed;
 }
 
-const tickAlignParser = mecha.oneOf(.{
+const tickEdgeParser = mecha.oneOf(.{
     mecha.string("center"),
     mecha.string("c"),
     mecha.string("start"),
     mecha.string("s"),
     mecha.string("end"),
     mecha.string("e"),
-}).convert(toTickAlign);
+}).convert(toTickEdge);
 
-const valueAlignParserRaw = mecha.combine(.{
-    mecha.oneOf(.{ mecha.string("align"), mecha.string("al") }).discard(),
+const valueEdgeParserRaw = mecha.combine(.{
+    mecha.oneOf(.{ mecha.string("edge"), mecha.string("e") }).discard(),
     common.skipWhitespace,
     mecha.ascii.char(':').discard(),
     common.skipWhitespace,
-    tickAlignParser,
+    tickEdgeParser,
 });
-const valueAlignUnionParser = valueAlignParserRaw.convert(struct {
-    fn conv(_: std.mem.Allocator, res: TickAlign) mecha.ConvertError!ValueAttribute {
-        return ValueAttribute{ .alignment = res };
+const valueEdgeUnionParser = valueEdgeParserRaw.convert(struct {
+    fn conv(_: std.mem.Allocator, res: TickEdge) mecha.ConvertError!ValueAttribute {
+        return ValueAttribute{ .edge = res };
     }
 }.conv);
 
@@ -621,7 +622,7 @@ const valueAttributeUnionParser = mecha.oneOf(.{
     valueSpacingUnionParser,
     valueFormUnionParser,
     valueAngleUnionParser,
-    valueAlignUnionParser,
+    valueEdgeUnionParser,
 });
 
 const manyValueAttributeUnionParser = mecha.many(valueAttributeUnionParser, .{ .collect = true, .min = 1, .separator = common.skipComma });
@@ -636,7 +637,7 @@ fn manyToPartialValueStyle(_: std.mem.Allocator, fields: []ValueAttribute) mecha
         .spacing => |v| res.spacing = v,
         .form => |v| res.form = v,
         .angle => |v| res.angle = v,
-        .alignment => |v| res.alignment = v,
+        .edge => |v| res.edge = v,
     };
     return res;
 }
@@ -659,36 +660,36 @@ test "valueAttributesParser" {
     const r2 = try valueAttributesParser.parse(a, "a:1r4p");
     try testing.expectEqual(inputs.Angle{ .radians = 0.25 * inputs.pi }, r2.value.ok.angle.?);
 
-    const r3 = try valueAttributesParser.parse(a, "al:start");
-    try testing.expectEqual(TickAlign.start, r3.value.ok.alignment.?);
-    try testing.expectEqual(TickAlign.end, (try valueAttributesParser.parse(a, "align:end")).value.ok.alignment.?);
-    try testing.expectEqual(TickAlign.center, (try valueAttributesParser.parse(a, "al:c")).value.ok.alignment.?);
-    try testing.expectEqual(TickAlign.start, (try valueAttributesParser.parse(a, "al:s")).value.ok.alignment.?);
-    try testing.expectEqual(TickAlign.end, (try valueAttributesParser.parse(a, "al:e")).value.ok.alignment.?);
+    const r3 = try valueAttributesParser.parse(a, "e:start");
+    try testing.expectEqual(TickEdge.start, r3.value.ok.edge.?);
+    try testing.expectEqual(TickEdge.end, (try valueAttributesParser.parse(a, "edge:end")).value.ok.edge.?);
+    try testing.expectEqual(TickEdge.center, (try valueAttributesParser.parse(a, "e:c")).value.ok.edge.?);
+    try testing.expectEqual(TickEdge.start, (try valueAttributesParser.parse(a, "e:s")).value.ok.edge.?);
+    try testing.expectEqual(TickEdge.end, (try valueAttributesParser.parse(a, "e:e")).value.ok.edge.?);
 
     // Unspecified stays null so a base axis can supply it; the `center`
     // default is applied later, when the style resolves into a ValueStyle.
-    try testing.expect((try valueAttributesParser.parse(a, "c:red")).value.ok.alignment == null);
+    try testing.expect((try valueAttributesParser.parse(a, "c:red")).value.ok.edge == null);
 }
 
-test "tickAlignParser" {
+test "tickEdgeParser" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
-    try testing.expectEqual(TickAlign.center, (try tickAlignParser.parse(a, "center")).value.ok);
-    try testing.expectEqual(TickAlign.start, (try tickAlignParser.parse(a, "start")).value.ok);
-    try testing.expectEqual(TickAlign.end, (try tickAlignParser.parse(a, "end")).value.ok);
-    try testing.expectEqual(TickAlign.center, (try tickAlignParser.parse(a, "c")).value.ok);
-    try testing.expectEqual(TickAlign.start, (try tickAlignParser.parse(a, "s")).value.ok);
-    try testing.expectEqual(TickAlign.end, (try tickAlignParser.parse(a, "e")).value.ok);
+    try testing.expectEqual(TickEdge.center, (try tickEdgeParser.parse(a, "center")).value.ok);
+    try testing.expectEqual(TickEdge.start, (try tickEdgeParser.parse(a, "start")).value.ok);
+    try testing.expectEqual(TickEdge.end, (try tickEdgeParser.parse(a, "end")).value.ok);
+    try testing.expectEqual(TickEdge.center, (try tickEdgeParser.parse(a, "c")).value.ok);
+    try testing.expectEqual(TickEdge.start, (try tickEdgeParser.parse(a, "s")).value.ok);
+    try testing.expectEqual(TickEdge.end, (try tickEdgeParser.parse(a, "e")).value.ok);
 
     // Only the documented names and their one-letter forms convert; anything
-    // else fails. Note `al:sideways` still prefix-matches the `s` abbreviation
+    // else fails. Note `e:sideways` still prefix-matches the `s` abbreviation
     // and yields `start`, which is harmless because the enclosing style parser
     // requires the whole attribute body to be consumed, so the caller is what
     // ultimately rejects an unknown name.
-    try testing.expect((try tickAlignParser.parse(a, "zzz")).value == .err);
+    try testing.expect((try tickEdgeParser.parse(a, "zzz")).value == .err);
 }
 
 // ---- import text parser for font value ----
@@ -1005,7 +1006,7 @@ pub fn resolveAxes(arena: std.mem.Allocator, defs: []const AxisDefinition) ![]Re
                 if (s.spacing) |sp| values.style.spacing = sp;
                 if (s.form) |fo| values.style.form = fo;
                 if (s.angle) |an| values.style.angle = an;
-                if (s.alignment) |al| values.style.alignment = al;
+                if (s.edge) |ed| values.style.edge = ed;
             }
             resolved.values = values;
         }
@@ -1141,28 +1142,28 @@ test "resolveAxes style overrides merge field by field" {
     try testing.expectEqual(TickForm.above, ts.form);
 }
 
-test "resolveAxes value alignment defaults to center and is inheritable" {
+test "resolveAxes value edge defaults to center and is inheritable" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
     const a = arena.allocator();
 
     const r1 = try axisDefParser.parse(a, "a1: {axis values:[vals:0,1, style:[a:-90]]}");
-    try testing.expectEqual(TickAlign.center, (try resolveAxes(a, &[_]AxisDefinition{r1.value.ok}))[0].axis.values.?.style.alignment);
+    try testing.expectEqual(TickEdge.center, (try resolveAxes(a, &[_]AxisDefinition{r1.value.ok}))[0].axis.values.?.style.edge);
 
-    const r2 = try axisDefParser.parse(a, "a2: {axis values:[vals:0,1, style:[al:start]]}");
-    try testing.expectEqual(TickAlign.start, (try resolveAxes(a, &[_]AxisDefinition{r2.value.ok}))[0].axis.values.?.style.alignment);
+    const r2 = try axisDefParser.parse(a, "a2: {axis values:[vals:0,1, style:[e:start]]}");
+    try testing.expectEqual(TickEdge.start, (try resolveAxes(a, &[_]AxisDefinition{r2.value.ok}))[0].axis.values.?.style.edge);
 
-    // A derived axis keeps the base's alignment when it only overrides other fields.
+    // A derived axis keeps the base's edge when it only overrides other fields.
     const r3 = try axisDefParser.parse(a, "a3: a2 {values:[vals:0,1, style:[f:below]]}");
     const defs = [_]AxisDefinition{ r2.value.ok, r3.value.ok };
     const resolved = try resolveAxes(a, &defs);
-    try testing.expectEqual(TickAlign.start, resolved[1].axis.values.?.style.alignment);
+    try testing.expectEqual(TickEdge.start, resolved[1].axis.values.?.style.edge);
     try testing.expectEqual(TickForm.below, resolved[1].axis.values.?.style.form);
 
     // ...and can override it back.
-    const r4 = try axisDefParser.parse(a, "a4: a2 {values:[vals:0,1, style:[al:end]]}");
+    const r4 = try axisDefParser.parse(a, "a4: a2 {values:[vals:0,1, style:[e:end]]}");
     const defs2 = [_]AxisDefinition{ r2.value.ok, r4.value.ok };
-    try testing.expectEqual(TickAlign.end, (try resolveAxes(a, &defs2))[1].axis.values.?.style.alignment);
+    try testing.expectEqual(TickEdge.end, (try resolveAxes(a, &defs2))[1].axis.values.?.style.edge);
 }
 
 test "resolveAxes undefined base is an error" {

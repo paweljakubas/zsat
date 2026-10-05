@@ -865,7 +865,7 @@ Equivalently, we could enumerate values: `0, 0.5, 1, 1.5, 2, 2.5, 3` so we chose
 With regards to values, the pattern is very similar both with style and values. When defined, `a0` axis object is available in later steps,
 where we can anchor it in the plot by using `fromTo` aka `ft` in outputs. Here we are just providing two points, start and finish ones.
 Value labels are placed `spacing` away from the tick tip, and by default the middle of the label sits exactly on that offset, so a label grows in both directions and a long number reaches back across the axis line.
-`align` aka `al` picks which edge is placed on the offset instead: `center` (the default), `start` for the leading edge or `end` for the trailing one.
+`edge` aka `e` picks which point of the label is placed on the offset instead: `center` (the default), `start` for the leading edge or `end` for the trailing one.
 Pinning an edge keeps the distance from the axis line the same no matter how many digits the value has.
 
 Now when `a0` is defined, we can reuse it - if we want the same style adopted of course, with only some attribute changes on top of `a0`.
@@ -987,8 +987,8 @@ a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.5,..,3, style:[c:lightgrey, o
 p0:{pt2d [sh:square, s:15, c: grey]}
 b0: {border [w:25, c:lightgrey]}
 ```
-and contains some predefined styles defined as `key:value` and gather in namespace `sleek`.
-One can use them without defining oneself in commands, also create their own ones for further reuse. As we can see it saves precious time and persist the styles the user founds especially universal, useful and worth repreating.
+and it contains some predefined styles defined as `key:value`, the same as we defined them above, and the definitions are gathered under namespace `sleek`.
+One can use them without defining oneself them in `--styles`, also create their own ones and persist them for further reuse. As we can see it saves precious time and enable storing the styles the user founds especially universal, useful and worth repreating.
 
 ```bash
 echo '[[1,1]]' | zsat draw \
@@ -1005,7 +1005,9 @@ echo '[[1,1]]' | zsat draw \
 -o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a0)'
 ```
 
-We reused axis and line style as they are defined in `zsat.conf`, but we can reuse them and work on top of them plus we can omit using `sleek` namespace by adding alias.
+Meaning we don't have to qualify them using namespace.
+
+We reused axis and line style as they are defined in `zsat.conf`, but we can reuse them with finetuning plus we can replace using `sleek` namespace by adding shorter alias.
 
 ```bash
 echo '[[1,1]]' | zsat draw \
@@ -1015,20 +1017,20 @@ echo '[[1,1]]' | zsat draw \
 ```
 <img src="fig60.png" width="332" style="border: 2px solid grey;">
 
-`a1` is defined using `s::a0` and could be later used from just `a1`. `s::b0` needs to be used later.
-We can redefine keys from persisted namespaces and use in further definitions:
+`a1` is defined using `s::a0` and could be later used via `a1`. `s::b0` needs to be used later as it is (with namespace qualifier).
+We can also redefine keys taken from persisted namespaces and use in further definitions, meaning shadowing works:
 
 ```bash
 echo '[[1,1]]' | zsat draw \
--s 'use sleek as s, s::e0, s::b0, a0: s::a0{ticks:[pos:0,0.1,..,1.1],values:[vals:0,0.25,0.5,0.75,1.0]}, a1: a0{ticks:[style:[f:below]],values:[style: [f:below, a: -90, al:start]]}' \
+-s 'use sleek as s, s::e0, s::b0, a0: s::a0{ticks:[pos:0,0.1,..,1.1],values:[vals:0,0.25,0.5,0.75,1.0]}, a1: a0{ticks:[style:[f:below]],values:[style: [f:below, a: -90, e:start]]}' \
 -o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a0, ft {(-0.1,0)} {(-0.1,1.1)} a1)' \
 -p 'p0:{size: 600x600, border: s::b0}'
 ```
 <img src="fig61.png" width="332" style="border: 2px solid grey;">
 
-`a1` rotates its values with `a: -90` so they read as in the horizontal axis, and `al:start` pins their leading edge on the offset.
+`a1` rotates its values with `a: -90` so they read as in the horizontal axis, and `e:start` pins their leading edge on the offset.
 Without it the labels stay centered on the offset, and because `a1` shows decimal values the longer ones — `0.25`, `0.5`, `0.75` — grow back across the axis line while the single digit `0` still clears it.
-With `al:start` every label begins at the same distance from the line and extends away from it.
+With `e:start` every label begins at the same distance from the line and extends away from it.
 
 
 ## Exploring the tool through help
