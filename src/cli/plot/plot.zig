@@ -3,6 +3,7 @@ const testing = std.testing;
 const z2d = @import("z2d");
 const inputs = @import("plot_types");
 const pt2d = @import("pt2d");
+const text_metrics = @import("text_metrics.zig");
 
 const Vector = inputs.Vector;
 const InputElement = inputs.InputElement;
@@ -938,9 +939,12 @@ fn drawFixedPairs(context: *z2d.Context, ops: anytype, origin_x: f64, origin_y: 
 }
 
 /// Draws all axis overlays (lines, ticks, and value labels).
-fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64, pixel_scale: f64) !void {
+fn drawAxisOverlays(context: *z2d.Context, io: std.Io, metrics: *text_metrics.Cache, axisOverlays: anytype, origin_x: f64, origin_y: f64, x_scale: f64, y_scale: f64, min_y: f64, max_y: f64, pixel_scale: f64) !void {
     var font_set = false;
     defer if (font_set) context.deinitFont();
+    // The font is loaded once for the whole figure, so labels must be measured
+    // against whichever font actually made it into the context.
+    var active_font: []const u8 = "";
 
     for (axisOverlays) |overlay| {
         const ax = origin_x + @as(f64, overlay.from.x) * x_scale;
@@ -1058,6 +1062,7 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
                 else
                     vals.style.font;
                 context.setFontToFile(font_path) catch {};
+                active_font = font_path;
                 font_set = true;
             }
 
@@ -1109,13 +1114,10 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
                 const val_str = try std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{val});
                 defer std.heap.page_allocator.free(val_str);
 
-                // Center the label on the tick along its reading direction.
-                // For monospace fonts, char width ≈ font_size * 0.6.
-                const text_width = font_size * 0.6 * @as(f64, @floatFromInt(val_str.len));
                 // The label extends away from the axis on the tick side. With
-                // showText placing the text top at y (glyphs grow downward in
-                // the local frame), above labels sit on the negative local y
-                // side and below labels on the positive side.
+                // showText placing the top of the em box at y (glyphs grow
+                // downward in the local frame), above labels sit on the
+                // negative local y side and below labels on the positive side.
                 const y_local: f64 = if (vals.style.form == .above) -font_size else 0.0;
 
                 // Anchor point = tick tip + spacing, along the above/below normal.
@@ -1125,28 +1127,43 @@ fn drawAxisOverlays(context: *z2d.Context, axisOverlays: anytype, origin_x: f64,
                 const anchor_x = plot_vx + nx * (tick_ext + spacing);
                 const anchor_y = plot_vy + ny * (tick_ext + spacing);
 
-                // Which point of the text box lands on the anchor. The text is
-                // always drawn at local x=0 and only the pivot moves, so the
-                // mapping p -> anchor + R*(p - pivot) picks which edge is
-                // pinned. `center` is the historical behaviour and keeps the
-                // label symmetric about the tick, but a longer number then
-                // grows in both directions and can reach back across the axis
-                // line. `start` pins the leading edge and `end` the trailing
-                // edge, so the near edge stays exactly `spacing` off the axis
-                // whatever the digit count.
-                const pivot_cx = switch (vals.style.edge) {
-                    .center => text_width * 0.5,
-                    .start => 0.0,
-                    .end => text_width,
+                // Where the label actually inks, measured against the font in
+                // use. The estimate is only a fallback: it assumes a monospace
+                // advance of 0.6 * font_size and a digit ink middle 0.6 *
+                // font_size below the em box top, both of which are wrong by
+                // enough to be visible at larger sizes.
+                const est_ink = text_metrics.InkBox{
+                    .x0 = 0.0,
+                    .x1 = font_size * 0.6 * @as(f64, @floatFromInt(val_str.len)),
+                    .y0 = 0.0,
+                    .y1 = font_size * 0.6,
                 };
+                const ink = metrics.get(io, active_font, font_size, val_str, est_ink);
+
+                // Which point of the inked label lands on the anchor. The text
+                // is always drawn at local x=0 and only the pivot moves, so the
+                // mapping p -> anchor + R*(p - pivot) picks which edge is
+                // pinned. All three are measured against the inked pixels, not
+                // the advance width, so the edge that lands on the tick is the
+                // edge the reader sees. `center` is the historical behaviour
+                // and keeps the label symmetric about the tick, but a longer
+                // number then grows in both directions and can reach back
+                // across the axis line. `start` pins the leading edge and `end`
+                // the trailing edge, so the near edge stays exactly `spacing`
+                // off the axis whatever the digit count.
+                const pivot_cx = switch (vals.style.edge) {
+                    .center => ink.midX(),
+                    .start => ink.x0,
+                    .end => ink.x1,
+                };
+                // Vertically the ink middle is always the pivot, so the number
+                // reads as centred on the tick at every angle.
+                const text_cy = y_local + ink.midY();
 
                 // Rotate the label about that pivot and place the pivot exactly
                 // on the anchor point. z2d's translate appends to the CTM
                 // (CTM * T), so the sequence below maps the pivot point to the
                 // anchor: point p -> anchor + R*(p - pivot).
-                // showText grows glyphs downward from the box top; for digit
-                // labels the ink middle sits roughly 0.6 * font_size below it.
-                const text_cy = y_local + font_size * 0.6;
                 const saved_ctm = context.getTransformation();
                 context.translate(anchor_x, anchor_y);
                 context.rotate(axis_angle + angle_offset);
@@ -1446,7 +1463,9 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
 
         // Draw axis overlays
         if (@hasField(@TypeOf(parsed_data), "axisOverlays") and parsed_data.axisOverlays.len > 0) {
-            try drawAxisOverlays(&context, parsed_data.axisOverlays, origin_x, origin_y, x_scale, y_scale, min_y, max_y, pixel_scale);
+            var metrics = text_metrics.Cache.init(std.heap.page_allocator);
+            defer metrics.deinit();
+            try drawAxisOverlays(&context, io, &metrics, parsed_data.axisOverlays, origin_x, origin_y, x_scale, y_scale, min_y, max_y, pixel_scale);
         }
     }
 

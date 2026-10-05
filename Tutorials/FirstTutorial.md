@@ -1022,7 +1022,8 @@ We can also redefine keys taken from persisted namespaces and use in further def
 
 ```bash
 echo '[[1,1]]' | zsat draw \
--s 'use sleek as s, s::e0, s::b0, a0: s::a0{ticks:[pos:0,0.1,..,1.1],values:[vals:0,0.25,0.5,0.75,1.0]}, a1: a0{ticks:[style:[f:below]],values:[style: [f:below, a: -90, e:start]]}' \
+-s 'use sleek as s, s::e0, s::b0, a0: s::a0{ticks:[pos:0,0.25,0.5, 0.75,1],values:[vals:0,0.25,0.5,0.75,1.0]},
+    a1: a0{ticks:[style:[f:below]],values:[style: [f:below, a: -90, e:start]]}' \
 -o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a0, ft {(-0.1,0)} {(-0.1,1.1)} a1)' \
 -p 'p0:{size: 600x600, border: s::b0}'
 ```
