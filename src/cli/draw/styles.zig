@@ -1763,6 +1763,209 @@ pub fn serializeStyle(allocator: std.mem.Allocator, style: Style) ![]const u8 {
 
     return try std.mem.join(allocator, "", parts.items);
 }
+/// The `l` prefix that goes with a width in the given units. Plain `l` means
+/// normalized, so any other frame has to be spelled out or a width would come
+/// back measured against the diagram instead of what it was measured against.
+fn lineWidthTag(reference: ReferenceFrame) []const u8 {
+    return switch (reference) {
+        .normalized => "l",
+        .local => "lL",
+        .global => "lG",
+        .output => "lO",
+    };
+}
+
+/// The `d` prefix that goes with a dashing pattern in the given units. Here the
+/// bare prefix means output rather than normalized, so normalized is spelled out.
+fn dashingTag(reference: ReferenceFrame) []const u8 {
+    return switch (reference) {
+        .normalized => "dN",
+        .local => "dL",
+        .global => "dG",
+        .output => "d",
+    };
+}
+
+/// Serializes a resolved style into a definition line that stands on its own:
+/// the base it inherited from is already folded into the values, and every
+/// field left at its default is left out so the saved line leans on the
+/// built-in defaults instead of restating them. `name` is written as given.
+/// This is the counterpart of `serializeStyle`, which spells out every field
+/// and so is better suited to showing a style than to storing one.
+///
+/// The baseline is `defaultStyleValue`, what `resolveStyles` actually starts a
+/// style from, and not the `default*Type()` helpers, which describe the
+/// attribute on its own and do not always agree -- the default line width is
+/// 20 in normalized units there but 10 in output units here. Comparing against
+/// the wrong one would drop a field the resolution fills in, or keep one that
+/// reads back as something else. Whole structs are compared, so the unit a
+/// number is expressed in is part of the comparison; dashing holds a slice and
+/// is handled on its own.
+pub fn serializeStyleMinimal(allocator: std.mem.Allocator, name: []const u8, style: Style) ![]const u8 {
+    const sv = style.styleValue;
+    const attrs = sv.attributes orelse Attributes{};
+    const base_attrs = defaultStyleValue.attributes.?;
+    const base_style_type: StyleType = defaultStyleValue.styleType orelse .vec2d;
+    const base_system: CoordinateType = defaultStyleValue.coordinateSystem orelse .xy;
+    const base_orientation: CoordinateOrientation = defaultStyleValue.coordinateOrientation orelse .fixed;
+    const base_steps: PlotSteps = defaultStyleValue.plotSteps orelse .last;
+
+    // Type, coordinate system, orientation and step mode are read as a run of
+    // words in this order, so they cannot be left out one by one: dropping a
+    // leading one would slide the rest along and `all` would arrive as the
+    // type. Whatever is written therefore runs from the type through the last
+    // field that is not a default, and an all-default style writes none of them.
+    const style_type = sv.styleType orelse base_style_type;
+    const coordinate_system = sv.coordinateSystem orelse base_system;
+    const orientation = sv.coordinateOrientation orelse base_orientation;
+    const steps = sv.plotSteps orelse base_steps;
+    const head_words = [_][]const u8{ @tagName(style_type), @tagName(coordinate_system), @tagName(orientation), @tagName(steps) };
+    const default_words = [_][]const u8{ @tagName(base_style_type), @tagName(base_system), @tagName(base_orientation), @tagName(base_steps) };
+
+    var head: std.ArrayList([]const u8) = .empty;
+    defer head.deinit(allocator);
+    var last_set: ?usize = null;
+    for (head_words, default_words, 0..) |word, base_word, i| {
+        if (!std.mem.eql(u8, word, base_word)) last_set = i;
+    }
+    if (last_set) |last| {
+        for (head_words[0 .. last + 1]) |word| {
+            try head.append(allocator, try allocator.dupe(u8, word));
+        }
+    }
+
+    var body: std.ArrayList([]const u8) = .empty;
+    defer body.deinit(allocator);
+
+    if (style_type == .pt2d) {
+        const shape = attrs.pointShape orelse base_attrs.pointShape.?;
+        if (shape.value != base_attrs.pointShape.?.value) try body.append(allocator, try std.fmt.allocPrint(allocator, "sh:{s}", .{@tagName(shape.value)}));
+        const size = attrs.pointSize orelse base_attrs.pointSize.?;
+        if (size.value != base_attrs.pointSize.?.value) try body.append(allocator, try std.fmt.allocPrint(allocator, "s:{}", .{size.value}));
+        const color = attrs.lineColor orelse base_attrs.lineColor.?;
+        if (color.value != base_attrs.lineColor.?.value) try body.append(allocator, try std.fmt.allocPrint(allocator, "c:{s}", .{@tagName(color.value)}));
+        const opacity = attrs.lineOpacity orelse base_attrs.lineOpacity.?;
+        if (opacity.value != base_attrs.lineOpacity.?.value) try body.append(allocator, try std.fmt.allocPrint(allocator, "o:{}", .{opacity.value}));
+    } else {
+        const width = attrs.lineWidth orelse base_attrs.lineWidth.?;
+        if (width.reference != base_attrs.lineWidth.?.reference or width.value != base_attrs.lineWidth.?.value) try body.append(allocator, try std.fmt.allocPrint(allocator, "{s}:{}", .{ lineWidthTag(width.reference), width.value }));
+        const color = attrs.lineColor orelse base_attrs.lineColor.?;
+        if (color.value != base_attrs.lineColor.?.value) try body.append(allocator, try std.fmt.allocPrint(allocator, "c:{s}", .{@tagName(color.value)}));
+        const opacity = attrs.lineOpacity orelse base_attrs.lineOpacity.?;
+        if (opacity.value != base_attrs.lineOpacity.?.value) try body.append(allocator, try std.fmt.allocPrint(allocator, "o:{}", .{opacity.value}));
+        const cap = attrs.lineCap orelse base_attrs.lineCap.?;
+        if (cap.value != base_attrs.lineCap.?.value) try body.append(allocator, try std.fmt.allocPrint(allocator, "e:{s}", .{@tagName(cap.value)}));
+        const join = attrs.lineJoin orelse base_attrs.lineJoin.?;
+        if (join.value != base_attrs.lineJoin.?.value) try body.append(allocator, try std.fmt.allocPrint(allocator, "j:{s}", .{@tagName(join.value)}));
+    }
+
+    // A resolved style without dashing draws a solid line, so only a style that
+    // asked for some needs it written out, and `d:none` has to be kept as it
+    // turns dashing back off.
+    if (attrs.lineDashing) |dashing| {
+        if (dashing.onOff.len == 0) {
+            try body.append(allocator, try allocator.dupe(u8, "d:none"));
+        } else {
+            var dashes: std.ArrayList([]const u8) = .empty;
+            defer dashes.deinit(allocator);
+            for (dashing.onOff, 0..) |v, i| {
+                if (i > 0) try dashes.append(allocator, try allocator.dupe(u8, ", "));
+                try dashes.append(allocator, try std.fmt.allocPrint(allocator, "{}", .{v}));
+            }
+            try body.append(allocator, try std.fmt.allocPrint(allocator, "{s}:[{s}] {}", .{ dashingTag(dashing.reference), try std.mem.join(allocator, "", dashes.items), dashing.offset }));
+        }
+    }
+
+    var out: std.ArrayList(u8) = .empty;
+    errdefer out.deinit(allocator);
+    const parts = try std.mem.join(allocator, " ", head.items);
+    const attrs_text = try std.mem.join(allocator, ", ", body.items);
+    // An all-default style type needs no words of its own, so the space that
+    // would separate them from the attributes is dropped too.
+    const gap: []const u8 = if (head.items.len == 0) "" else " ";
+    try out.appendSlice(allocator, try std.fmt.allocPrint(allocator, "{s}:{{{s}{s}[{s}]}}", .{ name, parts, gap, attrs_text }));
+    return out.toOwnedSlice(allocator);
+}
+
+test "serializeStyleMinimal saves a style that reads back the same" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Every case here leans on something that a saved line can lose: a width in
+    // units other than the default, a dashing pattern, an inherited base, a
+    // coordinate system. A definition kept in a namespace outlives whatever it
+    // was saved next to, so what comes back out of the parser has to mean what
+    // went in, field for field.
+    const cases = [_][]const u8{
+        "e0:{vec2d xy fixed last}",
+        "e0:{vec2d xy fixed last [l: 10]}",
+        "e0:{vec2d xy fixed last [lG: 6]}",
+        "e0:{vec2d xy fixed last [lL: 40]}",
+        "e0:{vec2d xy fixed last [lO: 3]}",
+        "e0:{vec2d xy fixed last [c: blue, o: 60]}",
+        "e0:{vec2d xy fixed last [e: round, j: bevel]}",
+        "e0:{vec2d polar fixed last [l: 10]}",
+        "e0:{vec2d polar local all [l: 10]}",
+        "e0:{vec2d xy fixed all [dG: [2, 3, 10] 5]}",
+        "e0:{vec2d xy fixed last [dN: [4, 4] 0]}",
+        "e0:{vec2d xy fixed last [dL: [1, 2] 3]}",
+        "e0:{vec2d xy fixed last [d: [6, 2] 1]}",
+        "e0:{vec2d xy fixed last [d: none]}",
+        "e0:{pt2d xy fixed last [sh: square, s: 5, c: green, o: 70]}",
+        "e0:{pt2d xy fixed last [sh: cross, s: 20]}",
+    };
+
+    for (cases) |case| {
+        const parsed = try stylesParser.parse(a, case);
+        const before = (try resolveStyles(a, parsed.value.ok))[0];
+
+        const saved = try serializeStyleMinimal(a, "e0", before);
+        const reparsed = try stylesParser.parse(a, saved);
+        const after = (try resolveStyles(a, reparsed.value.ok))[0];
+
+        testing.expectEqualDeep(before.styleValue, after.styleValue) catch |err| {
+            std.debug.print("\nsaved from `{s}`\n  as `{s}`\n  before {any}\n  after  {any}\n", .{ case, saved, before.styleValue, after.styleValue });
+            return err;
+        };
+    }
+}
+
+test "serializeStyleMinimal folds an inherited base into the saved line" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const parsed = try stylesParser.parse(a, "e0:{[l: 30, c: red]}, e1: e0{[c: blue]}, e2: e1{}");
+    const resolved = try resolveStyles(a, parsed.value.ok);
+
+    // The chain e2 -> e1 -> e0 has to come out as one line that names no base.
+    const e1 = try serializeStyleMinimal(a, "e1", resolved[1]);
+    try testing.expectEqualStrings("e1:{[l:30, c:blue]}", e1);
+    const e2 = try serializeStyleMinimal(a, "e2", resolved[2]);
+    try testing.expectEqualStrings("e2:{[l:30, c:blue]}", e2);
+}
+
+test "serializeStyleMinimal leaves every default out" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const parsed = try stylesParser.parse(a, "e0:{vec2d xy fixed last}");
+    const resolved = try resolveStyles(a, parsed.value.ok);
+    try testing.expectEqualStrings("e0:{[]}", try serializeStyleMinimal(a, "e0", resolved[0]));
+
+    // A point style keeps only what it set, and says so by naming its type.
+    const points = try stylesParser.parse(a, "e0:{pt2d xy fixed last [sh: square]}");
+    const point_resolved = try resolveStyles(a, points.value.ok);
+    try testing.expectEqualStrings("e0:{pt2d [sh:square]}", try serializeStyleMinimal(a, "e0", point_resolved[0]));
+
+    // Dashing the user turned off is not dashing, so it is left out with the
+    // rest of the defaults rather than written out as `d: none`.
+    const solid = try stylesParser.parse(a, "e0:{vec2d xy fixed last [d: none]}");
+    const solid_resolved = try resolveStyles(a, solid.value.ok);
+    try testing.expectEqualStrings("e0:{[]}", try serializeStyleMinimal(a, "e0", solid_resolved[0]));
+}
 
 /// Serializes a slice of resolved styles into a single comma-separated string.
 pub fn serializeStyles(allocator: std.mem.Allocator, styles: []const Style) ![]const u8 {

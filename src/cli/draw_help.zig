@@ -60,6 +60,11 @@ pub const vec2d_style_help =
     \\  ~/.config/zsat/zsat.conf, where it can later be used as NS::KEY. The
     \\  namespace is created when it is not there yet. Storing a key that already
     \\  exists in that namespace fails, unless --overwrite is given.
+    \\  A definition that inherits from another one, whether it was written in
+    \\  --styles or came from a namespace, is saved with that inheritance folded
+    \\  in, so the stored line names no base and keeps meaning the same thing
+    \\  whatever it is loaded next to. Settings left at their default are left out
+    \\  of the stored line and fall back to the built-in defaults.
     \\
     \\TYPE (default: vec2d):
     \\  vec2d  -- input is parsed as 2D vectors
@@ -221,6 +226,11 @@ pub const pt2d_style_help =
     \\  ~/.config/zsat/zsat.conf, where it can later be used as NS::KEY. The
     \\  namespace is created when it is not there yet. Storing a key that already
     \\  exists in that namespace fails, unless --overwrite is given.
+    \\  A definition that inherits from another one, whether it was written in
+    \\  --styles or came from a namespace, is saved with that inheritance folded
+    \\  in, so the stored line names no base and keeps meaning the same thing
+    \\  whatever it is loaded next to. Settings left at their default are left out
+    \\  of the stored line and fall back to the built-in defaults.
     \\
     \\TYPE:
     \\  pt2d  -- input is parsed as 2D points and drawn as markers
@@ -504,6 +514,11 @@ pub const axis_help =
     \\  ~/.config/zsat/zsat.conf, where it can later be used as NS::KEY. The
     \\  namespace is created when it is not there yet. Storing a key that already
     \\  exists in that namespace fails, unless --overwrite is given.
+    \\  A definition that inherits from another one, whether it was written in
+    \\  --styles or came from a namespace, is saved with that inheritance folded
+    \\  in, so the stored line names no base and keeps meaning the same thing
+    \\  whatever it is loaded next to. Settings left at their default are left out
+    \\  of the stored line and fall back to the built-in defaults.
     \\
     \\Axis inheritance (style update rules):
     \\  aN: aM {ATTRIBUTES}  -- axis aN copies axis aM, then overrides the given

@@ -425,14 +425,93 @@ fn reportUnnamedDefinition(alloc: std.mem.Allocator, key: []const u8, definition
     stylesErrorDetail = try std.fmt.allocPrint(alloc, "Error: '{s}' names no definition in --styles. Defined: {s}.", .{ key, try std.mem.join(alloc, ", ", names.items) });
 }
 
-fn findRawDefinition(definitions: []const RawDefinition, name: []const u8) ?[]const u8 {
+fn findRawDefinition(definitions: []const RawDefinition, name: []const u8) ?RawDefinition {
     for (definitions) |definition| {
-        if (std.mem.eql(u8, definition.name, name)) return definition.text;
+        if (std.mem.eql(u8, definition.name, name)) return definition;
     }
     return null;
 }
 
-fn saveToConfig(alloc: std.mem.Allocator, ctx: zli.CommandContext, environ: std.process.Environ, definitions: []const RawDefinition, save_str: []const u8, overwrite: bool) !void {
+/// The same lookup, but also accepting a definition that reached us under a
+/// namespace alias, so `use sleek as s, s::a1` can be saved as `myns::a1`. The
+/// whole definition comes back rather than just its text: what the resolver
+/// knows a definition by is the name it was collected under, which for such a
+/// definition is the alias and not the key being saved.
+fn findRawDefinitionByBaseName(definitions: []const RawDefinition, name: []const u8) ?RawDefinition {
+    if (findRawDefinition(definitions, name)) |definition| return definition;
+    for (definitions) |definition| {
+        const qualified = std.mem.lastIndexOf(u8, definition.name, "::") orelse continue;
+        if (std.mem.eql(u8, definition.name[qualified + 2 ..], name)) return definition;
+    }
+    return null;
+}
+
+/// Whether a name is an axis key, i.e. `a` followed by digits.
+fn isAxisName(name: []const u8) bool {
+    if (name.len < 2 or name[0] != 'a') return false;
+    for (name[1..]) |c| {
+        if (!std.ascii.isDigit(c)) return false;
+    }
+    return true;
+}
+
+/// Whether a name is a line or point style key, i.e. `eN` or `pN`. A number at
+/// or above the point-style offset counts as a `pN`.
+fn isStyleName(name: []const u8) bool {
+    if (name.len < 2 or (name[0] != 'e' and name[0] != 'p')) return false;
+    for (name[1..]) |c| {
+        if (!std.ascii.isDigit(c)) return false;
+    }
+    return true;
+}
+
+/// The text to store for a saved definition. A definition kept in a namespace
+/// has to stand on its own, because nothing outside that namespace can be
+/// relied on: only the built-in defaults are always in reach. A definition
+/// written as `a1: a0{...}` therefore cannot be stored as it stands, so it is
+/// expanded into a complete definition first, with the base folded in and every
+/// default left out. Definitions with nothing to inherit from are stored as the
+/// user spelled them.
+fn definitionTextForSave(
+    alloc: std.mem.Allocator,
+    axes: []const Axis.AxisDefinition,
+    styles: []const Styles.Style,
+    target_name: []const u8,
+    raw: RawDefinition,
+) ![]const u8 {
+    // What the resolver collected the definition under, which is the name to
+    // look it up by. For `use sleek as s, s::a1` saved as `myns::a1` that is
+    // `s::a1`, and looking up `a1` instead would find whichever definition the
+    // key happens to carry in the current --styles, which need not be this one.
+    const collected_name = raw.name;
+    const raw_text = raw.text;
+    if (isAxisName(target_name)) {
+        const resolved = Axis.resolveAxes(alloc, axes) catch |err| switch (err) {
+            error.AxisBaseInvalid => {
+                saveErrorDetail = Axis.axisBaseErrorDetail();
+                return error.AxisBaseInvalid;
+            },
+            else => return err,
+        };
+        for (resolved) |axis| {
+            if (std.mem.eql(u8, axis.name, collected_name)) return Axis.serializeAxis(alloc, target_name, axis.axis);
+        }
+        return raw_text;
+    }
+
+    if (isStyleName(target_name)) {
+        const resolved = try Styles.resolveStyles(alloc, styles);
+        for (resolved) |style| {
+            const collected = style.name orelse continue;
+            if (std.mem.eql(u8, collected, collected_name)) return Styles.serializeStyleMinimal(alloc, target_name, style);
+        }
+        return raw_text;
+    }
+
+    return raw_text;
+}
+
+fn saveToConfig(alloc: std.mem.Allocator, ctx: zli.CommandContext, environ: std.process.Environ, definitions: []const RawDefinition, axes: []const Axis.AxisDefinition, styles: []const Styles.Style, save_str: []const u8, overwrite: bool) !void {
     const target = parseQualifiedReference(save_str) orelse {
         saveErrorDetail = try std.fmt.allocPrint(alloc, "Error: --save expects a 'NS::KEY' target, but '{s}' was given.", .{save_str});
         return error.SaveTargetNotFound;
@@ -442,10 +521,12 @@ fn saveToConfig(alloc: std.mem.Allocator, ctx: zli.CommandContext, environ: std.
         return error.SaveTargetNotFound;
     }
 
-    const text = findRawDefinition(definitions, target.name) orelse {
+    const raw_definition = findRawDefinitionByBaseName(definitions, target.name) orelse {
         saveErrorDetail = try std.fmt.allocPrint(alloc, "Error: --save was asked to store '{s}' in namespace '{s}', but that key is not defined in --styles. Define it first, e.g. --styles '{s}:{{...}}'.", .{ target.name, target.namespace, target.name });
         return error.SaveTargetNotFound;
     };
+
+    const text = try definitionTextForSave(alloc, axes, styles, target.name, raw_definition);
 
     config.saveDefinition(alloc, ctx.io, environ, target.namespace, target.name, text, overwrite) catch |err| switch (err) {
         error.KeyAlreadyExists => {
@@ -870,10 +951,6 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
         try draw_elements_list.append(alloc, element);
     }
 
-    if (ctx.flag("save", []const u8).len > 0) {
-        try saveToConfig(alloc, ctx, environ, raw_definitions, ctx.flag("save", []const u8), ctx.flag("overwrite", bool));
-    }
-
     var styles_list = std.ArrayList(Styles.Style).empty;
     var style_names = std.ArrayList([]const u8).empty;
     var borders_list = std.ArrayList(Border.BorderDefinition).empty;
@@ -928,6 +1005,12 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
     const borders = try borders_list.toOwnedSlice(alloc);
     const texts = try texts_list.toOwnedSlice(alloc);
     const axes = try axes_list.toOwnedSlice(alloc);
+
+    // Saving waits until the definitions are parsed, so a definition can be
+    // stored expanded out of whatever it resolved against.
+    if (ctx.flag("save", []const u8).len > 0) {
+        try saveToConfig(alloc, ctx, environ, raw_definitions, axes, raw_styles, ctx.flag("save", []const u8), ctx.flag("overwrite", bool));
+    }
 
     const styles = try Styles.resolveStyles(alloc, raw_styles);
 
@@ -1468,6 +1551,19 @@ fn run(ctx: zli.CommandContext) !void {
 
     const debug = ctx.flag("debug", bool);
 
+    // --overwrite only says something together with --save. Reaching here
+    // without one almost always means the key was handed to --overwrite
+    // instead, as in `--overwrite myns::a1`: --overwrite is a switch, so the
+    // key is not its value, and `draw` takes no bare arguments, so the key is
+    // dropped without a word and nothing gets stored. Saying so beats a draw
+    // that runs and quietly writes nothing.
+    if (ctx.flag("overwrite", bool) and ctx.flag("save", []const u8).len == 0) {
+        const detail = try std.fmt.allocPrint(alloc, "Error: --overwrite was given without --save, so there is nothing to overwrite. --overwrite is a switch and takes no value of its own: give the target to --save instead, as '--save NS::KEY --overwrite'.", .{});
+        saveErrorDetail = detail;
+        std.debug.print("{s}\n", .{detail});
+        std.process.exit(1);
+    }
+
     const environ: *std.process.Environ = @ptrCast(@alignCast(ctx.data.?));
 
     runInternal(ctx, alloc, environ.*) catch |err| {
@@ -1483,7 +1579,7 @@ fn runInternal(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.p
     const out_filename = ctx.flag("out", []const u8);
     const force_file = out_filename.len > 0;
     const term_supports = checkTerminalSupportsKitty(environ);
-        const stdout_is_tty = try std.Io.File.stdout().isTty(ctx.io);
+    const stdout_is_tty = try std.Io.File.stdout().isTty(ctx.io);
     const should_display = !force_file and term_supports and stdout_is_tty;
 
     if (std.mem.eql(u8, out_filename, "/dev/null")) {

@@ -1032,6 +1032,52 @@ echo '[[1,1]]' | zsat draw \
 `a1` rotates its values with `a: -90` so they read as in the horizontal axis, and `e:start` pins their leading edge on the offset.
 Without it the labels stay centered on the offset, and because `a1` shows decimal values the longer ones — `0.25`, `0.5`, `0.75` — grow back across the axis line while the single digit `0` still clears it.
 With `e:start` every label begins at the same distance from the line and extends away from it.
+It is worth mentioning that `edge`, aka `e`, also takes `end` and `center`.
+
+Now let's assume we are very fond of how the above axes look and want to keep them under a new namespace, `experimental`.
+A definition can be written back to `~/.config/zsat/zsat.conf` with `--save NS::KEY`, taking the definition of `KEY` as `--styles` spelled it out:
+
+```bash
+echo '[[1,1]]' | zsat draw \
+-s 'use sleek as s, s::e0, s::b0, a0: s::a0{ticks:[pos:0,0.25,0.5, 0.75,1],values:[vals:0,0.25,0.5,0.75,1.0]},
+    a1: a0{ticks:[style:[f:below]],values:[style: [f:below, a: -90, e:start]]}' \
+-o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a0, ft {(-0.1,0)} {(-0.1,1.1)} a1)' \
+-p 'p0:{size: 600x600, border: s::b0}' \
+--save experimental::a1
+```
+
+`a1` is built on `a0`, which is in turn built on `s::a0`, and a saved definition has to stand on its own: the namespace it lands in cannot resolve `a0` or `s::a0` on its own, so storing `a1: a0{...}` would write a reference that does not lead anywhere.
+The inheritance is therefore folded in before the line is written, leaving the settings `a1` actually ended up with:
+
+```bash
+a1: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.25,0.5,0.75,1, style:[c:lightgrey, o:80, s:5, h:12, f:below]], values:[vals:0,0.25,0.5,0.75,1, style:[o:80, s:25, sp:4, f:below, a:-90, e:start]]}
+```
+Please refer to zsat.conf and notice that the above line was added under `experimental` namespace.
+This holds no matter where the definition came from — a base written inline, one inherited from a namespace, or a chain of either.
+The stored axis can be used on its own, and draws exactly what the chain drew, without `a0` having to be redefined inline:
+
+```bash
+echo '[[1,1]]' | zsat draw \
+-s 'use sleek as s, s::b0, a0: s::a0{ticks:[pos:0,0.25,0.5, 0.75,1],values:[vals:0,0.25,0.5,0.75,1.0]}, experimental::a1' \
+-o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a0, ft {(-0.1,0)} {(-0.1,1.1)} a1)' \
+-p 'p0:{size: 600x600, border: s::b0}'
+```
+
+Settings that are still at their default are left out of the stored line and fall back to the built-in defaults, so it says only what it needs to: in the line above, the value positions, the label sizes and the `a: -90` rotation are all kept, while the parts left out never needed writing in the first place.
+Storing a key that is already in that namespace fails unless `--overwrite` is given:
+
+```bash
+echo '[[1,1]]' | zsat draw \
+-s 'use sleek as s, s::e0, s::b0, a0: s::a0{ticks:[pos:0,0.25,0.5, 0.75,1],values:[vals:0,0.25,0.5,0.75,1.0]},
+    a1: a0{ticks:[style:[f:below]],values:[style: [f:below, a: -90, e:start]]}' \
+-o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a0, ft {(-0.1,0)} {(-0.1,1.1)} a1)' \
+-p 'p0:{size: 600x600, border: s::b0}' \
+--save experimental::a1
+
+Error: key 'a1' is already defined in namespace 'experimental' of ~/.config/zsat/zsat.conf. Use --overwrite to replace it.
+```
+
+As suggested one can use `--save experimental::a1 --overwrite` to overwirte the config.
 
 
 ## Exploring the tool through help

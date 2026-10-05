@@ -663,7 +663,9 @@ test "zsat draw saves a style into a new namespace" {
     const content = try fixture.readContent();
     defer std.testing.allocator.free(content);
     try testing.expect(std.mem.indexOf(u8, content, "- myns\n") != null);
-    try testing.expect(std.mem.indexOf(u8, content, "e5:{vec2d xy fixed last [c: blue]}\n") != null);
+    // The colour is the only thing that is not a default, so it is the only
+    // thing the saved line has to say.
+    try testing.expect(std.mem.indexOf(u8, content, "e5:{[c:blue]}\n") != null);
     try testing.expect(std.mem.indexOf(u8, content, test_config_content) != null);
 
     const use_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "myns::e5" };
@@ -672,6 +674,169 @@ test "zsat draw saves a style into a new namespace" {
 
     try testing.expectEqual(@as(u8, 0), use_result.code);
     try testing.expect(std.mem.indexOf(u8, use_result.stdout, "c: blue") != null);
+}
+
+test "zsat draw saves an inherited style as a complete definition" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    // `e2` inherits through `e1` from `e0`, and the settings that only come
+    // from a base have to travel with it: the namespace it lands in cannot
+    // resolve `e0` or `e1`, so a saved line naming either would not load.
+    const styles = "e0:{[l:30, c:red]}, e1: e0{[c:blue]}, e2: e1{}";
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "myns::e2", "--styles", styles };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+
+    const content = try fixture.readContent();
+    defer std.testing.allocator.free(content);
+
+    // The whole chain is folded into one line that names no base, and the
+    // settings still at their default are left out.
+    try testing.expect(std.mem.indexOf(u8, content, "e2:{[l:30, c:blue]}\n") != null);
+    try testing.expect(std.mem.indexOf(u8, content, "e2: e1\n") == null);
+
+    // Loaded on its own from the saved namespace, it draws what it did before.
+    const use_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "myns::e2" };
+    var use_result = try cmdtest.run(io, .{ .argv = use_argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer use_result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), use_result.code);
+    try testing.expect(std.mem.indexOf(u8, use_result.stdout, "c: blue") != null);
+    try testing.expect(std.mem.indexOf(u8, use_result.stdout, "l:30") != null);
+}
+
+test "zsat draw saves a style that came from another namespace" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    const config_with_style =
+        \\- extra
+        \\e3: e0 {[c: green]}
+        \\
+    ;
+    var fixture = try writeTestConfigWith(config_with_style);
+    defer fixture.deinit();
+
+    // `e3` only exists as `x::e3` once the namespace is brought in, so the
+    // saved line has to come from that definition rather than from whatever
+    // else the key `e3` happens to name here.
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "myns::e3", "--styles", "use extra as x" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+
+    const content = try fixture.readContent();
+    defer std.testing.allocator.free(content);
+    try testing.expect(std.mem.indexOf(u8, content, "e3:{[c:green]}\n") != null);
+    try testing.expect(std.mem.indexOf(u8, content, "e3: e0\n") == null);
+}
+
+test "zsat draw saves a point style as a complete definition" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    const styles = "p0:{pt2d [sh:square, s:15, c: grey]}, p1: p0{[c:blue]}";
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "myns::p1", "--styles", styles };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+
+    const content = try fixture.readContent();
+    defer std.testing.allocator.free(content);
+    try testing.expect(std.mem.indexOf(u8, content, "p1:{pt2d [sh:square, s:15, c:blue]}\n") != null);
+}
+
+test "zsat draw refuses --overwrite without --save" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    // `--overwrite experimental::a1` reads as if the key were the flag's value.
+    // It is not: --overwrite is a switch, and draw takes no bare arguments, so
+    // the key used to be dropped without a word, --save stayed empty, and the
+    // whole draw ran and stored nothing.
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "e5:{vec2d xy fixed last [c: blue]}", "--overwrite", "myns::e5" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expect(result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "--overwrite was given without --save") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stderr, "--save NS::KEY --overwrite") != null);
+
+    // Nothing was written, not even a namespace.
+    const content = try fixture.readContent();
+    defer std.testing.allocator.free(content);
+    try testing.expectEqualStrings(test_config_content, content);
+}
+
+test "zsat draw saves an inherited axis as a complete definition" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    const config_with_axis =
+        \\- sleek
+        \\a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.25,0.5, style:[c:lightgrey, h:12]], values:[vals:0,0.25,0.5, style:[o:80, s:25]]}
+        \\
+    ;
+    var fixture = try writeTestConfigWith(config_with_axis);
+    defer fixture.deinit();
+
+    // `a1` inherits from sleek's `a0`. Saving it as it stands would leave a
+    // reference to `a0`, which nothing in the target namespace can resolve.
+    const styles = "use sleek as s, a1: s::a0{ticks:[pos:0,0.25,0.5,0.75,1], values:[vals:0,0.25,0.5,0.75,1.0]}, a2: a1{ticks:[style:[f:below]], values:[style:[f:below, a:-90, e:start]]}";
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "myns::a2", "--styles", styles };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+
+    const content = try fixture.readContent();
+    defer std.testing.allocator.free(content);
+
+    // The whole chain, including the base that came from the config, is folded
+    // in, and nothing refers to another definition any more.
+    try testing.expect(std.mem.indexOf(u8, content, "a0{") == null);
+    try testing.expect(std.mem.indexOf(u8, content, "a1{") == null);
+    try testing.expect(std.mem.indexOf(u8, content, "s::") == null);
+    try testing.expect(std.mem.indexOf(u8, content, "a2: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.25,0.5,0.75,1, style:[c:lightgrey, h:12, f:below]], values:[vals:0,0.25,0.5,0.75,1, style:[o:80, s:25, f:below, a:-90, e:start]]}\n") != null);
+
+    // Defaults are left out: no `c:black` for the value labels, and the
+    // spacing of 2 that the default carries is not restated.
+    try testing.expect(std.mem.indexOf(u8, content, "c:black") == null);
+    try testing.expect(std.mem.indexOf(u8, content, "sp:2") == null);
+
+    // The saved definition works on its own, from that namespace alone.
+    const use_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "myns::a2", "--outputs", "(out) -> (out, ft {(-0.1,0)} {(-0.1,1.1)} a2)", "--panes", "p0:{size: 100x100}" };
+    var use_result = try cmdtest.run(io, .{ .argv = use_argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer use_result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), use_result.code);
+}
+
+test "zsat draw saves an axis of only defaults as an empty body" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--save", "myns::a7", "--styles", "a7:{axis line:[c:black, o:100, s:2]}" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+
+    const content = try fixture.readContent();
+    defer std.testing.allocator.free(content);
+    // Every field was already the default, so the definition carries none.
+    try testing.expect(std.mem.indexOf(u8, content, "a7: {}\n") != null);
 }
 
 test "zsat draw appends to a text value with + in outputs" {
@@ -948,7 +1113,7 @@ test "zsat draw overwrites a saved key with --overwrite" {
 
     const content = try fixture.readContent();
     defer std.testing.allocator.free(content);
-    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, content, "e0:{vec2d xy fixed last [c: blue]}"));
+    try testing.expectEqual(@as(usize, 1), std.mem.count(u8, content, "e0:{[c:blue]}"));
     try testing.expect(std.mem.indexOf(u8, content, "c: red") == null);
     try testing.expect(std.mem.indexOf(u8, content, "- namespace1") != null);
     try testing.expect(std.mem.indexOf(u8, content, "p1:{pt2d [sh:circle, s:30, c: blue]}") != null);
@@ -1007,7 +1172,7 @@ test "zsat draw saves into a config file that does not exist yet" {
 
     const content = try tmp.dir.readFileAlloc(io, ".config/zsat/zsat.conf", std.testing.allocator, .limited(1024 * 1024));
     defer std.testing.allocator.free(content);
-    try testing.expectEqualStrings("- fresh\ne0:{vec2d xy fixed last [c: blue]}\n", content);
+    try testing.expectEqualStrings("- fresh\ne0:{[c:blue]}\n", content);
 }
 
 test "zsat draw reports missing config file" {

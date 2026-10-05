@@ -1045,6 +1045,219 @@ pub fn resolveAxisOverlay(alloc: std.mem.Allocator, item: AxisItem, axes: []cons
     return null;
 }
 
+// ---- serialization for --save ----
+
+/// A definition is only useful in a namespace if it stands on its own, so an
+/// axis is written out fully expanded: the inheritance chain is already folded
+/// into the resolved values, and every field left at its default is left out so
+/// the saved line leans on the built-in defaults instead of restating them.
+/// Nothing in the result refers to another definition.
+fn allocFloatList(alloc: std.mem.Allocator, values: []const f32) ![]const u8 {
+    var parts: std.ArrayList([]const u8) = .empty;
+    errdefer parts.deinit(alloc);
+    for (values) |value| try parts.append(alloc, try std.fmt.allocPrint(alloc, "{d}", .{value}));
+    return std.mem.join(alloc, ",", parts.items);
+}
+
+/// Whether an angle is the `0` a `ValueStyle` starts out with, in either unit.
+fn angleIsZero(angle: inputs.Angle) bool {
+    return switch (angle) {
+        .degrees => |d| d == 0,
+        .radians => |r| r == 0,
+    };
+}
+
+/// Writes an angle in degrees, which is the unit a bare number is read as. The
+/// radian spellings (`1r4p`, `2p`, `p`) only cover whole multiples of pi, so
+/// degrees are the one form that can carry any angle.
+fn allocAngle(alloc: std.mem.Allocator, angle: inputs.Angle) ![]const u8 {
+    const degrees: f32 = switch (angle) {
+        .degrees => |d| d,
+        .radians => |r| r * 180.0 / inputs.pi,
+    };
+    return std.fmt.allocPrint(alloc, "{d}", .{degrees});
+}
+
+fn axisLineAttributes(alloc: std.mem.Allocator, line: AxisLineStyle) !std.ArrayList([]const u8) {
+    const defaults: AxisLineStyle = .{};
+    var attrs: std.ArrayList([]const u8) = .empty;
+    errdefer attrs.deinit(alloc);
+    if (line.color != defaults.color) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "c:{s}", .{@tagName(line.color)}));
+    if (line.opacity != defaults.opacity) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "o:{}", .{line.opacity}));
+    if (line.size != defaults.size) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "s:{}", .{line.size}));
+    return attrs;
+}
+
+fn tickStyleAttributes(alloc: std.mem.Allocator, style: TickStyle) !std.ArrayList([]const u8) {
+    const defaults: TickStyle = .{};
+    var attrs: std.ArrayList([]const u8) = .empty;
+    errdefer attrs.deinit(alloc);
+    if (style.color != defaults.color) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "c:{s}", .{@tagName(style.color)}));
+    if (style.opacity != defaults.opacity) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "o:{}", .{style.opacity}));
+    if (style.size != defaults.size) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "s:{}", .{style.size}));
+    if (style.height != defaults.height) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "h:{}", .{style.height}));
+    if (style.form != defaults.form) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "f:{s}", .{@tagName(style.form)}));
+    return attrs;
+}
+
+fn valueStyleAttributes(alloc: std.mem.Allocator, style: ValueStyle) !std.ArrayList([]const u8) {
+    const defaults: ValueStyle = .{};
+    var attrs: std.ArrayList([]const u8) = .empty;
+    errdefer attrs.deinit(alloc);
+    if (style.color != defaults.color) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "c:{s}", .{@tagName(style.color)}));
+    if (style.opacity != defaults.opacity) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "o:{}", .{style.opacity}));
+    if (style.size != defaults.size) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "s:{}", .{style.size}));
+    if (!std.mem.eql(u8, style.font, defaults.font)) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "font:{s}", .{style.font}));
+    if (style.spacing != defaults.spacing) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "sp:{}", .{style.spacing}));
+    if (style.form != defaults.form) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "f:{s}", .{@tagName(style.form)}));
+    if (!angleIsZero(style.angle)) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "a:{s}", .{try allocAngle(alloc, style.angle)}));
+    if (style.edge != defaults.edge) try attrs.append(alloc, try std.fmt.allocPrint(alloc, "e:{s}", .{@tagName(style.edge)}));
+    return attrs;
+}
+
+/// Serializes a resolved axis into a definition line, e.g.
+/// `a1: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.25, style:[f:below]], values:[vals:0,0.25, style:[a:-90, e:start]]}`.
+/// The line parses back into an axis that resolves to `axis`, which is what
+/// makes it safe to keep in a namespace that cannot see the original base.
+pub fn serializeAxis(alloc: std.mem.Allocator, name: []const u8, axis: Axis) ![]const u8 {
+    var sections: std.ArrayList([]const u8) = .empty;
+    errdefer sections.deinit(alloc);
+
+    const line_attrs = try axisLineAttributes(alloc, axis.line);
+    if (line_attrs.items.len > 0) {
+        try sections.append(alloc, try std.fmt.allocPrint(alloc, "axis line:[{s}]", .{try std.mem.join(alloc, ", ", line_attrs.items)}));
+    }
+
+    if (axis.ticks) |ticks| {
+        var parts: std.ArrayList([]const u8) = .empty;
+        // An axis can name a tick style without positions, so an empty list is
+        // left out rather than written as a bare `pos:`.
+        if (ticks.positions.len > 0) try parts.append(alloc, try std.fmt.allocPrint(alloc, "pos:{s}", .{try allocFloatList(alloc, ticks.positions)}));
+        const style_attrs = try tickStyleAttributes(alloc, ticks.style);
+        if (style_attrs.items.len > 0) try parts.append(alloc, try std.fmt.allocPrint(alloc, "style:[{s}]", .{try std.mem.join(alloc, ", ", style_attrs.items)}));
+        if (parts.items.len > 0) try sections.append(alloc, try std.fmt.allocPrint(alloc, "ticks:[{s}]", .{try std.mem.join(alloc, ", ", parts.items)}));
+    }
+
+    if (axis.values) |values| {
+        var parts: std.ArrayList([]const u8) = .empty;
+        if (values.vals.len > 0) try parts.append(alloc, try std.fmt.allocPrint(alloc, "vals:{s}", .{try allocFloatList(alloc, values.vals)}));
+        const style_attrs = try valueStyleAttributes(alloc, values.style);
+        if (style_attrs.items.len > 0) try parts.append(alloc, try std.fmt.allocPrint(alloc, "style:[{s}]", .{try std.mem.join(alloc, ", ", style_attrs.items)}));
+        if (parts.items.len > 0) try sections.append(alloc, try std.fmt.allocPrint(alloc, "values:[{s}]", .{try std.mem.join(alloc, ", ", parts.items)}));
+    }
+
+    return std.fmt.allocPrint(alloc, "{s}: {{{s}}}", .{ name, try std.mem.join(alloc, ", ", sections.items) });
+}
+
+/// Serializes, parses and resolves again, then hands back the axis that comes
+/// out. Comparing it with what went in is what makes the expansion trustworthy:
+/// the text has to mean the same thing on its own.
+fn reparseSerialized(alloc: std.mem.Allocator, axis: Axis) !Axis {
+    const text = try serializeAxis(alloc, "a7", axis);
+    const def = try axisDefParser.parse(alloc, text);
+    const resolved = try resolveAxes(alloc, &.{def.value.ok});
+    return resolved[0].axis;
+}
+
+fn expectAxisRoundTrip(axis: Axis) !void {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    try testing.expectEqualDeep(axis, try reparseSerialized(arena.allocator(), axis));
+}
+
+test "serializeAxis round trips a fully styled axis" {
+    const axis: Axis = .{
+        .line = .{ .color = .grey, .opacity = 80, .size = 5 },
+        .ticks = .{
+            .positions = &[_]f32{ 0.0, 0.25, 0.5, 0.75, 1.0 },
+            .style = .{ .color = .lightgrey, .opacity = 80, .size = 5, .height = 12, .form = .below },
+        },
+        .values = .{
+            .vals = &[_]f32{ 0.0, 0.25, 0.5, 0.75, 1.0 },
+            .style = .{ .color = .black, .opacity = 80, .size = 25, .spacing = 4, .form = .below, .angle = .{ .degrees = -90 }, .edge = .start },
+        },
+    };
+    try expectAxisRoundTrip(axis);
+}
+
+test "serializeAxis leaves defaults implicit" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // Nothing set at all: an axis that is all defaults needs no body.
+    try testing.expectEqualStrings("a7: {}", try serializeAxis(a, "a7", .{}));
+    try expectAxisRoundTrip(.{});
+
+    // Only the parts that differ from the defaults are written.
+    const text = try serializeAxis(a, "a7", .{
+        .ticks = .{ .positions = &[_]f32{ 0.0, 1.0 } },
+    });
+    try testing.expectEqualStrings("a7: {ticks:[pos:0,1]}", text);
+    try expectAxisRoundTrip(.{ .ticks = .{ .positions = &[_]f32{ 0.0, 1.0 } } });
+
+    // A field the user set to its default value is dropped too, which still
+    // resolves to the same axis.
+    try expectAxisRoundTrip(.{ .line = .{ .color = .black, .opacity = 100, .size = 2 } });
+    try expectAxisRoundTrip(.{ .ticks = .{ .positions = &[_]f32{ 0.0, 1.0 }, .style = .{} } });
+    try expectAxisRoundTrip(.{ .values = .{ .vals = &[_]f32{ 0.0, 1.0 }, .style = .{ .angle = .{ .degrees = 0 }, .edge = .center } } });
+
+    // Zero is the default in either unit, so `0` radians is dropped just the
+    // same. It comes back as the degrees form of the default, which is the
+    // same angle, hence not a plain round trip of the tag.
+    const radian_zero = try serializeAxis(a, "a7", .{ .values = .{ .vals = &[_]f32{0.0}, .style = .{ .angle = .{ .radians = 0 } } } });
+    try testing.expectEqualStrings("a7: {values:[vals:0]}", radian_zero);
+}
+
+test "serializeAxis writes no reference to another definition" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // The shape --save has to deal with: a base axis carrying most of the
+    // definition, with only the tick and value styles overridden.
+    const defs = [_]AxisDefinition{
+        (try axisDefParser.parse(a, "a0: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.25,0.5, style:[c:lightgrey, h:12]], values:[vals:0,0.25,0.5, style:[o:80, s:25]]}")).value.ok,
+        (try axisDefParser.parse(a, "a1: a0{ticks:[style:[f:below]], values:[style:[f:below, a:-90, e:start]]}")).value.ok,
+    };
+    const resolved = try resolveAxes(a, &defs);
+
+    const text = try serializeAxis(a, "a1", resolved[1].axis);
+
+    // The base is gone, folded into the values it contributed.
+    try testing.expect(std.mem.indexOf(u8, text, "a0{") == null);
+    try testing.expect(std.mem.indexOf(u8, text, " a0") == null);
+    try testing.expectEqualStrings("a1: {axis line:[c:grey, o:80, s:5], ticks:[pos:0,0.25,0.5, style:[c:lightgrey, h:12, f:below]], values:[vals:0,0.25,0.5, style:[o:80, s:25, f:below, a:-90, e:start]]}", text);
+
+    // And it stands alone: no base to look up, same axis out.
+    try testing.expectEqualDeep(resolved[1].axis, try reparseSerialized(a, resolved[1].axis));
+}
+
+test "serializeAxis expresses radian angles in degrees" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const half_turn: Axis = .{ .values = .{ .vals = &[_]f32{0.0}, .style = .{ .angle = .{ .radians = inputs.pi } } } };
+    const text = try serializeAxis(a, "a7", half_turn);
+    // A bare number reads as degrees, so `2p` has to come back out as 180.
+    try testing.expectEqualStrings("a7: {values:[vals:0, style:[a:180]]}", text);
+
+    const back = try reparseSerialized(a, half_turn);
+    try testing.expectApproxEqAbs(@as(f32, 180.0), back.values.?.style.angle.degrees, 0.001);
+}
+
+test "serializeAxis keeps a tick style that has no positions" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const axis: Axis = .{ .ticks = .{ .positions = &.{}, .style = .{ .form = .below } } };
+    // A bare `pos:` would not parse, so the empty list is left out.
+    try testing.expectEqualStrings("a7: {ticks:[style:[f:below]]}", try serializeAxis(a, "a7", axis));
+    try expectAxisRoundTrip(axis);
+}
+
 // ---- tests ----
 
 test "axisDefParser full" {
