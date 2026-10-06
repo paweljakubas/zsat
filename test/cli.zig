@@ -1821,6 +1821,38 @@ test "zsat draw train with draws both tine results" {
     try testing.expectEqual(@as(u8, 0), result.code);
 }
 
+test "zsat draw train comma middle draws rotate with scale" {
+    defer cleanupOutputFiles();
+    // (rotate [90 a (0% self)] , scale [[2,3]]) out
+    // = the element rotated by 90 degrees together with the element scaled by (2,3).
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(rotate [90 a (0% self)] , scale [[2,3]]) out" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw train supports a hook as a tine" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(rotate [90 a (0% self)] with (anchor {(2,0)} ,)) out" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw train nested inside a train" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "((anchor {(2,0)} with anchor {(0,0)}) with (anchor {(1,0)} with anchor {(0,0)})) out" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
 test "zsat draw rejects the removed on combinator" {
     defer cleanupOutputFiles();
     const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(anchor {(1,0)} on anchor {(2,0)}) out" };

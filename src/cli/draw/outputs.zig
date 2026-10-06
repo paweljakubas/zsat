@@ -1385,6 +1385,32 @@ test "trainParser" {
 
     const t3 = Train{ .left = CompositeInside{ .inside = &Composite{ .hook = &h3 } }, .middle = .with, .right = CompositeInside{ .stop = o3b } };
     try testing.expectEqualDeep(t3, r3.value.ok);
+
+    // The comma is a two-arg combinator equivalent to "with", usable as the middle of a train:
+    // ((r [90 a (0% self)]) , (scale [[2,3]]))
+    const r4 = try trainParser.parse(a, "((r [90 a (0% self)]) , (scale [[2,3]]))");
+
+    const f4 = ElementFraction{ .fromStart = 0, .element = .self };
+    const r4a = RotateArg{ .phi = 90.0, .point = GeneralPoint{ .fraction = f4 } };
+    const alloc4a = try a.dupe(RotateArg, &[1]RotateArg{r4a});
+    const o4a = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = alloc4a } };
+
+    const v4 = inputs.Vector{ .x = 2.0, .y = 3.0 };
+    const s4 = ScaleArg{ .translation = v4 };
+    const alloc4b = try a.dupe(ScaleArg, &[1]ScaleArg{s4});
+    const o4b = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc4b } };
+
+    const t4 = Train{ .left = CompositeInside{ .stop = o4a }, .middle = .with, .right = CompositeInside{ .stop = o4b } };
+    try testing.expectEqualDeep(t4, r4.value.ok);
+
+    // Left tine can itself be a train:
+    // ((anchor {(0,0)} with (anchor {(1,0)}) with (scale [[2,3]]))
+    const r5 = try trainParser.parse(a, "((anchor {(0,0)} with anchor {(1,0)}) with (scale [[2,3]]))");
+    try testing.expect(r5.value.ok.left == .inside);
+    try testing.expect(std.meta.activeTag(r5.value.ok.left.inside.*) == .train);
+    try testing.expectEqual(TwoArgCombinator.with, r5.value.ok.middle);
+    try testing.expect(r5.value.ok.right == .stop);
+    try testing.expect(r5.value.ok.right.stop == .scale);
 }
 
 const composePartialItemParserRaw = mecha.combine(.{
@@ -6007,6 +6033,153 @@ test "toExplicitPoint train draws both tine results" {
 
     // Left tine anchors at (2,0): (2,0)->(3,1). Right tine is identity: (0,0)->(1,1).
     const expected = [_][2]f32{ .{ 2.0, 0.0 }, .{ 3.0, 1.0 }, .{ 0.0, 0.0 }, .{ 1.0, 1.0 } };
+    for (res.transformationPairs[0].operation.ops, 0..) |op, i| {
+        try testing.expectApproxEqAbs(expected[i][0], op.anchor.point.point.x, 0.001);
+        try testing.expectApproxEqAbs(expected[i][1], op.anchor.point.point.y, 0.001);
+    }
+}
+
+test "toExplicitPoint train comma middle draws rotate with scale" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (rotate [90 a (0% self)] , scale [[2,3]]) out with input [[1,1]]:
+    // left tine: rotate 90 around element's beginning -> (0,0)->(-1,1)
+    // right tine: scale by (2,3) in fixed mode -> (0,0)->(2,3)
+    const rot_point = GeneralPoint{ .fraction = .{ .fromStart = 0, .element = .self } };
+    const rot_arg = RotateArg{ .phi = 90.0, .point = rot_point };
+    const rot_elements = try a.dupe(RotateArg, &[1]RotateArg{rot_arg});
+    const rotate_op = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = rot_elements } };
+    const scale_arg = ScaleArg{ .translation = inputs.Vector{ .x = 2.0, .y = 3.0 } };
+    const scale_elements = try a.dupe(ScaleArg, &[1]ScaleArg{scale_arg});
+    const scale_op = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = scale_elements } };
+    const train = Train{
+        .left = CompositeInside{ .stop = rotate_op },
+        .middle = .with,
+        .right = CompositeInside{ .stop = scale_op },
+    };
+    const composite = Composite{ .train = &train };
+
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{ .ops = &.{} },
+        .composite = composite,
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    const expected = [_][2]f32{ .{ 0.0, 0.0 }, .{ -1.0, 1.0 }, .{ 0.0, 0.0 }, .{ 2.0, 3.0 } };
+    for (res.transformationPairs[0].operation.ops, 0..) |op, i| {
+        try testing.expectApproxEqAbs(expected[i][0], op.anchor.point.point.x, 0.001);
+        try testing.expectApproxEqAbs(expected[i][1], op.anchor.point.point.y, 0.001);
+    }
+}
+
+test "toExplicitPoint train supports a hook as a tine" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (rotate [90 a (0% self)] with (anchor {(2,0)} ,)) out with input [[1,1]]:
+    // left tine: rotate 90 -> (0,0)->(-1,1)
+    // right tine: hook (anchor {(2,0)} with nothing) -> (2,0)->(3,1) then identity (0,0)->(1,1)
+    const rot_point = GeneralPoint{ .fraction = .{ .fromStart = 0, .element = .self } };
+    const rot_arg = RotateArg{ .phi = 90.0, .point = rot_point };
+    const rot_elements = try a.dupe(RotateArg, &[1]RotateArg{rot_arg});
+    const rotate_op = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = rot_elements } };
+    const anchor_op = OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 0.0 } } } };
+    const hook = Hook{ .left = CompositeInside{ .stop = anchor_op }, .right = .with };
+    const train = Train{
+        .left = CompositeInside{ .stop = rotate_op },
+        .middle = .with,
+        .right = CompositeInside{ .inside = &Composite{ .hook = &hook } },
+    };
+    const composite = Composite{ .train = &train };
+
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{ .ops = &.{} },
+        .composite = composite,
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
+
+    const expected = [_][2]f32{ .{ 0.0, 0.0 }, .{ -1.0, 1.0 }, .{ 2.0, 0.0 }, .{ 3.0, 1.0 }, .{ 0.0, 0.0 }, .{ 1.0, 1.0 } };
+    for (res.transformationPairs[0].operation.ops, 0..) |op, i| {
+        try testing.expectApproxEqAbs(expected[i][0], op.anchor.point.point.x, 0.001);
+        try testing.expectApproxEqAbs(expected[i][1], op.anchor.point.point.y, 0.001);
+    }
+}
+
+test "toExplicitPoint train nested inside a train" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // ((anchor {(2,0)} with anchor {(0,0)}) with (anchor {(1,0)} with anchor {(0,0)})) out with [[1,1]]
+    // left tine (inner train): (2,0)->(3,1) together with identity (0,0)->(1,1)
+    // right tine (inner train): (1,0)->(2,1) together with identity (0,0)->(1,1)
+    const mk_anchor = struct {
+        fn make(x: f32) CompositeInside {
+            const op = OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = x, .y = 0.0 } } } };
+            return CompositeInside{ .stop = op };
+        }
+    };
+    const left = try a.create(Train);
+    left.* = Train{ .left = mk_anchor.make(2.0), .middle = .with, .right = mk_anchor.make(0.0) };
+    const right = try a.create(Train);
+    right.* = Train{ .left = mk_anchor.make(1.0), .middle = .with, .right = mk_anchor.make(0.0) };
+    const left_composite = try a.create(Composite);
+    left_composite.* = Composite{ .train = left };
+    const right_composite = try a.create(Composite);
+    right_composite.* = Composite{ .train = right };
+    const outer = try a.create(Train);
+    outer.* = Train{ .left = CompositeInside{ .inside = left_composite }, .middle = .with, .right = CompositeInside{ .inside = right_composite } };
+    const composite = Composite{ .train = outer };
+
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{ .ops = &.{} },
+        .composite = composite,
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 8);
+
+    const expected = [_][2]f32{
+        .{ 2.0, 0.0 }, .{ 3.0, 1.0 }, .{ 0.0, 0.0 }, .{ 1.0, 1.0 },
+        .{ 1.0, 0.0 }, .{ 2.0, 1.0 }, .{ 0.0, 0.0 }, .{ 1.0, 1.0 },
+    };
     for (res.transformationPairs[0].operation.ops, 0..) |op, i| {
         try testing.expectApproxEqAbs(expected[i][0], op.anchor.point.point.x, 0.001);
         try testing.expectApproxEqAbs(expected[i][1], op.anchor.point.point.y, 0.001);

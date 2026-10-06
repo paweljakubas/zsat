@@ -1128,6 +1128,16 @@ The **train** combiner is the three-slot version and joins the results of its le
 (leftOp midOp rightOp) obj := (leftOp obj) midOp (rightOp obj)
 ```
 
+The middle slot is a combinator just like in the hook, so the comma works there too.
+Here the left tine is a rotation, the middle is the comma, and the right tine is a scaling — so we draw
+the rotated element together with its scaled copy:
+
+```bash
+echo '[[1,1]]' | zsat draw --out train.png -o '(rotate [90 a (0% self)] , scale [[2,3]]) out'
+```
+
+A plain train that anchors one copy and leaves the other as it is:
+
 ```bash
 echo '[[1,1]]' | zsat draw --out train.png -o '(anchor {(2,0)} with anchor {(1,0)}) out'
 ```
