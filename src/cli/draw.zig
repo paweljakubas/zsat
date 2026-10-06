@@ -1165,11 +1165,17 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
 
     // The scale and orthogonal transformations do not make sense for point
     // (pt2d) output: a point carries no magnitude to scale nor a direction
-    // whose orthogonal component could be taken. Reject these explicitly.
+    // whose orthogonal component could be taken. Reject these explicitly,
+    // including when they occur inside a composite (hook/train) tine.
     for (0..inputs.input.len) |row_idx| {
         if (row_idx >= outputsValidated.transformationPairs.len) continue;
         const is_pt2d = isPt2dRow(styles, datumValidated.mappings, row_idx);
-        for (outputsValidated.transformationPairs[row_idx].operation.ops) |op| {
+        const pair = outputsValidated.transformationPairs[row_idx];
+        if (pair.composite) |c| {
+            if (Outputs.compositeRejectsPointOps(c, is_pt2d)) return error.PointScaleNotSupported;
+            continue;
+        }
+        for (pair.operation.ops) |op| {
             switch (op) {
                 .scale => if (is_pt2d) return error.PointScaleNotSupported,
                 .orthogonal => if (is_pt2d) return error.PointOrthogonalNotSupported,

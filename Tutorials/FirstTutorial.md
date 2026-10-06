@@ -10,6 +10,7 @@
 - [Adding axis](#adding-axis)
 - [Point2d data and its characteristic](#point2d-data-and-its-characteristic)
 - [Persistent styles](#persistent-styles)
+- [Combination opportunities](#combination-opportunities)
 - [Exploring the tool through help](#exploring-the-tool-through-help)
 
 ## First try and how to explore the tool
@@ -1096,6 +1097,44 @@ Error: key 'a1' is already defined in namespace 'experimental' of ~/.config/zsat
 ```
 
 As suggested one can use `--save experimental::a1 --overwrite` to overwirte the config.
+
+## Combination opportunities
+
+There are basic combinators that are especially powerful and useful with plotting. They are inspired by `J` language and the
+train and hooks that enable building more complex things from simpler ones.
+
+We already used `&` in `--outputs` that is just consequitive application.
+There was also `,` operator that we used implicitely and enables plotting left and right argument together.
+Now let's delve into **hook** combiner which has the following definition:
+
+```math
+(leftOp rightOp) obj := (leftOp obj) rightOp obj
+```
+
+Where `rightOp` is a combinator that joins the two results. The comma `,` is such a combinator and it is equivalent to `with`:
+it plots the left and the right argument together, so a hook with a comma shows an element **and** a transformed copy of it.
+
+For instance, to plot `out` together with its rotation by 90 degrees around the beginning of the element:
+
+```bash
+echo '[[1,1]]' | zsat draw --out hook.png -o '(rotate [90 a (0% self)] ,) out'
+```
+
+This produces a picture with both the rotated vector (the left tine's result) and the original vector (the unchanged element).
+
+The **train** combiner is the three-slot version and joins the results of its left and right tines:
+
+```math
+(leftOp midOp rightOp) obj := (leftOp obj) midOp (rightOp obj)
+```
+
+```bash
+echo '[[1,1]]' | zsat draw --out train.png -o '(anchor {(2,0)} with anchor {(1,0)}) out'
+```
+
+Tines can also be parenthesized composites, so hooks and trains nest:
+`(rotate [90 a (0% self)] , (anchor {(2,0)} ,)) out`.
+
 
 
 ## Exploring the tool through help

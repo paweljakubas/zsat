@@ -85,9 +85,7 @@ pub const Compose = struct {
 };
 
 pub const TwoArgCombinator = enum {
-    on, //the left arg is above the right arg
-    under, //the left arg is under the right arg
-    with, //the left arg is on the same layer level as the right arg
+    with, //the left arg is plotted together with the right arg
 };
 
 pub const OneArgFunctionPartial = union(enum) {
@@ -708,7 +706,6 @@ test "scalePartialParser" {
     try testing.expectEqualDeep(s4, r4.value.ok.elements[0]);
 }
 
-
 const shiftPartialParserRawInner = mecha.combine(.{
     common.skipWhitespace,
     mecha.oneOf(.{
@@ -1019,23 +1016,25 @@ test "orthogonalPartialParser" {
     try testing.expectEqualDeep(m4, r4.value.ok);
 }
 
+fn toTwoArgCombinator(_: std.mem.Allocator, res: []const u8) mecha.ConvertError!TwoArgCombinator {
+    // "," is equivalent to "with": (op1 op2) x == (op1 x) with x
+    if (std.mem.eql(u8, res, ",") or std.mem.eql(u8, res, "with")) return .with;
+    return error.ConversionFailed;
+}
 const twoArgCombinatorParser =
-    mecha.combine(.{ common.skipWhitespace, mecha.convert(mecha.oneOf(.{ mecha.string("on"), mecha.string("under"), mecha.string("with") }).asStr(), mecha.toEnum(TwoArgCombinator)) });
+    mecha.combine(.{ common.skipWhitespace, mecha.oneOf(.{ mecha.string("with"), mecha.string(",") }).asStr().convert(toTwoArgCombinator) });
 
 test "twoArgCombinatorParser" {
     const fa = testing.failing_allocator;
 
-    const r1 = try twoArgCombinatorParser.parse(fa, "on");
-    try testing.expectEqual(.on, r1.value.ok);
+    const r1 = try twoArgCombinatorParser.parse(fa, "with");
+    try testing.expectEqual(.with, r1.value.ok);
 
-    const r2 = try twoArgCombinatorParser.parse(fa, " under");
-    try testing.expectEqual(.under, r2.value.ok);
+    const r2 = try twoArgCombinatorParser.parse(fa, ",");
+    try testing.expectEqual(.with, r2.value.ok);
 
-    const r3 = try twoArgCombinatorParser.parse(fa, "with");
-    try testing.expectEqual(.with, r3.value.ok);
-
-    const r4 = try twoArgCombinatorParser.parse(fa, "rad");
-    try testing.expectEqual(0, r4.index);
+    const r3 = try twoArgCombinatorParser.parse(fa, "rad");
+    try testing.expectEqual(0, r3.index);
 }
 
 fn toRotatePartialUnion(_: std.mem.Allocator, res: rotatePartialParserRawP.T) mecha.ConvertError!OneArgFunctionPartial {
@@ -1326,12 +1325,12 @@ test "hookParser" {
     const h1 = Hook{ .left = CompositeInside{ .stop = o1 }, .right = .with };
     try testing.expectEqualDeep(h1, r1.value.ok);
 
-    const r2 = try hookParser.parse(a, "((scale [[2,3]]) under)");
+    const r2 = try hookParser.parse(a, "((scale [[2,3]]) ,)");
     const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
     const s2 = ScaleArg{ .translation = v2 };
     const alloc2 = try a.dupe(ScaleArg, &[1]ScaleArg{s2});
     const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc2 } };
-    const h2 = Hook{ .left = CompositeInside{ .stop = o2 }, .right = .under };
+    const h2 = Hook{ .left = CompositeInside{ .stop = o2 }, .right = .with };
     try testing.expectEqualDeep(h2, r2.value.ok);
 }
 
@@ -1371,13 +1370,13 @@ test "trainParser" {
     try testing.expectEqualDeep(t2, r2.value.ok);
 
     //
-    const r3 = try trainParser.parse(a, "((scale [[2,3]] on) with (anchor {(-12,2.1)}))");
+    const r3 = try trainParser.parse(a, "((scale [[2,3]] ,) with (anchor {(-12,2.1)}))");
 
     const v3 = inputs.Vector{ .x = 2.0, .y = 3.0 };
     const s3 = ScaleArg{ .translation = v3 };
     const alloc3 = try a.dupe(ScaleArg, &[1]ScaleArg{s3});
     const o3 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc3 } };
-    const h3 = Hook{ .left = CompositeInside{ .stop = o3 }, .right = .on };
+    const h3 = Hook{ .left = CompositeInside{ .stop = o3 }, .right = .with };
 
     const p3b_point = inputs.Point{ .x = -12.0, .y = 2.1 };
     const gp3b = GeneralPoint{ .point = p3b_point };
@@ -1437,6 +1436,7 @@ test "composeParser" {
 pub const OutputTransformationPair = struct {
     outputName: []const u8,
     operation: Compose,
+    composite: ?Composite = null,
 };
 
 const outputNameStrParser = mecha.many(outputCharacterParser, .{ .collect = true, .min = 1 }).asStr();
@@ -1466,7 +1466,23 @@ fn toOutputTransformationPairSingleOp(arena: std.mem.Allocator, args: outputTran
         .operation = Compose{ .ops = ops },
     };
 }
+const outputTransformationPairCompositeParserRaw = mecha.combine(.{
+    common.skipOpenBracket,
+    compositeParser,
+    common.skipCloseBracket,
+    common.skipWhitespace,
+    outputNameStrParser,
+});
+const outputTransformationPairCompositeParserRawP = @TypeOf(outputTransformationPairCompositeParserRaw);
+fn toOutputTransformationPairComposite(_: std.mem.Allocator, args: outputTransformationPairCompositeParserRawP.T) mecha.ConvertError!OutputTransformationPair {
+    return OutputTransformationPair{
+        .outputName = args[1],
+        .operation = Compose{ .ops = &.{} },
+        .composite = args[0],
+    };
+}
 const outputTransformationPairParser = mecha.oneOf(.{
+    outputTransformationPairCompositeParserRaw.convert(toOutputTransformationPairComposite),
     outputTransformationPairParserRaw.convert(toOutputTransformationPair),
     outputTransformationPairSingleOpParserRaw.convert(toOutputTransformationPairSingleOp),
 });
@@ -1507,6 +1523,53 @@ test "outputTransformationPairParser" {
         .operation = c2,
     };
     try testing.expectEqualDeep(out2, r2.value.ok);
+}
+
+test "outputTransformationPairParser composite hook with comma" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try outputTransformationPairParser.parse(a, "(rotate [90 a (0% self)] ,) out");
+
+    const f1 = ElementFraction{ .fromStart = 0, .element = .self };
+    const gp1 = GeneralPoint{ .fraction = f1 };
+    const r1a = RotateArg{ .phi = 90.0, .point = gp1 };
+    const rot = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = try a.dupe(RotateArg, &[1]RotateArg{r1a}) } };
+    const h1 = Hook{ .left = CompositeInside{ .stop = rot }, .right = .with };
+    const exp1 = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{ .ops = &.{} },
+        .composite = Composite{ .hook = &h1 },
+    };
+    try testing.expectEqualDeep(exp1, r1.value.ok);
+}
+
+test "connectionParser bare composite form" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try connectionParser.parse(a, "(rotate [90 a (0% self)] ,) out");
+
+    try testing.expectEqual(@as(usize, 1), r1.value.ok.outputs.len);
+    try testing.expectEqualStrings("out", r1.value.ok.outputs[0].name);
+    try testing.expectEqual(@as(usize, 1), r1.value.ok.transformationPairs.len);
+    const pair = r1.value.ok.transformationPairs[0];
+    try testing.expectEqualStrings("out", pair.outputName);
+    try testing.expect(pair.composite != null);
+    try testing.expect(std.meta.activeTag(pair.composite.?) == .hook);
+    try testing.expectEqual(TwoArgCombinator.with, pair.composite.?.hook.right);
+}
+
+test "rotatedString serializes a composite pair" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try connectionParser.parse(a, "(out) -> (rotate [90 a (0% self)] ,) out");
+    const str = try rotatedString(a, r1.value.ok, 1);
+    try testing.expectEqualStrings("(out) -> ((r [90.0 a (0% self)] with) out)", str);
 }
 
 pub const TextOutput = struct {
@@ -1749,7 +1812,25 @@ const connectionParserRawSingleFull = mecha.combine(.{
     connectionParserRawSingle,
     endOfInputParser,
 });
+const connectionParserRawBareComposite = mecha.combine(.{
+    outputTransformationPairCompositeParserRaw.convert(toOutputTransformationPairComposite),
+    endOfInputParser,
+}).convert(struct {
+    fn toBare(arena: std.mem.Allocator, pair: OutputTransformationPair) mecha.ConvertError!Connection {
+        var arr = try arena.alloc(OutputTransformationPair, 1);
+        arr[0] = pair;
+        var outs = try arena.alloc(Output, 1);
+        outs[0] = Output{ .name = pair.outputName };
+        return Connection{
+            .outputs = outs,
+            .transformationPairs = arr,
+            .textOutputs = &.{},
+            .axisOutputs = &.{},
+        };
+    }
+}.toBare);
 pub const connectionParser = mecha.oneOf(.{
+    connectionParserRawBareComposite,
     connectionParserRawSingleFull,
     connectionParserRawMultiple,
     connectionParserRawIdentityMultiple,
@@ -2205,7 +2286,6 @@ test "toExplicitPoint pt2d center is point centroid" {
     try testing.expectApproxEqAbs(@as(f32, 2.0 / 3.0), op.anchor.point.point.y, 0.0001);
 }
 
-
 test "toExplicitPoint pt2d shift translates all points" {
     var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
     defer arena.deinit();
@@ -2560,6 +2640,12 @@ pub fn rotatedString(arena: std.mem.Allocator, connection: Connection, rows: u8)
 }
 
 fn appendTransformationPair(buf: *std.ArrayList(u8), arena: std.mem.Allocator, pair: OutputTransformationPair) !void {
+    if (pair.composite) |c| {
+        try appendComposite(buf, arena, c);
+        try buf.append(arena, ' ');
+        try buf.appendSlice(arena, pair.outputName);
+        return;
+    }
     const ops = pair.operation.ops;
     if (ops.len == 1 and ops[0] == .none) {
         try buf.appendSlice(arena, pair.outputName);
@@ -2573,6 +2659,37 @@ fn appendTransformationPair(buf: *std.ArrayList(u8), arena: std.mem.Allocator, p
     try buf.append(arena, ')');
     try buf.append(arena, ' ');
     try buf.appendSlice(arena, pair.outputName);
+}
+
+fn appendComposite(buf: *std.ArrayList(u8), arena: std.mem.Allocator, c: Composite) anyerror!void {
+    try buf.append(arena, '(');
+    switch (c) {
+        .hook => |h| {
+            try appendCompositeInside(buf, arena, h.left);
+            try buf.append(arena, ' ');
+            try appendTwoArgCombinator(buf, arena, h.right);
+        },
+        .train => |t| {
+            try appendCompositeInside(buf, arena, t.left);
+            try buf.append(arena, ' ');
+            try appendTwoArgCombinator(buf, arena, t.middle);
+            try buf.append(arena, ' ');
+            try appendCompositeInside(buf, arena, t.right);
+        },
+    }
+    try buf.append(arena, ')');
+}
+
+fn appendCompositeInside(buf: *std.ArrayList(u8), arena: std.mem.Allocator, tine: CompositeInside) anyerror!void {
+    switch (tine) {
+        .inside => |c| try appendComposite(buf, arena, c.*),
+        .stop => |op| try appendOp(buf, arena, op),
+    }
+}
+
+fn appendTwoArgCombinator(buf: *std.ArrayList(u8), arena: std.mem.Allocator, comb: TwoArgCombinator) !void {
+    _ = comb;
+    try buf.appendSlice(arena, "with");
 }
 
 fn appendOp(buf: *std.ArrayList(u8), arena: std.mem.Allocator, op: OneArgFunctionPartial) !void {
@@ -4347,6 +4464,222 @@ fn processOriginFixed(
 ///
 /// Processing follows four phases (early-exit when a phase fully handles the data):
 ///
+/// Evaluates a composite (hook/train) expression for a single output index and
+/// returns the polylines produced by every tine. Each returned polyline is owned
+/// by the caller (and freed by flattenPolylinesToOps). The composite's identity
+/// side draws the element's own base geometry.
+fn evalCompositePolyline(
+    allocator: std.mem.Allocator,
+    composite: Composite,
+    base: []const inputs.Point,
+    vectors: []const inputs.Vector,
+    inp: inputs.Inputs,
+    outputs: OutputsValidated,
+    idx: usize,
+    orientation: CoordinateOrientation,
+    coordinate_type: CoordinateType,
+    plot_steps: PlotSteps,
+) ToExplicitPointError![][]inputs.Point {
+    switch (composite) {
+        .hook => |h| {
+            // (op1 op2) x == (op1 x) op2 x : the left tine's result is plotted
+            // together with the unchanged element.
+            const left = try evalCompositeTine(allocator, h.left, base, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps);
+            const res = try allocator.alloc([]inputs.Point, left.len + 1);
+            for (left, 0..) |tine_poly, j| res[j] = tine_poly;
+            allocator.free(left);
+            res[res.len - 1] = try allocator.dupe(inputs.Point, base);
+            return res;
+        },
+        .train => |t| {
+            // (op1 op2 op3) x == (op1 x) op2 (op3 x) : both tines' results are
+            // plotted together.
+            const left = try evalCompositeTine(allocator, t.left, base, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps);
+            const right = try evalCompositeTine(allocator, t.right, base, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps);
+            const res = try allocator.alloc([]inputs.Point, left.len + right.len);
+            for (left, 0..) |tine_poly, j| res[j] = tine_poly;
+            allocator.free(left);
+            for (right, 0..) |tine_poly, j| res[left.len + j] = tine_poly;
+            allocator.free(right);
+            return res;
+        },
+    }
+}
+
+/// Evaluates a single tine of a composite: either a nested composite (recurse)
+/// or a single-operation stop, applied to the element's base polyline.
+fn evalCompositeTine(
+    allocator: std.mem.Allocator,
+    tine: CompositeInside,
+    base: []const inputs.Point,
+    vectors: []const inputs.Vector,
+    inp: inputs.Inputs,
+    outputs: OutputsValidated,
+    idx: usize,
+    orientation: CoordinateOrientation,
+    coordinate_type: CoordinateType,
+    plot_steps: PlotSteps,
+) ToExplicitPointError![][]inputs.Point {
+    switch (tine) {
+        .inside => |c| return evalCompositePolyline(allocator, c.*, base, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps),
+        .stop => |op| {
+            const res = try allocator.alloc([]inputs.Point, 1);
+            res[0] = try applyCompositeStopOp(allocator, op, base, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps);
+            return res;
+        },
+    }
+}
+
+/// Applies a single operation to the base polyline, mirroring the per-op logic
+/// used by Phase 2 during a plain compose. The base polyline is never consumed;
+/// `.none` yields a copy of it.
+fn applyCompositeStopOp(
+    allocator: std.mem.Allocator,
+    op: OneArgFunctionPartial,
+    prev_poly: []const inputs.Point,
+    vectors: []const inputs.Vector,
+    inp: inputs.Inputs,
+    outputs: OutputsValidated,
+    idx: usize,
+    orientation: CoordinateOrientation,
+    coordinate_type: CoordinateType,
+    plot_steps: PlotSteps,
+) ToExplicitPointError![]inputs.Point {
+    const ctx_begin: ?inputs.Point = prev_poly[0];
+    const ctx_end: ?inputs.Point = prev_poly[prev_poly.len - 1];
+
+    if (op == .anchor) {
+        const pt = switch (op.anchor.point) {
+            .point => |p| p,
+            .beginning => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .beginning = .self }, orientation),
+            .end => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .end = .self }, orientation),
+            .middle => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .middle = .self }, orientation),
+            .fraction => |frac| try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation),
+            .self => ctx_begin orelse inputs.Point{ .x = 0, .y = 0 },
+        };
+        if (isPointRow(inp, idx)) {
+            return translatePolylineToPoint(allocator, prev_poly, pt);
+        }
+        const poly = try allocator.alloc(inputs.Point, vectors.len + 1);
+        poly[0] = pt;
+        var cur = pt;
+        for (vectors, 0..) |v, j| {
+            cur = inputs.Point{ .x = cur.x + v.x, .y = cur.y + v.y };
+            poly[j + 1] = cur;
+        }
+        return poly;
+    } else if (op == .rotate) {
+        const arg = op.rotate.elements[0];
+        const rot_pt = try resolveGeneralPoint(allocator, arg.point, ctx_begin, ctx_end, inp, outputs, orientation, coordinate_type, plot_steps);
+        return processRotateOp(allocator, prev_poly, arg, rot_pt);
+    } else if (op == .scale) {
+        const arg = op.scale.elements[0];
+        return processScaleOp(allocator, prev_poly, arg, vectors, orientation, ctx_begin);
+    } else if (op == .mirror) {
+        switch (op.mirror.target) {
+            .line => |l| {
+                return processMirrorOp(allocator, prev_poly, l, orientation, ctx_begin);
+            },
+            .vector => |v| {
+                return processMirrorOp(allocator, prev_poly, inputs.Line{ .a = v.x, .b = v.y, .c = 0 }, orientation, ctx_begin);
+            },
+            .element => |eref| {
+                const line = try resolveElementToLine(allocator, inp, outputs, eref, idx, coordinate_type, orientation, plot_steps);
+                return processMirrorOp(allocator, prev_poly, line, orientation, ctx_begin);
+            },
+            .point => |gp| {
+                const pt = try resolveGeneralPoint(allocator, gp, ctx_begin, ctx_end, inp, outputs, orientation, coordinate_type, plot_steps);
+                const poly = try allocator.alloc(inputs.Point, prev_poly.len);
+                for (prev_poly, 0..) |p, j| {
+                    poly[j] = inputs.Point{ .x = 2 * pt.x - p.x, .y = 2 * pt.y - p.y };
+                }
+                return poly;
+            },
+        }
+    } else if (op == .project) {
+        switch (op.project.target) {
+            .point => |gp| {
+                const pt = try resolveGeneralPoint(allocator, gp, ctx_begin, ctx_end, inp, outputs, orientation, coordinate_type, plot_steps);
+                return processUnitVectorAtPoint(allocator, prev_poly, pt, .project);
+            },
+            .element => |eref| {
+                const line = try resolveElementToLine(allocator, inp, outputs, eref, idx, coordinate_type, orientation, plot_steps);
+                return processProjectOp(allocator, prev_poly, .{ .line = line }, orientation, ctx_begin, false);
+            },
+            else => |target| {
+                return processProjectOp(allocator, prev_poly, target, orientation, ctx_begin, false);
+            },
+        }
+    } else if (op == .orthogonal) {
+        switch (op.orthogonal.target) {
+            .point => |gp| {
+                const pt = try resolveGeneralPoint(allocator, gp, ctx_begin, ctx_end, inp, outputs, orientation, coordinate_type, plot_steps);
+                return processUnitVectorAtPoint(allocator, prev_poly, pt, .orthogonal);
+            },
+            .element => |eref| {
+                const line = try resolveElementToLine(allocator, inp, outputs, eref, idx, coordinate_type, orientation, plot_steps);
+                const total_dx = prev_poly[prev_poly.len - 1].x - prev_poly[0].x;
+                const total_dy = prev_poly[prev_poly.len - 1].y - prev_poly[0].y;
+                const denom = line.a * line.a + line.b * line.b;
+                var proj_dx: f32 = 0;
+                var proj_dy: f32 = 0;
+                if (denom > 1e-10) {
+                    const dot = total_dx * line.a + total_dy * line.b;
+                    const scale = dot / denom;
+                    proj_dx = scale * line.a;
+                    proj_dy = scale * line.b;
+                }
+                const orth_poly = try processOrthogonalOp(allocator, prev_poly, .{ .line = line }, orientation, ctx_begin, false);
+                for (orth_poly) |*p| {
+                    p.x += proj_dx;
+                    p.y += proj_dy;
+                }
+                return orth_poly;
+            },
+            else => |target| {
+                return processOrthogonalOp(allocator, prev_poly, target, orientation, ctx_begin, false);
+            },
+        }
+    } else if (op == .shift) {
+        var cur: []inputs.Point = try allocator.dupe(inputs.Point, prev_poly);
+        for (op.shift.vectors) |v| {
+            var shifted = try allocator.alloc(inputs.Point, cur.len);
+            for (cur, 0..) |p, j| {
+                shifted[j] = inputs.Point{ .x = p.x + v.x, .y = p.y + v.y };
+            }
+            allocator.free(cur);
+            cur = shifted;
+        }
+        return cur;
+    } else if (op == .center) {
+        const poly = try allocator.alloc(inputs.Point, 1);
+        poly[0] = polylineCenter(prev_poly, isPointRow(inp, idx));
+        return poly;
+    } else if (op == .none) {
+        return allocator.dupe(inputs.Point, prev_poly);
+    } else unreachable;
+}
+
+/// Whether a composite contains a scale or orthogonal tine op that is forbidden
+/// for point (pt2d) output from the tine's own base geometry.
+pub fn compositeRejectsPointOps(c: Composite, is_pt2d: bool) bool {
+    return switch (c) {
+        .hook => |h| compositeInsideRejectsPointOps(h.left, is_pt2d),
+        .train => |t| compositeInsideRejectsPointOps(t.left, is_pt2d) or compositeInsideRejectsPointOps(t.right, is_pt2d),
+    };
+}
+
+fn compositeInsideRejectsPointOps(tine: CompositeInside, is_pt2d: bool) bool {
+    return switch (tine) {
+        .inside => |c| compositeRejectsPointOps(c.*, is_pt2d),
+        .stop => |op| switch (op) {
+            .scale => is_pt2d,
+            .orthogonal => is_pt2d,
+            else => false,
+        },
+    };
+}
+
 /// Phase 1 — Scan: Detect any non-point references (beginning, end, middle, fraction)
 /// among all anchors. This flag gates Phase 3 vs Phase 4.
 ///
@@ -4397,6 +4730,10 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
     {
         var has_non_anchor = false;
         for (outputs.transformationPairs) |pair| {
+            if (pair.composite != null) {
+                has_non_anchor = true;
+                break;
+            }
             for (pair.operation.ops) |op| {
                 if (op != .anchor) {
                     has_non_anchor = true;
@@ -4412,6 +4749,21 @@ pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs
             for (outputs.transformationPairs, 0..) |pair, idx| {
                 if (idx != output_idx) {
                     result_pairs[idx] = pair;
+                    continue;
+                }
+
+                if (pair.composite) |composite| {
+                    // Composite (hook/train) pair: evaluate each tine against the
+                    // element's base geometry and flatten every resulting polyline
+                    // into anchor ops. Unlike a plain compose, ALL tines are kept
+                    // even when plot_steps == .last because the compound is a
+                    // combination of results, not a sequence of intermediate steps.
+                    const vectors = try collectVectors(allocator, inp, idx, coordinate_type, orientation);
+                    defer allocator.free(vectors);
+                    const base = try collectBasePolyline(allocator, inp, idx, vectors);
+                    defer allocator.free(base);
+                    const polylines = try evalCompositePolyline(allocator, composite, base, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps);
+                    result_pairs[idx] = try flattenPolylinesToOps(allocator, polylines, polylines.len, pair.outputName);
                     continue;
                 }
 
@@ -5576,6 +5928,89 @@ test "toExplicitPoint fixed mode - compose with two anchors" {
 
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.x, 3.0);
     try testing.expectEqual(res.transformationPairs[0].operation.ops[3].anchor.point.point.y, 3.0);
+}
+
+test "toExplicitPoint hook comma draws identity together with rotated element" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (rotate [90 a (0% self)] ,) out with input [[1,1]]
+    // = (rotate 90° but the element) plotted together with the element itself.
+    const rot_point = GeneralPoint{ .fraction = .{ .fromStart = 0, .element = .self } };
+    const rot_arg = RotateArg{ .phi = 90.0, .point = rot_point };
+    const rot_elements = try a.dupe(RotateArg, &[1]RotateArg{rot_arg});
+    const rotate_op = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = rot_elements } };
+    const hook = Hook{ .left = CompositeInside{ .stop = rotate_op }, .right = .with };
+    const composite = Composite{ .hook = &hook };
+
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{ .ops = &.{} },
+        .composite = composite,
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // Hook keeps every tine even with plot_steps == .last:
+    // rotated polyline (0,0)->(-1,1), then the unchanged base (0,0)->(1,1).
+    const expected = [_][2]f32{ .{ 0.0, 0.0 }, .{ -1.0, 1.0 }, .{ 0.0, 0.0 }, .{ 1.0, 1.0 } };
+    for (res.transformationPairs[0].operation.ops, 0..) |op, i| {
+        try testing.expectApproxEqAbs(expected[i][0], op.anchor.point.point.x, 0.001);
+        try testing.expectApproxEqAbs(expected[i][1], op.anchor.point.point.y, 0.001);
+    }
+}
+
+test "toExplicitPoint train draws both tine results" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    // (anchor {(2,0)} on none) out with input [[1,1]]
+    // = (anchor at (2,0)) together with (the element unchanged).
+    const anchor_op = OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 0.0 } } } };
+    const none_op = OneArgFunctionPartial{ .none = {} };
+    const train = Train{
+        .left = CompositeInside{ .stop = anchor_op },
+        .middle = .with,
+        .right = CompositeInside{ .stop = none_op },
+    };
+    const composite = Composite{ .train = &train };
+
+    const tp = OutputTransformationPair{
+        .outputName = "out",
+        .operation = Compose{ .ops = &.{} },
+        .composite = composite,
+    };
+    const outputValidated = OutputsValidated{
+        .transformationPairs = &[1]OutputTransformationPair{tp},
+    };
+
+    const v = inputs.InputElement{ .vector = inputs.Vector{ .x = 1.0, .y = 1.0 } };
+    const row = inputs.InputElementRow{ .row = &[1]inputs.InputElement{v} };
+    const inp = inputs.Inputs{ .input = &[1]inputs.InputElementRow{row} };
+
+    const res = try toExplicitPoint(a, inp, outputValidated, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(res.transformationPairs.len, 1);
+    try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
+
+    // Left tine anchors at (2,0): (2,0)->(3,1). Right tine is identity: (0,0)->(1,1).
+    const expected = [_][2]f32{ .{ 2.0, 0.0 }, .{ 3.0, 1.0 }, .{ 0.0, 0.0 }, .{ 1.0, 1.0 } };
+    for (res.transformationPairs[0].operation.ops, 0..) |op, i| {
+        try testing.expectApproxEqAbs(expected[i][0], op.anchor.point.point.x, 0.001);
+        try testing.expectApproxEqAbs(expected[i][1], op.anchor.point.point.y, 0.001);
+    }
 }
 
 test "toExplicitPoint fixed mode - compose with three anchors" {

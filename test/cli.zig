@@ -1791,6 +1791,45 @@ test "zsat draw pt2d anchor compose with rotate works" {
     try testing.expectEqual(@as(u8, 0), result.code);
 }
 
+test "zsat draw hook comma draws the rotated output with the original" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(rotate [90 a (0% self)] ,) out" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw hook comma works with explicit outputs arrow" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(out) -> (rotate [90 a (0% self)] ,) out" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw train with draws both tine results" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(anchor {(2,0)} with anchor {(1,0)}) out" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+}
+
+test "zsat draw rejects the removed on combinator" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(anchor {(1,0)} on anchor {(2,0)}) out" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
+    defer result.deinit();
+
+    try testing.expect(std.mem.containsAtLeast(u8, result.stderr, 1, "failed to parse outputs"));
+}
+
 test "zsat draw pt2d pure anchor with identity sibling works" {
     // out1's identity op triggers Phase 2 for all pairs; out2's pure anchor must
     // still translate its point set so its centroid lands on the anchor.
