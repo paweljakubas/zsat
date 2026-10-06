@@ -367,8 +367,13 @@ fn reportMissingDefinition(alloc: std.mem.Allocator, missing: []const u8, namesp
     const available = try namespaceDefinitionNames(alloc, store, namespace);
     defer alloc.free(available);
 
-    if (prefix) |alias| {
+    // Only an import alias remaps the namespace: `use work as w` reports that
+    // `work` came in under another name. A direct `ns::key` reference keeps its
+    // namespace (so does a plain `use ns`), and there is nothing to add then.
+    if (prefix) |alias| if (!std.mem.eql(u8, alias, namespace)) {
         namespaceErrorDetail = try std.fmt.allocPrint(alloc, "Error: key '{s}' is not present in namespace '{s}' (imported as '{s}').", .{ missing, namespace, alias });
+    } else {
+        namespaceErrorDetail = try std.fmt.allocPrint(alloc, "Error: key '{s}' is not present in namespace '{s}'.", .{ missing, namespace });
     } else {
         namespaceErrorDetail = try std.fmt.allocPrint(alloc, "Error: key '{s}' is not present in namespace '{s}'.", .{ missing, namespace });
     }
@@ -597,7 +602,13 @@ fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store
         for (references.items) |reference| {
             const directive = findImportAlias(parsed_input.imports, reference.namespace);
             const target_namespace = if (directive) |import| import.namespace else reference.namespace;
-            const prefix = if (directive) |import| import.alias else null;
+            // A definition is known by the name it was asked for, so a
+            // qualified reference keeps its namespace: `experimental::a1` is
+            // collected as `experimental::a1`, the way `use work as w` collects
+            // the same definition as `w::a1`. Only an import that keeps the
+            // bare names (`use sleek`) gives a bare `a1`, and a bare `a1` is
+            // otherwise made explicitly with `a1: experimental::a1`.
+            const prefix: ?[]const u8 = if (directive) |import| import.alias else reference.namespace;
             const loaded = namespaceStore(store, default_store, target_namespace);
             if (!loaded.hasNamespace(target_namespace)) return reportMissingNamespace(alloc, target_namespace, store, default_store);
             try addReferencedDefinition(alloc, &definitions, loaded, default_store, &visited, target_namespace, reference.name, prefix);

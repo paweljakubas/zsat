@@ -1059,9 +1059,27 @@ The stored axis can be used on its own, and draws exactly what the chain drew, w
 ```bash
 echo '[[1,1]]' | zsat draw \
 -s 'use sleek as s, s::b0, a0: s::a0{ticks:[pos:0,0.25,0.5, 0.75,1],values:[vals:0,0.25,0.5,0.75,1.0]}, experimental::a1' \
--o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a0, ft {(-0.1,0)} {(-0.1,1.1)} a1)' \
+-o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a0, ft {(-0.1,0)} {(-0.1,1.1)} experimental::a1)' \
 -p 'p0:{size: 600x600, border: s::b0}'
 ```
+
+We could also import more than one style. The following gives the same result as the above:
+
+```bash
+echo '[[1,1]]' | zsat draw \
+> -s 'use sleek as s, use experimental as ex,s::b0, a0: s::a0{ticks:[pos:0,0.25,0.5, 0.75,1],values:[vals:0,0.25,0.5,0.75,1.0]}, a1: ex::a1' \
+> -o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a0, ft {(-0.1,0)} {(-0.1,1.1)} a1)' \
+> -p 'p0:{size: 600x600, border: s::b0}'
+```
+
+A qualified reference keeps its namespace: `experimental::a1` is known by exactly that name, the same way `--styles` knows `s::b0` only as `s::b0`. Nothing is silently imported under a bare `a1`. That is why the output above names `experimental::a1` outright, and it is also how saving stays consistent: a stored definition is always re-usable under the full `namespace::key` it was stored under.
+To use an axis under a shorter, bare name, spell out the renaming explicitly, just as for any other inheritance — list the reference and give the alias its own line:
+
+```bash
+zsat draw -s 'experimental::a1, a1: experimental::a1' -o '(out) -> (out, ft {(0,-0.1)} {(1.1,-0.1)} a1)'
+```
+
+The same holds for styles: `sleek::e0` is collected as `sleek::e0` (never as a bare `e0` on its own), while `use sleek` imports the keys bare because that is what the import is for.
 
 Settings that are still at their default are left out of the stored line and fall back to the built-in defaults, so it says only what it needs to: in the line above, the value positions, the label sizes and the `a: -90` rotation are all kept, while the parts left out never needed writing in the first place.
 Storing a key that is already in that namespace fails unless `--overwrite` is given:

@@ -134,12 +134,35 @@ test "zsat draw with style from config namespace" {
     try testing.expectEqual(@as(u8, 0), result.code);
     try testing.expect(std.mem.indexOf(u8, result.stdout, "c: red") != null);
 
-    const p_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "namespace1::p1", "--datum", "(pt) -> (pt -> p1)" };
+    const p_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "namespace1::p1", "--datum", "(pt) -> (pt -> namespace1::p1)" };
     var p_result = try cmdtest.run(io, .{ .argv = p_argv, .stdin = "{(1,1)}", .env_map = &fixture.env_map });
     defer p_result.deinit();
 
     try testing.expectEqual(@as(u8, 0), p_result.code);
-    try testing.expect(std.mem.indexOf(u8, p_result.stdout, "p1:{pt2d") != null);
+    try testing.expect(std.mem.indexOf(u8, p_result.stdout, "namespace1::p1:{pt2d") != null);
+}
+
+test "zsat draw keeps a qualified reference qualified unless it is aliased" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    // `namespace1::p1` is known by that name only: nothing is silently
+    // imported under a bare `p1`.
+    const bare_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "namespace1::p1", "--datum", "(pt) -> (pt -> p1)" };
+    var bare_result = try cmdtest.run(io, .{ .argv = bare_argv, .stdin = "{(1,1)}", .env_map = &fixture.env_map });
+    defer bare_result.deinit();
+
+    try testing.expect(bare_result.code != 0);
+    try testing.expect(std.mem.indexOf(u8, bare_result.stderr, "Defined styles: namespace1::p1, e0.") != null);
+
+    // An explicit alias gives the bare name: `p1: namespace1::p1`.
+    const alias_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "namespace1::p1, p1: namespace1::p1", "--datum", "(pt) -> (pt -> p1)" };
+    var alias_result = try cmdtest.run(io, .{ .argv = alias_argv, .stdin = "{(1,1)}", .env_map = &fixture.env_map });
+    defer alias_result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), alias_result.code);
 }
 
 test "zsat draw with multiple use namespace directives" {
@@ -813,8 +836,10 @@ test "zsat draw saves an inherited axis as a complete definition" {
     try testing.expect(std.mem.indexOf(u8, content, "c:black") == null);
     try testing.expect(std.mem.indexOf(u8, content, "sp:2") == null);
 
-    // The saved definition works on its own, from that namespace alone.
-    const use_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "myns::a2", "--outputs", "(out) -> (out, ft {(-0.1,0)} {(-0.1,1.1)} a2)", "--panes", "p0:{size: 100x100}" };
+    // The saved definition works on its own, from that namespace alone. Its
+    // qualified name is what stayed the same in storage, so that is the name
+    // to use here (an explicit alias would make it available bare too).
+    const use_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--styles", "myns::a2", "--outputs", "(out) -> (out, ft {(-0.1,0)} {(-0.1,1.1)} myns::a2)", "--panes", "p0:{size: 100x100}" };
     var use_result = try cmdtest.run(io, .{ .argv = use_argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
     defer use_result.deinit();
 
