@@ -1138,22 +1138,36 @@ Here the left tine is a rotation, the middle is the comma, and the right tine is
 the rotated element together with its scaled copy:
 
 ```bash
-echo '[[1,1]]' | zsat draw --out train.png -o '(rotate [90 a (0% self)] , scale [[2,3]]) out'
+echo '[[1,1]]' | zsat draw \
+-s 'use sleek as s, s::e0, s::b0, a0: s::a0{ticks:[pos:-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1, style:[f:above]],values:[style:[f:below], vals:-1.0,-0.5,0,0.5,1.0]},
+    a1: a0{ticks:[style:[f:below], pos:0,0.25,0.5,0.75,1],values:[style:[f:below, a:-90, e:start], vals:0.25,0.5,0.75,1.0]}'\
+-o '(out) -> ( (scale [[1,0.5]] , (rotate [90 a (0% self)])) out, ft {(-1.1,0)} {(1.1,0)} a0, ft {(0,0)} {(0,1.1)} a1)' \
+-p 'p0:{size: 600x600, border: s::b0}'
 ```
+<img src="fig63.png" width="332" style="border: 2px solid grey;">
 
-A plain train that anchors one copy and leaves the other as it is:
+Notice that a plain train can be used for duplication of the object like below that anchors one copy and leaves the other as it is:
 
 ```bash
-echo '[[1,1]]' | zsat draw --out train.png -o '(anchor {(2,0)} with anchor {(1,0)}) out'
+echo '[[1,1]]' | zsat draw \
+-s 'use sleek as s, s::e0, s::b0, a0: s::a0{ticks:[pos:-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1, style:[f:above]],values:[style:[f:below], vals:-1.0,-0.5,0,0.5,1.0]},
+    a1: a0{ticks:[style:[f:below], pos:0,0.25,0.5,0.75,1],values:[style:[f:below, a:-90, e:start], vals:0.25,0.5,0.75,1.0]}'\
+-o '(out) -> ( (anchor {(-1,0)} with anchor {(0,0)}) out, ft {(-1.1,0)} {(1.1,0)} a0, ft {(0,0)} {(0,1.1)} a1)' \
+-p 'p0:{size: 600x600, border: s::b0}'
 ```
+<img src="fig64.png" width="332" style="border: 2px solid grey;">
 
-Tines can also be parenthesized composites, so hooks and trains nest.
+Tines can also be parenthesized composites, so both hooks and trains nest.
 A train whose right tine is a hook, drawing the rotated element, the anchored element, and the element itself:
 
 ```bash
-echo '[[1,1]]' | zsat draw --out nest.png -o '(rotate [90 a (0% self)] with (, (anchor {(2,0)}))) out'
+echo '[[1,1]]' | zsat draw \
+-s 'use sleek as s, s::e0, s::b0, a0: s::a0{ticks:[pos:-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1, style:[f:above]],values:[style:[f:below], vals:-1.0,-0.5,0,0.5,1.0]},
+    a1: a0{ticks:[style:[f:below], pos:0,0.25,0.5,0.75,1],values:[style:[f:below, a:-90, e:start], vals:0.25,0.5,0.75,1.0]}'\
+-o '(out) -> ( (rotate [90 a (0% self)] with (, (anchor {(-1,0)}))) out, ft {(-1.1,0)} {(1.1,0)} a0, ft {(0,0)} {(0,1.1)} a1)'\
+-p 'p0:{size: 600x600, border: s::b0}'
 ```
-
+<img src="fig65.png" width="332" style="border: 2px solid grey;">
 
 
 ## Exploring the tool through help
