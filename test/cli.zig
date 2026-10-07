@@ -1793,7 +1793,7 @@ test "zsat draw pt2d anchor compose with rotate works" {
 
 test "zsat draw hook comma draws the rotated output with the original" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(rotate [90 a (0% self)] ,) out" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(, (rotate [90 a (0% self)])) out" };
     var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
     defer result.deinit();
 
@@ -1803,7 +1803,7 @@ test "zsat draw hook comma draws the rotated output with the original" {
 
 test "zsat draw hook comma works with explicit outputs arrow" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(out) -> (rotate [90 a (0% self)] ,) out" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(out) -> (, (rotate [90 a (0% self)])) out" };
     var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
     defer result.deinit();
 
@@ -1835,7 +1835,7 @@ test "zsat draw train comma middle draws rotate with scale" {
 
 test "zsat draw train supports a hook as a tine" {
     defer cleanupOutputFiles();
-    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(rotate [90 a (0% self)] with (anchor {(2,0)} ,)) out" };
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "-o", "(rotate [90 a (0% self)] with (, (anchor {(2,0)}))) out" };
     var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[1,1]]" });
     defer result.deinit();
 

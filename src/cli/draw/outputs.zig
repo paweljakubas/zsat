@@ -72,10 +72,10 @@ pub const Train = struct {
 };
 
 //Hook like in J
-//(op1 op2) x == (op1 x) op2 x
+//(combinator op) x == x combinator (op x)
 pub const Hook = struct {
-    left: CompositeInside,
-    right: TwoArgCombinator,
+    combinator: TwoArgCombinator,
+    right: CompositeInside,
 };
 
 //Compose (&) like in J
@@ -1265,18 +1265,18 @@ const trainParserInner = mecha.combine(.{
 }).convert(parseTrainInner);
 
 fn parseHookInner(arena: std.mem.Allocator, args: anytype) mecha.ConvertError!*Hook {
-    const left = args[0];
+    const combinator = args[0];
     const right = args[1];
     const hook = try arena.create(Hook);
     errdefer arena.destroy(hook);
-    hook.* = Hook{ .left = left, .right = right };
+    hook.* = Hook{ .combinator = combinator, .right = right };
     return hook;
 }
 
 const hookParserInner = mecha.combine(.{
-    mecha.ref(compositeInsideParserRef),
-    common.skipWhitespace,
     twoArgCombinatorParser,
+    common.skipWhitespace,
+    mecha.ref(compositeInsideParserRef),
 }).convert(parseHookInner);
 
 const compositeParser = mecha.oneOf(.{
@@ -1317,20 +1317,20 @@ test "hookParser" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try hookParser.parse(a, "((anchor (0% self)) with)");
+    const r1 = try hookParser.parse(a, "(with (anchor (0% self)))");
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const gp1 = GeneralPoint{ .fraction = f1 };
     const p1 = AnchorPartial{ .point = gp1 };
     const o1 = OneArgFunctionPartial{ .anchor = p1 };
-    const h1 = Hook{ .left = CompositeInside{ .stop = o1 }, .right = .with };
+    const h1 = Hook{ .combinator = .with, .right = CompositeInside{ .stop = o1 } };
     try testing.expectEqualDeep(h1, r1.value.ok);
 
-    const r2 = try hookParser.parse(a, "((scale [[2,3]]) ,)");
+    const r2 = try hookParser.parse(a, "(, (scale [[2,3]]))");
     const v2 = inputs.Vector{ .x = 2.0, .y = 3.0 };
     const s2 = ScaleArg{ .translation = v2 };
     const alloc2 = try a.dupe(ScaleArg, &[1]ScaleArg{s2});
     const o2 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc2 } };
-    const h2 = Hook{ .left = CompositeInside{ .stop = o2 }, .right = .with };
+    const h2 = Hook{ .combinator = .with, .right = CompositeInside{ .stop = o2 } };
     try testing.expectEqualDeep(h2, r2.value.ok);
 }
 
@@ -1370,13 +1370,13 @@ test "trainParser" {
     try testing.expectEqualDeep(t2, r2.value.ok);
 
     //
-    const r3 = try trainParser.parse(a, "((scale [[2,3]] ,) with (anchor {(-12,2.1)}))");
+    const r3 = try trainParser.parse(a, "((, (scale [[2,3]])) with (anchor {(-12,2.1)}))");
 
     const v3 = inputs.Vector{ .x = 2.0, .y = 3.0 };
     const s3 = ScaleArg{ .translation = v3 };
     const alloc3 = try a.dupe(ScaleArg, &[1]ScaleArg{s3});
     const o3 = OneArgFunctionPartial{ .scale = ScalePartial{ .elements = alloc3 } };
-    const h3 = Hook{ .left = CompositeInside{ .stop = o3 }, .right = .with };
+    const h3 = Hook{ .combinator = .with, .right = CompositeInside{ .stop = o3 } };
 
     const p3b_point = inputs.Point{ .x = -12.0, .y = 2.1 };
     const gp3b = GeneralPoint{ .point = p3b_point };
@@ -1556,13 +1556,13 @@ test "outputTransformationPairParser composite hook with comma" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try outputTransformationPairParser.parse(a, "(rotate [90 a (0% self)] ,) out");
+    const r1 = try outputTransformationPairParser.parse(a, "(, (rotate [90 a (0% self)])) out");
 
     const f1 = ElementFraction{ .fromStart = 0, .element = .self };
     const gp1 = GeneralPoint{ .fraction = f1 };
     const r1a = RotateArg{ .phi = 90.0, .point = gp1 };
     const rot = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = try a.dupe(RotateArg, &[1]RotateArg{r1a}) } };
-    const h1 = Hook{ .left = CompositeInside{ .stop = rot }, .right = .with };
+    const h1 = Hook{ .combinator = .with, .right = CompositeInside{ .stop = rot } };
     const exp1 = OutputTransformationPair{
         .outputName = "out",
         .operation = Compose{ .ops = &.{} },
@@ -1576,7 +1576,7 @@ test "connectionParser bare composite form" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try connectionParser.parse(a, "(rotate [90 a (0% self)] ,) out");
+    const r1 = try connectionParser.parse(a, "(, (rotate [90 a (0% self)])) out");
 
     try testing.expectEqual(@as(usize, 1), r1.value.ok.outputs.len);
     try testing.expectEqualStrings("out", r1.value.ok.outputs[0].name);
@@ -1585,7 +1585,8 @@ test "connectionParser bare composite form" {
     try testing.expectEqualStrings("out", pair.outputName);
     try testing.expect(pair.composite != null);
     try testing.expect(std.meta.activeTag(pair.composite.?) == .hook);
-    try testing.expectEqual(TwoArgCombinator.with, pair.composite.?.hook.right);
+    try testing.expectEqual(TwoArgCombinator.with, pair.composite.?.hook.combinator);
+    try testing.expect(pair.composite.?.hook.right == .stop);
 }
 
 test "rotatedString serializes a composite pair" {
@@ -1593,9 +1594,9 @@ test "rotatedString serializes a composite pair" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    const r1 = try connectionParser.parse(a, "(out) -> (rotate [90 a (0% self)] ,) out");
+    const r1 = try connectionParser.parse(a, "(out) -> (, (rotate [90 a (0% self)])) out");
     const str = try rotatedString(a, r1.value.ok, 1);
-    try testing.expectEqualStrings("(out) -> ((r [90.0 a (0% self)] with) out)", str);
+    try testing.expectEqualStrings("(out) -> ((with r [90.0 a (0% self)]) out)", str);
 }
 
 pub const TextOutput = struct {
@@ -2691,9 +2692,9 @@ fn appendComposite(buf: *std.ArrayList(u8), arena: std.mem.Allocator, c: Composi
     try buf.append(arena, '(');
     switch (c) {
         .hook => |h| {
-            try appendCompositeInside(buf, arena, h.left);
+            try appendTwoArgCombinator(buf, arena, h.combinator);
             try buf.append(arena, ' ');
-            try appendTwoArgCombinator(buf, arena, h.right);
+            try appendCompositeInside(buf, arena, h.right);
         },
         .train => |t| {
             try appendCompositeInside(buf, arena, t.left);
@@ -4508,13 +4509,13 @@ fn evalCompositePolyline(
 ) ToExplicitPointError![][]inputs.Point {
     switch (composite) {
         .hook => |h| {
-            // (op1 op2) x == (op1 x) op2 x : the left tine's result is plotted
-            // together with the unchanged element.
-            const left = try evalCompositeTine(allocator, h.left, base, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps);
-            const res = try allocator.alloc([]inputs.Point, left.len + 1);
-            for (left, 0..) |tine_poly, j| res[j] = tine_poly;
-            allocator.free(left);
-            res[res.len - 1] = try allocator.dupe(inputs.Point, base);
+            // (combinator op) x == x combinator (op x) : the unchanged element
+            // is plotted together with the right tine's result.
+            const right = try evalCompositeTine(allocator, h.right, base, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps);
+            const res = try allocator.alloc([]inputs.Point, right.len + 1);
+            res[0] = try allocator.dupe(inputs.Point, base);
+            for (right, 0..) |tine_poly, j| res[j + 1] = tine_poly;
+            allocator.free(right);
             return res;
         },
         .train => |t| {
@@ -4690,7 +4691,7 @@ fn applyCompositeStopOp(
 /// for point (pt2d) output from the tine's own base geometry.
 pub fn compositeRejectsPointOps(c: Composite, is_pt2d: bool) bool {
     return switch (c) {
-        .hook => |h| compositeInsideRejectsPointOps(h.left, is_pt2d),
+        .hook => |h| compositeInsideRejectsPointOps(h.right, is_pt2d),
         .train => |t| compositeInsideRejectsPointOps(t.left, is_pt2d) or compositeInsideRejectsPointOps(t.right, is_pt2d),
     };
 }
@@ -5961,13 +5962,13 @@ test "toExplicitPoint hook comma draws identity together with rotated element" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // (rotate [90 a (0% self)] ,) out with input [[1,1]]
-    // = (rotate 90° but the element) plotted together with the element itself.
+    // (, (rotate [90 a (0% self)])) out with input [[1,1]]
+    // = the element plotted together with its rotation by 90°.
     const rot_point = GeneralPoint{ .fraction = .{ .fromStart = 0, .element = .self } };
     const rot_arg = RotateArg{ .phi = 90.0, .point = rot_point };
     const rot_elements = try a.dupe(RotateArg, &[1]RotateArg{rot_arg});
     const rotate_op = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = rot_elements } };
-    const hook = Hook{ .left = CompositeInside{ .stop = rotate_op }, .right = .with };
+    const hook = Hook{ .combinator = .with, .right = CompositeInside{ .stop = rotate_op } };
     const composite = Composite{ .hook = &hook };
 
     const tp = OutputTransformationPair{
@@ -5989,8 +5990,8 @@ test "toExplicitPoint hook comma draws identity together with rotated element" {
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 4);
 
     // Hook keeps every tine even with plot_steps == .last:
-    // rotated polyline (0,0)->(-1,1), then the unchanged base (0,0)->(1,1).
-    const expected = [_][2]f32{ .{ 0.0, 0.0 }, .{ -1.0, 1.0 }, .{ 0.0, 0.0 }, .{ 1.0, 1.0 } };
+    // the unchanged base (0,0)->(1,1), then the rotated polyline (0,0)->(-1,1).
+    const expected = [_][2]f32{ .{ 0.0, 0.0 }, .{ 1.0, 1.0 }, .{ 0.0, 0.0 }, .{ -1.0, 1.0 } };
     for (res.transformationPairs[0].operation.ops, 0..) |op, i| {
         try testing.expectApproxEqAbs(expected[i][0], op.anchor.point.point.x, 0.001);
         try testing.expectApproxEqAbs(expected[i][1], op.anchor.point.point.y, 0.001);
@@ -6091,15 +6092,15 @@ test "toExplicitPoint train supports a hook as a tine" {
     defer arena.deinit();
     const a = arena.allocator();
 
-    // (rotate [90 a (0% self)] with (anchor {(2,0)} ,)) out with input [[1,1]]:
+    // (rotate [90 a (0% self)] with (, (anchor {(2,0)}))) out with input [[1,1]]:
     // left tine: rotate 90 -> (0,0)->(-1,1)
-    // right tine: hook (anchor {(2,0)} with nothing) -> (2,0)->(3,1) then identity (0,0)->(1,1)
+    // right tine: hook (, (anchor {(2,0)})) -> identity (0,0)->(1,1) then (2,0)->(3,1)
     const rot_point = GeneralPoint{ .fraction = .{ .fromStart = 0, .element = .self } };
     const rot_arg = RotateArg{ .phi = 90.0, .point = rot_point };
     const rot_elements = try a.dupe(RotateArg, &[1]RotateArg{rot_arg});
     const rotate_op = OneArgFunctionPartial{ .rotate = RotatePartial{ .elements = rot_elements } };
     const anchor_op = OneArgFunctionPartial{ .anchor = AnchorPartial{ .point = GeneralPoint{ .point = inputs.Point{ .x = 2.0, .y = 0.0 } } } };
-    const hook = Hook{ .left = CompositeInside{ .stop = anchor_op }, .right = .with };
+    const hook = Hook{ .combinator = .with, .right = CompositeInside{ .stop = anchor_op } };
     const train = Train{
         .left = CompositeInside{ .stop = rotate_op },
         .middle = .with,
@@ -6125,7 +6126,7 @@ test "toExplicitPoint train supports a hook as a tine" {
     try testing.expectEqual(res.transformationPairs.len, 1);
     try testing.expectEqual(res.transformationPairs[0].operation.ops.len, 6);
 
-    const expected = [_][2]f32{ .{ 0.0, 0.0 }, .{ -1.0, 1.0 }, .{ 2.0, 0.0 }, .{ 3.0, 1.0 }, .{ 0.0, 0.0 }, .{ 1.0, 1.0 } };
+    const expected = [_][2]f32{ .{ 0.0, 0.0 }, .{ -1.0, 1.0 }, .{ 0.0, 0.0 }, .{ 1.0, 1.0 }, .{ 2.0, 0.0 }, .{ 3.0, 1.0 } };
     for (res.transformationPairs[0].operation.ops, 0..) |op, i| {
         try testing.expectApproxEqAbs(expected[i][0], op.anchor.point.point.x, 0.001);
         try testing.expectApproxEqAbs(expected[i][1], op.anchor.point.point.y, 0.001);

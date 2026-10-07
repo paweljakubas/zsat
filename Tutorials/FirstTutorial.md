@@ -1108,19 +1108,24 @@ There was also `,` operator that we used implicitely and enables plotting left a
 Now let's delve into **hook** combiner which has the following definition:
 
 ```math
-(leftOp rightOp) obj := (leftOp obj) rightOp obj
+(combinator op) obj := obj combinator (op obj)
 ```
 
-Where `rightOp` is a combinator that joins the two results. The comma `,` is such a combinator and it is equivalent to `with`:
-it plots the left and the right argument together, so a hook with a comma shows an element **and** a transformed copy of it.
+The first slot is a combinator that joins the two results. The comma `,` is such a combinator and it is equivalent to `with` (use it if it feels more convenient):
+it plots the two arguments together, so a hook with a comma shows an element **and** a transformed copy of it.
 
 For instance, to plot `out` together with its rotation by 90 degrees around the beginning of the element:
 
 ```bash
-echo '[[1,1]]' | zsat draw --out hook.png -o '(rotate [90 a (0% self)] ,) out'
+echo '[[1,1]]' | zsat draw \
+-s 'use sleek as s, s::e0, s::b0, a0: s::a0{ticks:[pos:-1,-0.75,-0.5,-0.25,0,0.25,0.5,0.75,1, style:[f:above]],values:[style:[f:below], vals:-1.0,-0.5,0,0.5,1.0]},
+    a1: a0{ticks:[style:[f:below], pos:0,0.25,0.5,0.75,1],values:[style:[f:below, a:-90, e:start], vals:0.25,0.5,0.75,1.0]}' \
+-o '(out) -> ( ( , (rotate [90 a (0% self)])) out, ft {(-1.1,0)} {(1.1,0)} a0, ft {(0,0)} {(0,1.1)} a1)'
+-p 'p0:{size: 600x600, border: s::b0}'
 ```
+<img src="fig62.png" width="332" style="border: 2px solid grey;">
 
-This produces a picture with both the rotated vector (the left tine's result) and the original vector (the unchanged element).
+This produces a picture with both the original vector (the element itself) and the rotated vector (the operation's result).
 
 The **train** combiner is the three-slot version and joins the results of its left and right tines:
 
@@ -1142,8 +1147,12 @@ A plain train that anchors one copy and leaves the other as it is:
 echo '[[1,1]]' | zsat draw --out train.png -o '(anchor {(2,0)} with anchor {(1,0)}) out'
 ```
 
-Tines can also be parenthesized composites, so hooks and trains nest:
-`(rotate [90 a (0% self)] , (anchor {(2,0)} ,)) out`.
+Tines can also be parenthesized composites, so hooks and trains nest.
+A train whose right tine is a hook, drawing the rotated element, the anchored element, and the element itself:
+
+```bash
+echo '[[1,1]]' | zsat draw --out nest.png -o '(rotate [90 a (0% self)] with (, (anchor {(2,0)}))) out'
+```
 
 
 

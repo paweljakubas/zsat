@@ -78,32 +78,32 @@ const Rasterizer = struct {
         const pattern: z2d.pattern.Pattern = .{ .opaque_pattern = .{ .pixel = .{ .rgba = .{ .r = 0, .g = 0, .b = 0, .a = 255 } } } };
         try z2d.text.show(self.alloc, &self.surface, &pattern, self.font, text, 0, 0, .{ .size = self.size });
 
-        var x0: ?i32 = null;
-        var x1: i32 = 0;
-        var y0: ?i32 = null;
-        var y1: i32 = 0;
+        var x_min: ?i32 = null;
+        var x_max: i32 = 0;
+        var y_min: ?i32 = null;
+        var y_max: i32 = 0;
         var y: i32 = 0;
         while (y < self.height) : (y += 1) {
             const row = self.surface.getStride(0, y, @intCast(self.width)).rgba;
             var x: i32 = 0;
             while (x < self.width) : (x += 1) {
                 if (row[@intCast(x)].r < 128) {
-                    if (x0 == null) x0 = x;
-                    x1 = x;
-                    if (y0 == null) y0 = y;
-                    y1 = y;
+                    if (x_min == null or x < x_min.?) x_min = x;
+                    if (x > x_max) x_max = x;
+                    if (y_min == null) y_min = y;
+                    y_max = y;
                 }
             }
         }
 
-        if (x0 == null) return null;
+        if (x_min == null) return null;
         // Pixel `n` covers the unit interval `[n, n + 1)`, so the last inked
         // pixel ends where the following one would start.
         return .{
-            .x0 = @floatFromInt(x0.?),
-            .y0 = @floatFromInt(y0.?),
-            .x1 = @as(f64, @floatFromInt(x1)) + 1.0,
-            .y1 = @as(f64, @floatFromInt(y1)) + 1.0,
+            .x0 = @floatFromInt(x_min.?),
+            .y0 = @floatFromInt(y_min.?),
+            .x1 = @as(f64, @floatFromInt(x_max)) + 1.0,
+            .y1 = @as(f64, @floatFromInt(y_max)) + 1.0,
         };
     }
 };

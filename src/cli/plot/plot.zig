@@ -987,6 +987,11 @@ fn drawAxisOverlays(context: *z2d.Context, io: std.Io, metrics: *text_metrics.Ca
         const dlen = @sqrt(ddx * ddx + ddy * ddy);
         const dux = if (dlen > 1e-10) ddx / dlen else 1.0;
         const duy = if (dlen > 1e-10) ddy / dlen else 0.0;
+        // Positions are coordinates in the data frame, not offsets from the
+        // from-point: a tick needs the point on the axis line whose projection
+        // onto the axis direction equals the coordinate, so subtract the
+        // from-point's own projection along that direction.
+        const from_off = overlay.from.x * dux + overlay.from.y * duy;
 
         // Draw ticks
         if (overlay.ticks) |ticks| {
@@ -1002,8 +1007,8 @@ fn drawAxisOverlays(context: *z2d.Context, io: std.Io, metrics: *text_metrics.Ca
             const th = @as(f64, @floatFromInt(ticks.style.height)) * pixel_scale;
 
             for (ticks.positions) |pos| {
-                const p_ax = overlay.from.x + dux * pos;
-                const p_ay = overlay.from.y + duy * pos;
+                const p_ax = overlay.from.x + dux * (pos - from_off);
+                const p_ay = overlay.from.y + duy * (pos - from_off);
                 const plot_px = origin_x + @as(f64, p_ax) * x_scale;
                 const plot_py = origin_y - @as(f64, p_ay) * y_scale;
 
@@ -1105,27 +1110,35 @@ fn drawAxisOverlays(context: *z2d.Context, io: std.Io, metrics: *text_metrics.Ca
                 }
             }
 
+            // The label side and its outward normal: "above" is the left side
+            // of the axis direction, "below" the right side (device space).
+            // This is general for any axis orientation, horizontal or vertical.
+            const label_is_above = vals.style.form == .above;
+            const label_nx: f64 = if (label_is_above) abx else bbx;
+            const label_ny: f64 = if (label_is_above) aby else bby;
+            // The label's near edge clears the axis: when an axis tick points to
+            // this side the label sits `spacing` beyond the tick tip, otherwise
+            // it sits `spacing` beyond the line's own outer edge. Both are
+            // measured outward from the axis centre line.
+            const side_ext = if (label_is_above) tick_above_ext else tick_below_ext;
+            const line_half: f64 = @as(f64, @floatFromInt(overlay.line.size)) * pixel_scale * 0.5;
+            const clear_off: f64 = if (side_ext > 0.0) side_ext + spacing else line_half + spacing;
+            // With showText the top of the em box sits at y (glyphs grow
+            // downward), so above labels are placed on the negative local side
+            // and below labels on the positive side.
+            const y_local: f64 = if (label_is_above) -font_size else 0.0;
+            const label_theta = axis_angle + angle_offset;
+            const c_theta = @cos(label_theta);
+            const s_theta = @sin(label_theta);
+
             for (vals.vals) |val| {
-                const v_ax = overlay.from.x + dux * val;
-                const v_ay = overlay.from.y + duy * val;
+                const v_ax = overlay.from.x + dux * (val - from_off);
+                const v_ay = overlay.from.y + duy * (val - from_off);
                 const plot_vx = origin_x + @as(f64, v_ax) * x_scale;
                 const plot_vy = origin_y - @as(f64, v_ay) * y_scale;
 
                 const val_str = try std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{val});
                 defer std.heap.page_allocator.free(val_str);
-
-                // The label extends away from the axis on the tick side. With
-                // showText placing the top of the em box at y (glyphs grow
-                // downward in the local frame), above labels sit on the
-                // negative local y side and below labels on the positive side.
-                const y_local: f64 = if (vals.style.form == .above) -font_size else 0.0;
-
-                // Anchor point = tick tip + spacing, along the above/below normal.
-                const tick_ext = if (vals.style.form == .above) tick_above_ext else tick_below_ext;
-                const nx = if (vals.style.form == .above) abx else bbx;
-                const ny = if (vals.style.form == .above) aby else bby;
-                const anchor_x = plot_vx + nx * (tick_ext + spacing);
-                const anchor_y = plot_vy + ny * (tick_ext + spacing);
 
                 // Where the label actually inks, measured against the font in
                 // use. The estimate is only a fallback: it assumes a monospace
@@ -1160,6 +1173,33 @@ fn drawAxisOverlays(context: *z2d.Context, io: std.Io, metrics: *text_metrics.Ca
                 // reads as centred on the tick at every angle.
                 const text_cy = y_local + ink.midY();
 
+                // The label extends away from the axis on the tick side. The
+                // ink it produces is measured before the anchor is chosen, so
+                // the anchor can be placed where the inked near edge (the edge
+                // closest to the axis) lands exactly `clear_off` outward of the
+                // axis centre line -- whatever the label `angle`. z2d's rotate
+                // maps a local point (x, y) to (c*x - s*y, s*x + c*y), and
+                // `pivot_cx`/`text_cy` are the pivot of the label's ink box, so
+                // the pivot's own outward projection has to be added back when
+                // turning the near-edge constraint into a pivot placement.
+                const proj = struct {
+                    fn p(nx: f64, ny: f64, c: f64, s: f64, y_off: f64, x: f64, y: f64) f64 {
+                        const dy = y - y_off;
+                        return nx * (c * x - s * dy) + ny * (s * x + c * dy);
+                    }
+                }.p;
+                const ink_x0 = ink.x0;
+                const ink_y0 = y_local + ink.y0;
+                const ink_x1 = ink.x1;
+                const ink_y1 = y_local + ink.y1;
+                const min_proj = @min(
+                    @min(proj(label_nx, label_ny, c_theta, s_theta, y_local, ink_x0, ink_y0), proj(label_nx, label_ny, c_theta, s_theta, y_local, ink_x1, ink_y0)),
+                    @min(proj(label_nx, label_ny, c_theta, s_theta, y_local, ink_x0, ink_y1), proj(label_nx, label_ny, c_theta, s_theta, y_local, ink_x1, ink_y1)),
+                );
+                const proj_pivot = proj(label_nx, label_ny, c_theta, s_theta, y_local, pivot_cx, text_cy);
+                const anchor_x = plot_vx + label_nx * (clear_off - min_proj + proj_pivot);
+                const anchor_y = plot_vy + label_ny * (clear_off - min_proj + proj_pivot);
+
                 // Rotate the label about that pivot and place the pivot exactly
                 // on the anchor point. z2d's translate appends to the CTM
                 // (CTM * T), so the sequence below maps the pivot point to the
@@ -1173,6 +1213,177 @@ fn drawAxisOverlays(context: *z2d.Context, io: std.Io, metrics: *text_metrics.Ca
             }
         }
     }
+}
+
+/// Device-space bounding box of everything an axis overlay paints that can
+/// extend beyond the data area: the axis line itself (which the drawing code
+/// clamps into the draw rect), the tick strokes, and the value labels at their
+/// chosen clearance and rotation. Used during layout to reserve per-side
+/// margin room so overlay content never runs under the pane border.
+const DeviceBox = struct {
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+
+    fn include(self: *DeviceBox, x: f64, y: f64) void {
+        self.x0 = @min(self.x0, x);
+        self.y0 = @min(self.y0, y);
+        self.x1 = @max(self.x1, x);
+        self.y1 = @max(self.y1, y);
+    }
+};
+
+fn axisOverlayDeviceBounds(
+    overlay: anytype,
+    io: std.Io,
+    metrics: *text_metrics.Cache,
+    origin_x: f64,
+    origin_y: f64,
+    x_scale: f64,
+    y_scale: f64,
+    pixel_scale: f64,
+) DeviceBox {
+    const ax = origin_x + @as(f64, overlay.from.x) * x_scale;
+    const ay = origin_y - @as(f64, overlay.from.y) * y_scale;
+    const bx = origin_x + @as(f64, overlay.to.x) * x_scale;
+    const by = origin_y - @as(f64, overlay.to.y) * y_scale;
+
+    var box = DeviceBox{
+        .x0 = @min(ax, bx),
+        .y0 = @min(ay, by),
+        .x1 = @max(ax, bx),
+        .y1 = @max(ay, by),
+    };
+
+    const pdx = bx - ax;
+    const pdy = by - ay;
+    const plen = @sqrt(pdx * pdx + pdy * pdy);
+    if (plen < 1e-10) return box;
+    const abx = pdy / plen;
+    const aby = -pdx / plen;
+    const bbx = -pdy / plen;
+    const bby = pdx / plen;
+
+    const ddx = overlay.to.x - overlay.from.x;
+    const ddy = overlay.to.y - overlay.from.y;
+    const dlen = @sqrt(ddx * ddx + ddy * ddy);
+    const dux = if (dlen > 1e-10) ddx / dlen else 1.0;
+    const duy = if (dlen > 1e-10) ddy / dlen else 0.0;
+    const from_off = overlay.from.x * dux + overlay.from.y * duy;
+
+    if (overlay.ticks) |ticks| {
+        const th = @as(f64, @floatFromInt(ticks.style.height)) * pixel_scale;
+        for (ticks.positions) |pos| {
+            const p_ax = overlay.from.x + dux * (pos - from_off);
+            const p_ay = overlay.from.y + duy * (pos - from_off);
+            const plot_px = origin_x + @as(f64, p_ax) * x_scale;
+            const plot_py = origin_y - @as(f64, p_ay) * y_scale;
+            switch (ticks.style.form) {
+                .above => box.include(plot_px + abx * th, plot_py + aby * th),
+                .below => box.include(plot_px + bbx * th, plot_py + bby * th),
+                .middle, .dot, .square => {
+                    box.include(plot_px - abx * th * 0.5, plot_py - aby * th * 0.5);
+                    box.include(plot_px + abx * th * 0.5, plot_py + aby * th * 0.5);
+                },
+            }
+        }
+    }
+
+    if (overlay.values) |vals| {
+        const font_path = if (std.mem.eql(u8, vals.style.font, "default"))
+            "/usr/share/fonts/truetype/hack/Hack-Regular.ttf"
+        else
+            vals.style.font;
+        const th = if (overlay.ticks) |ticks| @as(f64, @floatFromInt(ticks.style.height)) * pixel_scale else 0.0;
+        const tick_form = if (overlay.ticks) |ticks| ticks.style.form else null;
+        const font_size = @as(f64, @floatFromInt(vals.style.size)) * pixel_scale;
+        const spacing = @as(f64, @floatFromInt(vals.style.spacing)) * pixel_scale;
+
+        const adx = pdx / plen;
+        const ady = pdy / plen;
+        const axis_angle = std.math.atan2(ady, adx);
+        const angle_offset = -switch (vals.style.angle) {
+            .degrees => |d| @as(f64, d) * std.math.pi / 180.0,
+            .radians => |r| @as(f64, r),
+        };
+
+        var tick_above_ext: f64 = 0.0;
+        var tick_below_ext: f64 = 0.0;
+        if (tick_form) |tf| {
+            switch (tf) {
+                .above => tick_above_ext = th,
+                .below => tick_below_ext = th,
+                .middle, .dot, .square => {
+                    tick_above_ext = th * 0.5;
+                    tick_below_ext = th * 0.5;
+                },
+            }
+        }
+
+        const label_is_above = vals.style.form == .above;
+        const label_nx: f64 = if (label_is_above) abx else bbx;
+        const label_ny: f64 = if (label_is_above) aby else bby;
+        const side_ext = if (label_is_above) tick_above_ext else tick_below_ext;
+        const line_half: f64 = @as(f64, @floatFromInt(overlay.line.size)) * pixel_scale * 0.5;
+        const clear_off: f64 = if (side_ext > 0.0) side_ext + spacing else line_half + spacing;
+        const y_local: f64 = if (label_is_above) -font_size else 0.0;
+        const label_theta = axis_angle + angle_offset;
+        const c_theta = @cos(label_theta);
+        const s_theta = @sin(label_theta);
+
+        const proj = struct {
+            fn p(nx: f64, ny: f64, c: f64, s: f64, y_off: f64, x: f64, y: f64) f64 {
+                const dy = y - y_off;
+                return nx * (c * x - s * dy) + ny * (s * x + c * dy);
+            }
+        }.p;
+
+        for (vals.vals) |val| {
+            const v_ax = overlay.from.x + dux * (val - from_off);
+            const v_ay = overlay.from.y + duy * (val - from_off);
+            const plot_vx = origin_x + @as(f64, v_ax) * x_scale;
+            const plot_vy = origin_y - @as(f64, v_ay) * y_scale;
+
+            const val_str = std.fmt.allocPrint(std.heap.page_allocator, "{d}", .{val}) catch continue;
+            defer std.heap.page_allocator.free(val_str);
+
+            const est_ink = text_metrics.InkBox{
+                .x0 = 0.0,
+                .x1 = font_size * 0.6 * @as(f64, @floatFromInt(val_str.len)),
+                .y0 = 0.0,
+                .y1 = font_size * 0.6,
+            };
+            const ink = metrics.get(io, font_path, font_size, val_str, est_ink);
+
+            const pivot_cx = switch (vals.style.edge) {
+                .center => ink.midX(),
+                .start => ink.x0,
+                .end => ink.x1,
+            };
+            const text_cy = y_local + ink.midY();
+
+            const ink_x0 = ink.x0;
+            const ink_y0 = y_local + ink.y0;
+            const ink_x1 = ink.x1;
+            const ink_y1 = y_local + ink.y1;
+            const min_proj = @min(
+                @min(proj(label_nx, label_ny, c_theta, s_theta, y_local, ink_x0, ink_y0), proj(label_nx, label_ny, c_theta, s_theta, y_local, ink_x1, ink_y0)),
+                @min(proj(label_nx, label_ny, c_theta, s_theta, y_local, ink_x0, ink_y1), proj(label_nx, label_ny, c_theta, s_theta, y_local, ink_x1, ink_y1)),
+            );
+            const proj_pivot = proj(label_nx, label_ny, c_theta, s_theta, y_local, pivot_cx, text_cy);
+
+            // point p -> anchor + R*(p - pivot)
+            const anchor_x = plot_vx + label_nx * (clear_off - min_proj + proj_pivot);
+            const anchor_y = plot_vy + label_ny * (clear_off - min_proj + proj_pivot);
+            box.include(anchor_x + c_theta * (ink_x0 - pivot_cx) - s_theta * (ink_y0 - text_cy), anchor_y + s_theta * (ink_x0 - pivot_cx) + c_theta * (ink_y0 - text_cy));
+            box.include(anchor_x + c_theta * (ink_x1 - pivot_cx) - s_theta * (ink_y0 - text_cy), anchor_y + s_theta * (ink_x1 - pivot_cx) + c_theta * (ink_y0 - text_cy));
+            box.include(anchor_x + c_theta * (ink_x0 - pivot_cx) - s_theta * (ink_y1 - text_cy), anchor_y + s_theta * (ink_x0 - pivot_cx) + c_theta * (ink_y1 - text_cy));
+            box.include(anchor_x + c_theta * (ink_x1 - pivot_cx) - s_theta * (ink_y1 - text_cy), anchor_y + s_theta * (ink_x1 - pivot_cx) + c_theta * (ink_y1 - text_cy));
+        }
+    }
+
+    return box;
 }
 
 /// Renders all parsed outputs onto a z2d canvas and returns the resulting image
@@ -1351,21 +1562,71 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
     const y_range = bounds.y[1] - bounds.y[0];
 
     const margin: f64 = 20.0 * pixel_scale;
-    const effective_margin = margin + border_width;
-    const draw_width = @as(f64, @floatFromInt(width)) - 2 * effective_margin;
-    const draw_height = @as(f64, @floatFromInt(height)) - 2 * effective_margin;
+    const min_margin = margin + border_width;
 
     if (x_range >= 0 and y_range >= 0) {
-        const rX = if (x_range > 0) draw_width / @as(f64, x_range) else draw_width;
-        const rY = if (y_range > 0) draw_height / @as(f64, y_range) else draw_height;
+        // Reserve per-side margin room for axis ticks and value labels that
+        // point away from the data area, so they clear the pane border. The
+        // overlay extents are device pixels (tick heights, label ink), so a
+        // couple of fixed-point iterations settle on the needed room even
+        // though the axis direction in device space depends on the scales.
+        var m_left = min_margin;
+        var m_right = min_margin;
+        var m_top = min_margin;
+        var m_bottom = min_margin;
 
-        const x_scale = rX;
-        const y_scale = rY;
+        var extra_left: f64 = 0.0;
+        var extra_right: f64 = 0.0;
+        var extra_top: f64 = 0.0;
+        var extra_bottom: f64 = 0.0;
 
-        const origin_x = effective_margin - @as(f64, bounds.x[0]) * x_scale;
-        const origin_y = @as(f64, @floatFromInt(height)) - effective_margin + @as(f64, bounds.y[0]) * y_scale;
-        const min_y = effective_margin;
-        const max_y = @as(f64, @floatFromInt(height)) - effective_margin;
+        var metrics = text_metrics.Cache.init(std.heap.page_allocator);
+        defer metrics.deinit();
+
+        var x_scale: f64 = 0;
+        var y_scale: f64 = 0;
+        var origin_x: f64 = 0;
+        var origin_y: f64 = 0;
+
+        var iter: usize = 0;
+        while (iter < 4) : (iter += 1) {
+            const draw_width = @as(f64, @floatFromInt(width)) - m_left - m_right;
+            const draw_height = @as(f64, @floatFromInt(height)) - m_top - m_bottom;
+            const rX = if (x_range > 0) draw_width / @as(f64, x_range) else draw_width;
+            const rY = if (y_range > 0) draw_height / @as(f64, y_range) else draw_height;
+
+            x_scale = rX;
+            y_scale = rY;
+
+            origin_x = m_left - @as(f64, bounds.x[0]) * x_scale;
+            origin_y = @as(f64, @floatFromInt(height)) - m_bottom + @as(f64, bounds.y[0]) * y_scale;
+
+            if (@hasField(@TypeOf(parsed_data), "axisOverlays")) {
+                for (parsed_data.axisOverlays) |overlay| {
+                    const env = axisOverlayDeviceBounds(overlay, io, &metrics, origin_x, origin_y, x_scale, y_scale, pixel_scale);
+                    extra_left = @max(extra_left, m_left - env.x0);
+                    extra_right = @max(extra_right, env.x1 - (@as(f64, @floatFromInt(width)) - m_right));
+                    extra_top = @max(extra_top, m_top - env.y0);
+                    extra_bottom = @max(extra_bottom, env.y1 - (@as(f64, @floatFromInt(height)) - m_bottom));
+                }
+            }
+
+            m_left = min_margin + @max(0.0, extra_left);
+            m_right = min_margin + @max(0.0, extra_right);
+            m_top = min_margin + @max(0.0, extra_top);
+            m_bottom = min_margin + @max(0.0, extra_bottom);
+        }
+
+        // Re-derive the transforms from the settled margins.
+        const draw_width = @as(f64, @floatFromInt(width)) - m_left - m_right;
+        const draw_height = @as(f64, @floatFromInt(height)) - m_top - m_bottom;
+        x_scale = if (x_range > 0) draw_width / @as(f64, x_range) else draw_width;
+        y_scale = if (y_range > 0) draw_height / @as(f64, y_range) else draw_height;
+
+        origin_x = m_left - @as(f64, bounds.x[0]) * x_scale;
+        origin_y = @as(f64, @floatFromInt(height)) - m_bottom + @as(f64, bounds.y[0]) * y_scale;
+        const min_y = m_top;
+        const max_y = @as(f64, @floatFromInt(height)) - m_bottom;
 
         for (parsed_data.inputs.input, 0..) |_, row_idx| {
             const style = try resolveStyle(&context, parsed_data.styles, parsed_data.datum.mappings, row_idx, height, pixel_scale);
@@ -1463,8 +1724,6 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
 
         // Draw axis overlays
         if (@hasField(@TypeOf(parsed_data), "axisOverlays") and parsed_data.axisOverlays.len > 0) {
-            var metrics = text_metrics.Cache.init(std.heap.page_allocator);
-            defer metrics.deinit();
             try drawAxisOverlays(&context, io, &metrics, parsed_data.axisOverlays, origin_x, origin_y, x_scale, y_scale, min_y, max_y, pixel_scale);
         }
     }
