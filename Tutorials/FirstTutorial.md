@@ -37,7 +37,7 @@ stdin:
 --styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
 --datum '(vec) -> (vec -> e0)'
 --outputs '(out) -> (anchor {(0,0)}) out'
---panes 'p0:{size: 600x600, border: none}'
+--panes 'p0:{size: 600x600, border: none, background: {opacity: 100, color: white}}'
 --frames '(out) -> out -> p0'
 ```
 ![](fig1.png)
@@ -52,6 +52,14 @@ By default, panes have no border. You can add one by inlining inside a pane bord
 ```bash
 echo '[[1,1]]' | zsat draw -p 'p0:{size: 300x300, border: [w:20, c:red]}'
 ```
+
+By default, background (not including border) is `background: [c:white, o:100]`.
+Obviously, one can change it if there is a need - see below:
+
+```bash
+echo '[[1,1]]' | zsat draw -p 'p0:{size: 300x300, border: [w:20, c:red], background: [c:grey, o:90]}'
+```
+
 
 Or define a reusable border in `--styles` (`-s` could also be used) and reference it by name:
 
@@ -116,7 +124,7 @@ stdin:
 --styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
 --datum '(vec, vec) -> (vec -> e0, vec -> e0)'
 --outputs '(out, out) -> ((anchor {(0.0,0.0)}) out, (anchor {(0.0,0.0)}) out)'
---panes 'p0:{size: 600x600, border: none}'
+--panes 'p0:{size: 600x600, border: none, background: {opacity: 100, color: white}}'
 --frames '(out) -> out -> p0'
 ```
 
@@ -346,7 +354,7 @@ stdin:
 --styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
 --datum '(vec) -> (vec -> e0)'
 --outputs '(out) -> (anchor {(0,0)}) out'
---panes 'p0:{size: 600x600, border: none}'
+--panes 'p0:{size: 600x600, border: none, background: {opacity: 100, color: white}}'
 --frames '(out) -> out -> p0'
 ```
 <img src="fig18.png" width="332" style="border: 2px solid grey;">
@@ -362,7 +370,7 @@ stdin:
 --styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
 --datum '(vec) -> (vec -> e0)'
 --outputs '(out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out'
---panes 'p0:{size: 600x600, border: none}'
+--panes 'p0:{size: 600x600, border: none, background: {opacity: 100, color: white}}'
 --frames '(out) -> out -> p0'
 ```
 <img src="fig19.png" width="332" style="border: 2px solid grey;">
@@ -395,7 +403,7 @@ stdin:
 --styles 'e0:{vec2d xy fixed all [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
 --datum '(vec) -> (vec -> e0)'
 --outputs '(out) -> ((rotate [90 a (0% self)]) & (anchor {(0,0)})) out'
---panes 'p0:{size: 600x600, border: none}'
+--panes 'p0:{size: 600x600, border: none, background: {opacity: 100, color: white}}'
 --frames '(out) -> out -> p0'
 ```
 <img src="fig20.png" width="332" style="border: 2px solid grey;">
@@ -410,7 +418,7 @@ stdin:
 --styles 'e0:{vec2d xy fixed all [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "txt" [c:red, s:20, f:default, o:100]}'
 --datum '(vec) -> (vec -> e0)'
 --outputs '(out) -> ((r [-90 a (mid self)]) & (rotate [1r2p a (0% self)]) & (anchor {(0,0)})) out'
---panes 'p0:{size: 600x600, border: none}'
+--panes 'p0:{size: 600x600, border: none, background: {opacity: 100, color: white}}'
 --frames '(out) -> out -> p0'
 ```
 <img src="fig21.png" width="332" style="border: 2px solid grey;">
@@ -674,7 +682,7 @@ stdin:
 --styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d xy fixed last [sh:square, s:15, c: grey, o: 100]}, t0: {txt "hello" [c:red, s:20, f:default, o:100]}'
 --datum '(vec) -> (vec -> e0)'
 --outputs '(out) -> ((a {(0,0)}) out, (a {(0.5,0.5)}) t0)'
---panes 'p0:{size: 600x600, border: none}'
+--panes 'p0:{size: 600x600, border: none, background: {opacity: 100, color: white}}'
 --frames '(out) -> out -> p0'
 ```
 <img src="fig42.png" width="332" style="border: 2px solid grey;">

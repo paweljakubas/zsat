@@ -1281,10 +1281,7 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
             const size = pane.paneValue.paneSize.?;
             const b = resolvePaneBorder(pane, borders);
             const bg = resolvePaneBackground(pane);
-            const bg_str = if (bg) |bg_val|
-                try std.fmt.allocPrint(alloc, "background: {{opacity: {}, color: {s}}}", .{ bg_val.opacity, @tagName(bg_val.color) })
-            else
-                try alloc.dupe(u8, "background: none");
+            const bg_str = try std.fmt.allocPrint(alloc, "background: {{opacity: {}, color: {s}}}", .{ bg.opacity, @tagName(bg.color) });
             const pane_str = if (b) |border_val|
                 try std.fmt.allocPrint(alloc, "p{d}:{{size: {}x{}, border: {{width: {}, opacity: {}, color: {s}}}, {s}}}", .{ pane.paneNumber, size.width, size.height, border_val.width, border_val.opacity, @tagName(border_val.color), bg_str })
             else
@@ -1327,9 +1324,9 @@ fn resolvePaneBorder(pane: Panes.Pane, borders: []const Border.BorderDefinition)
     }
 }
 
-fn resolvePaneBackground(pane: Panes.Pane) ?Border.Background {
+fn resolvePaneBackground(pane: Panes.Pane) Border.Background {
     switch (pane.paneValue.background) {
-        .none => return null,
+        .none => return .{},
         .defined => |b| return b,
     }
 }
