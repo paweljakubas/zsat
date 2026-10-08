@@ -18,6 +18,14 @@ pub const BorderDefinition = struct {
     w: Border,
 };
 
+/// Background of a pane: the color that fills the drawing area behind the plot
+/// elements. The pane border, when present, is drawn on top of the background
+/// and is not part of it.
+pub const Background = struct {
+    opacity: u8 = 100,
+    color: common.ColorName = .white,
+};
+
 const BorderAttributeUnion = union(enum) {
     borderWidth: u16,
     borderOpacity: u8,
@@ -294,4 +302,104 @@ test "paneBorderRefParser" {
 
     const r3 = try paneBorderRefParser.parse(a, "border: sleek::b3");
     try testing.expectEqualStrings("sleek::b3", r3.value.ok);
+}
+
+// background backgroundColor / c parser
+const backgroundColorParserRaw = mecha.combine(.{
+    mecha.oneOf(.{ mecha.string("color"), mecha.string("c") }).discard(),
+    common.skipWhitespace,
+    mecha.ascii.char(':').discard(),
+    common.skipWhitespace,
+    common.colorNameParserTyped,
+});
+
+// background backgroundOpacity / o parser
+const backgroundOpacityParserRaw = mecha.combine(.{
+    mecha.oneOf(.{ mecha.string("opacity"), mecha.string("o") }).discard(),
+    common.skipWhitespace,
+    mecha.ascii.char(':').discard(),
+    common.skipWhitespace,
+    mecha.int(u8, .{}),
+});
+
+const BackgroundAttributeUnion = union(enum) {
+    backgroundColor: common.ColorName,
+    backgroundOpacity: u8,
+};
+
+const backgroundColorUnionParser = backgroundColorParserRaw.convert(struct {
+    fn conv(_: std.mem.Allocator, res: common.ColorName) mecha.ConvertError!BackgroundAttributeUnion {
+        return BackgroundAttributeUnion{ .backgroundColor = res };
+    }
+}.conv);
+
+const backgroundOpacityUnionParser = backgroundOpacityParserRaw.convert(struct {
+    fn conv(_: std.mem.Allocator, res: u8) mecha.ConvertError!BackgroundAttributeUnion {
+        return BackgroundAttributeUnion{ .backgroundOpacity = res };
+    }
+}.conv);
+
+const backgroundAttributeUnionParser = mecha.oneOf(.{
+    backgroundColorUnionParser,
+    backgroundOpacityUnionParser,
+});
+
+const backgroundSeparatorParser = mecha.combine(.{ common.skipWhitespace, mecha.ascii.char(',').discard(), common.skipWhitespace });
+const manyBackgroundAttributeUnionParser = mecha.many(backgroundAttributeUnionParser, .{ .collect = true, .min = 1, .separator = backgroundSeparatorParser });
+
+fn manyToBackground(_: std.mem.Allocator, fields: []BackgroundAttributeUnion) mecha.ConvertError!Background {
+    var res = Background{};
+    for (fields) |field| switch (field) {
+        .backgroundColor => |v| res.color = v,
+        .backgroundOpacity => |v| res.opacity = v,
+    };
+    return res;
+}
+
+pub const backgroundAttributesParser = manyBackgroundAttributeUnionParser.convert(manyToBackground);
+
+test "backgroundAttributesParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try backgroundAttributesParser.parse(a, "c:green");
+    const b1 = Background{ .opacity = 100, .color = .green };
+    try testing.expectEqual(b1, r1.value.ok);
+
+    const r2 = try backgroundAttributesParser.parse(a, "o:50, c:red");
+    const b2 = Background{ .opacity = 50, .color = .red };
+    try testing.expectEqual(b2, r2.value.ok);
+
+    const r3 = try backgroundAttributesParser.parse(a, "c:blue, o: 25");
+    const b3 = Background{ .opacity = 25, .color = .blue };
+    try testing.expectEqual(b3, r3.value.ok);
+}
+
+// Parser for pane background field: "background: [c:red, o:50]" (returns Background)
+pub const paneBackgroundInlineParser = mecha.combine(.{
+    common.skipWhitespace,
+    mecha.oneOf(.{ mecha.string("background"), mecha.string("back") }).discard(),
+    common.skipWhitespace,
+    mecha.ascii.char(':').discard(),
+    common.skipWhitespace,
+    common.skipOpenSquare,
+    backgroundAttributesParser,
+    common.skipCloseSquare,
+}).convert(struct {
+    fn conv(_: std.mem.Allocator, res: Background) mecha.ConvertError!Background {
+        return res;
+    }
+}.conv);
+
+test "paneBackgroundInlineParser" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try paneBackgroundInlineParser.parse(a, "background: [c:red, o:50]");
+    try testing.expectEqual(Background{ .opacity = 50, .color = .red }, r1.value.ok);
+
+    const r2 = try paneBackgroundInlineParser.parse(a, "back: [o: 75]");
+    try testing.expectEqual(Background{ .opacity = 75, .color = .white }, r2.value.ok);
 }

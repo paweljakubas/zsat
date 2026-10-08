@@ -1560,8 +1560,26 @@ test "zsat draw with debug and custom options" {
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--styles 'e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d:none]}, p0:{pt2d"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "f:default, o:100]}'\n"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--datum '(vec) -> (vec -> e0)'"));
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--panes 'p0:{size: 600x600, border: none}'"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--panes 'p0:{size: 600x600, border: none, background: none}'"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--frames '(out) -> out -> p0'"));
+}
+
+test "zsat draw with debug and background" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{background: [c:lightyellow, o:50], border: [w:10, c:red]}", "--frames", "(out) -> out -> p0" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv, .stdin = "[[2,1.1]]" });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--panes 'p0:{size: 600x600, border: {width: 10, opacity: 100, color: red}, background: {opacity: 50, color: lightyellow}}'"));
+
+    const back_argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "e0:{vec2d}", "--datum", "(vec) -> (vec -> e0)", "--panes", "p0:{back: [c:black, o:10]}", "--frames", "(out) -> out -> p0" };
+    var back_result = try cmdtest.run(std.testing.io, .{ .argv = back_argv, .stdin = "[[2,1.1]]" });
+    defer back_result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), back_result.code);
+    try testing.expect(std.mem.containsAtLeast(u8, back_result.stdout, 1, "background: {opacity: 10, color: black}"));
 }
 
 test "zsat draw -h cleaned output" {
@@ -2019,8 +2037,22 @@ test "zsat draw objects --help" {
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "line"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "angle"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "color"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "background"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "zsat draw vec2d --help"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "zsat draw pt2d --help"));
+}
+
+test "zsat draw background --help" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "background", "--help" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "background"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "back"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "c:NAME"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "o:N"));
 }
 
 test "zsat draw angle --help" {

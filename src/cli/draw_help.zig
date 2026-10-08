@@ -421,6 +421,26 @@ pub const border_help =
     \\  --styles 'b1: {border}' --panes 'p1:{border: b1}'
 ;
 
+/// Help text for `zsat draw background --help`
+pub const background_help =
+    \\A background is the color behind a pane's plot elements. It fills the
+    \\whole drawing area; a pane border, when present, is drawn on top of it and
+    \\is not part of the background. When no background is given, the pane is
+    \\white, as before.
+    \\
+    \\Using the background in --panes:
+    \\  background: [ATTR1, ...]     -- inline background definition
+    \\  back: [ATTR1, ...]           -- same, shorthand
+    \\
+    \\Attributes (defaults: c=white, o=100):
+    \\  color:NAME  or  c:NAME -- any CSS color name
+    \\  opacity:N  or  o:N -- opacity from 0 to 100
+    \\
+    \\Examples:
+    \\  --panes 'p0:{size: 600x600, background: [c:lightyellow]}'
+    \\  --panes 'p0:{size: 600x600, border: [w:20, c:blue], back: [c:black, o:10]}'
+;
+
 /// Help text for `zsat draw axis --help`
 pub const axis_help =
     \\Axes are reference lines that can carry ticks and value labels.
@@ -594,6 +614,8 @@ pub const objects_help =
     \\       Available color names for line color
     \\  zsat draw border --help
     \\       How to define pane borders: width, opacity, and color
+    \\  zsat draw background --help
+    \\       How to define the pane background: color and opacity
     \\  zsat draw axis --help
     \\       How to define axes: line, ticks, and value labels
 ;

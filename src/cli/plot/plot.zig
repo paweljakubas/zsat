@@ -1390,7 +1390,7 @@ fn axisOverlayDeviceBounds(
 /// (or writes it to a PNG file if output_path is provided).
 ///
 /// Processing phases:
-/// 1. Canvas setup: create surface, fill white background
+/// 1. Canvas setup: create surface, fill pane background (default opaque white)
 /// 2. Bounds computation: find min/max X/Y across all outputs via computeBounds
 /// 3. Coordinate transform: compute scale and origin from bounds + margin
 /// 4. Drawing loop: for each input row:
@@ -1457,7 +1457,24 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
 
     var context = z2d.Context.init(io, std.heap.page_allocator, &surface);
 
-    context.setSourceToPixel(.{ .rgba = .{ .r = 255, .g = 255, .b = 255, .a = 255 } });
+    // Resolve pane background (defaults to opaque white) and fill the whole
+    // drawing area. A background with opacity below 100 blends toward white,
+    // like every other object color; the border, when present, is drawn on top.
+    var bg_r: u8 = 255;
+    var bg_g: u8 = 255;
+    var bg_b: u8 = 255;
+    var bg_a: u8 = 255;
+    switch (pane.paneValue.background) {
+        .none => {},
+        .defined => |b| {
+            const rgb = colorNameToRGB(b.color);
+            bg_a = @intCast(@as(u16, b.opacity) * 255 / 100);
+            bg_r = @intCast(@as(u16, rgb.r) * bg_a / 255);
+            bg_g = @intCast(@as(u16, rgb.g) * bg_a / 255);
+            bg_b = @intCast(@as(u16, rgb.b) * bg_a / 255);
+        },
+    }
+    context.setSourceToPixel(.{ .rgba = .{ .r = bg_r, .g = bg_g, .b = bg_b, .a = bg_a } });
     context.setLineWidth(0.0); // Disable stroke during fill
     try context.moveTo(0, 0);
     try context.lineTo(@floatFromInt(width), 0);

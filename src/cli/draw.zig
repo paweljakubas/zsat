@@ -824,6 +824,13 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
     }, draw_help.printHelpExec);
     try cmd.addCommand(border_cmd);
 
+    const background_cmd = try zli.Command.init(init_opts, .{
+        .name = "background",
+        .description = "How to define the pane background: color and opacity",
+        .help = draw_help.background_help,
+    }, draw_help.printHelpExec);
+    try cmd.addCommand(background_cmd);
+
     const axis_cmd = try zli.Command.init(init_opts, .{
         .name = "axis",
         .description = "How to define axes: line, ticks, and value labels",
@@ -1273,10 +1280,15 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
             if (i > 0) try panes_debug_parts.append(alloc, try alloc.dupe(u8, ", "));
             const size = pane.paneValue.paneSize.?;
             const b = resolvePaneBorder(pane, borders);
-            const pane_str = if (b) |border_val|
-                try std.fmt.allocPrint(alloc, "p{d}:{{size: {}x{}, border: {{width: {}, opacity: {}, color: {s}}}}}", .{ pane.paneNumber, size.width, size.height, border_val.width, border_val.opacity, @tagName(border_val.color) })
+            const bg = resolvePaneBackground(pane);
+            const bg_str = if (bg) |bg_val|
+                try std.fmt.allocPrint(alloc, "background: {{opacity: {}, color: {s}}}", .{ bg_val.opacity, @tagName(bg_val.color) })
             else
-                try std.fmt.allocPrint(alloc, "p{d}:{{size: {}x{}, border: none}}", .{ pane.paneNumber, size.width, size.height });
+                try alloc.dupe(u8, "background: none");
+            const pane_str = if (b) |border_val|
+                try std.fmt.allocPrint(alloc, "p{d}:{{size: {}x{}, border: {{width: {}, opacity: {}, color: {s}}}, {s}}}", .{ pane.paneNumber, size.width, size.height, border_val.width, border_val.opacity, @tagName(border_val.color), bg_str })
+            else
+                try std.fmt.allocPrint(alloc, "p{d}:{{size: {}x{}, border: none, {s}}}", .{ pane.paneNumber, size.width, size.height, bg_str });
             try panes_debug_parts.append(alloc, pane_str);
         }
         const panes_debug = try std.mem.join(alloc, "", panes_debug_parts.items);
@@ -1312,6 +1324,13 @@ fn resolvePaneBorder(pane: Panes.Pane, borders: []const Border.BorderDefinition)
             }
             return null;
         },
+    }
+}
+
+fn resolvePaneBackground(pane: Panes.Pane) ?Border.Background {
+    switch (pane.paneValue.background) {
+        .none => return null,
+        .defined => |b| return b,
     }
 }
 
