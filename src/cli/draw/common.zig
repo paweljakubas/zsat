@@ -498,6 +498,8 @@ pub const skipArrow =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char('-').discard(), mecha.ascii.char('>').discard(), skipWhitespace });
 pub const skipComma =
     mecha.combine(.{ skipWhitespace, mecha.ascii.char(',').discard(), skipWhitespace });
+pub const skipCaretColon =
+    mecha.combine(.{ skipWhitespace, mecha.ascii.char('^').discard(), mecha.ascii.char(':').discard(), skipWhitespace });
 pub const characterInNameParser =
     mecha.oneOf(.{ mecha.ascii.range('a', 'z'), mecha.ascii.range('A', 'Z'), mecha.ascii.range('0', '9'), mecha.ascii.char(':') });
 pub const nameParser = mecha.many(characterInNameParser, .{ .collect = false });

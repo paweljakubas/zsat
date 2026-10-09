@@ -60,7 +60,9 @@ const Composite = union(enum) {
 
 const CompositeInside = union(enum) {
     stop: OneArgFunctionPartial,
+    power: *const PoweredCompose,
     inside: *const Composite,
+    nestedComposite: *const Composite,
 };
 
 //Train like in J
@@ -1225,11 +1227,43 @@ fn compositeToInside(arena: std.mem.Allocator, a: Composite) mecha.ConvertError!
     return CompositeInside{ .inside = p };
 }
 
+fn compositeToNestedComposite(arena: std.mem.Allocator, a: Composite) mecha.ConvertError!CompositeInside {
+    const p = try arena.create(Composite);
+    errdefer arena.destroy(p);
+    p.* = a;
+    return CompositeInside{ .nestedComposite = p };
+}
+
 fn compositeInsideParserRef() mecha.Parser(CompositeInside) {
     return compositeInsideParser;
 }
 
+fn powerTineToCompositeInside(arena: std.mem.Allocator, args: anytype) mecha.ConvertError!CompositeInside {
+    const compose = args[0];
+    const times = args[1];
+    if (times) |t| {
+        if (t == 0) return error.ConversionFailed;
+        const pc = try arena.create(PoweredCompose);
+        pc.* = PoweredCompose{ .times = t, .compose = compose };
+        return CompositeInside{ .power = pc };
+    }
+    // No power suffix - only take this branch if >= 2 ops? But compose.ops may be slice
+    if (compose.ops.len >= 2) {
+        const pc = try arena.create(PoweredCompose);
+        pc.* = PoweredCompose{ .times = 1, .compose = compose };
+        return CompositeInside{ .power = pc };
+    }
+    // single op, no suffix -> shouldn't happen here
+    return error.ConversionFailed;
+}
+
 const compositeInsideParser = mecha.oneOf(.{
+    mecha.combine(.{
+        common.skipOpenBracket,
+        composeParser,
+        common.skipCloseBracket,
+        powerSuffixParser,
+    }).convert(powerTineToCompositeInside),
     oneArgFunctionPartialParser.map(struct {
         fn toStop(a: OneArgFunctionPartial) CompositeInside {
             return CompositeInside{ .stop = a };
@@ -1240,6 +1274,11 @@ const compositeInsideParser = mecha.oneOf(.{
         mecha.ref(compositeParserRef),
         common.skipCloseBracket,
     }).convert(compositeToInside),
+    mecha.combine(.{
+        common.skipOpenBracket,
+        mecha.ref(compositeParserRef),
+        common.skipCloseBracket,
+    }).convert(compositeToNestedComposite),
 });
 
 fn compositeParserRef() mecha.Parser(Composite) {
@@ -1459,27 +1498,44 @@ test "composeParser" {
 }
 
 //Handling the mapping of the name of output to the transformation of it
+pub const PoweredCompose = struct {
+    times: u32,
+    compose: Compose,
+};
+
 pub const OutputTransformationPair = struct {
     outputName: []const u8,
     operation: Compose,
     composite: ?Composite = null,
+    power: ?u32 = null,
 };
 
 const outputNameStrParser = mecha.many(outputCharacterParser, .{ .collect = true, .min = 1 }).asStr();
+const powerSuffixParser = mecha.combine(.{
+    common.skipCaretColon,
+    mecha.convert(common.integer.asStr(), struct {
+        fn toU32(_: std.mem.Allocator, s: []const u8) mecha.ConvertError!u32 {
+            return std.fmt.parseInt(u32, s, 10) catch return error.ConversionFailed;
+        }
+    }.toU32),
+}).opt();
 const outputTransformationPairParserRaw = mecha.combine(.{
     composeParser,
+    powerSuffixParser,
     common.skipWhitespace,
     outputNameStrParser,
 });
 const outputTransformationPairParserRawP = @TypeOf(outputTransformationPairParserRaw);
 fn toOutputTransformationPair(_: std.mem.Allocator, args: outputTransformationPairParserRawP.T) mecha.ConvertError!OutputTransformationPair {
     return OutputTransformationPair{
-        .outputName = args[1],
+        .outputName = args[2],
         .operation = args[0],
+        .power = args[1],
     };
 }
 const outputTransformationPairSingleOpParserRaw = mecha.combine(.{
     oneArgFunctionPartialParser,
+    powerSuffixParser,
     common.skipWhitespace,
     outputNameStrParser,
 });
@@ -1488,23 +1544,26 @@ fn toOutputTransformationPairSingleOp(arena: std.mem.Allocator, args: outputTran
     const ops = try arena.alloc(OneArgFunctionPartial, 1);
     ops[0] = args[0];
     return OutputTransformationPair{
-        .outputName = args[1],
+        .outputName = args[2],
         .operation = Compose{ .ops = ops },
+        .power = args[1],
     };
 }
 const outputTransformationPairCompositeParserRaw = mecha.combine(.{
     common.skipOpenBracket,
     compositeParser,
     common.skipCloseBracket,
+    powerSuffixParser,
     common.skipWhitespace,
     outputNameStrParser,
 });
 const outputTransformationPairCompositeParserRawP = @TypeOf(outputTransformationPairCompositeParserRaw);
 fn toOutputTransformationPairComposite(_: std.mem.Allocator, args: outputTransformationPairCompositeParserRawP.T) mecha.ConvertError!OutputTransformationPair {
     return OutputTransformationPair{
-        .outputName = args[1],
+        .outputName = args[2],
         .operation = Compose{ .ops = &.{} },
         .composite = args[0],
+        .power = args[1],
     };
 }
 const outputTransformationPairParser = mecha.oneOf(.{
@@ -2669,6 +2728,9 @@ pub fn rotatedString(arena: std.mem.Allocator, connection: Connection, rows: u8)
 fn appendTransformationPair(buf: *std.ArrayList(u8), arena: std.mem.Allocator, pair: OutputTransformationPair) !void {
     if (pair.composite) |c| {
         try appendComposite(buf, arena, c);
+        if (pair.power) |p| {
+            try buf.appendSlice(arena, try std.fmt.allocPrint(arena, "^:{d}", .{p}));
+        }
         try buf.append(arena, ' ');
         try buf.appendSlice(arena, pair.outputName);
         return;
@@ -2684,6 +2746,9 @@ fn appendTransformationPair(buf: *std.ArrayList(u8), arena: std.mem.Allocator, p
         try appendOp(buf, arena, op);
     }
     try buf.append(arena, ')');
+    if (pair.power) |p| {
+        try buf.appendSlice(arena, try std.fmt.allocPrint(arena, "^:{d}", .{p}));
+    }
     try buf.append(arena, ' ');
     try buf.appendSlice(arena, pair.outputName);
 }
@@ -2710,6 +2775,18 @@ fn appendComposite(buf: *std.ArrayList(u8), arena: std.mem.Allocator, c: Composi
 fn appendCompositeInside(buf: *std.ArrayList(u8), arena: std.mem.Allocator, tine: CompositeInside) anyerror!void {
     switch (tine) {
         .inside => |c| try appendComposite(buf, arena, c.*),
+        .nestedComposite => |c| try appendComposite(buf, arena, c.*),
+        .power => |pc| {
+            try buf.append(arena, '(');
+            const ops = pc.compose.ops;
+            for (ops, 0..) |op, i| {
+                if (i > 0) try buf.appendSlice(arena, " & ");
+                try appendOp(buf, arena, op);
+            }
+            try buf.append(arena, ')');
+            try buf.appendSlice(arena, "^:");
+            try buf.appendSlice(arena, std.fmt.allocPrint(arena, "{}", .{pc.times}) catch unreachable);
+        },
         .stop => |op| try appendOp(buf, arena, op),
     }
 }
@@ -4549,6 +4626,32 @@ fn evalCompositeTine(
 ) ToExplicitPointError![][]inputs.Point {
     switch (tine) {
         .inside => |c| return evalCompositePolyline(allocator, c.*, base, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps),
+        .nestedComposite => |c| return evalCompositePolyline(allocator, c.*, base, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps),
+        .power => |pc| {
+            const current_start = try allocator.dupe(inputs.Point, base);
+            var current = current_start;
+            var results_list: std.ArrayList([]inputs.Point) = .empty;
+            const times = pc.times;
+            var i: u32 = 0;
+            while (i < times) : (i += 1) {
+                const next = try applyComposeToPolyline(allocator, pc.compose, current, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps);
+                allocator.free(current);
+                current = next;
+                if (plot_steps == .last and i < times - 1) {
+                    allocator.free(current);
+                    current = try allocator.dupe(inputs.Point, base);
+                    const next2 = try applyComposeToPolyline(allocator, pc.compose, current, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps);
+                    allocator.free(current);
+                    current = next2;
+                }
+                if (plot_steps != .last or i == times - 1) {
+                    try results_list.append(allocator, current);
+                    current = try allocator.dupe(inputs.Point, current);
+                }
+            }
+            allocator.free(current);
+            return results_list.toOwnedSlice(allocator);
+        },
         .stop => |op| {
             const res = try allocator.alloc([]inputs.Point, 1);
             res[0] = try applyCompositeStopOp(allocator, op, base, vectors, inp, outputs, idx, orientation, coordinate_type, plot_steps);
@@ -4699,12 +4802,156 @@ pub fn compositeRejectsPointOps(c: Composite, is_pt2d: bool) bool {
 fn compositeInsideRejectsPointOps(tine: CompositeInside, is_pt2d: bool) bool {
     return switch (tine) {
         .inside => |c| compositeRejectsPointOps(c.*, is_pt2d),
+        .nestedComposite => |c| compositeRejectsPointOps(c.*, is_pt2d),
+        .power => |pc| {
+            var r = false;
+            for (pc.compose.ops) |op| {
+                r = r or switch (op) {
+                    .scale => is_pt2d,
+                    .orthogonal => is_pt2d,
+                    else => false,
+                };
+            }
+            if (r) return true;
+            // also check any nested composites? ops don't contain composites, composites are outside
+            return false;
+        },
         .stop => |op| switch (op) {
             .scale => is_pt2d,
             .orthogonal => is_pt2d,
             else => false,
         },
     };
+}
+
+fn applyComposeToPolyline(
+    allocator: std.mem.Allocator,
+    compose: Compose,
+    base: []const inputs.Point,
+    vectors: []const inputs.Vector,
+    inp: inputs.Inputs,
+    outputs: OutputsValidated,
+    idx: usize,
+    orientation: CoordinateOrientation,
+    coordinate_type: CoordinateType,
+    plot_steps: PlotSteps,
+) ToExplicitPointError![]inputs.Point {
+    const current = try allocator.dupe(inputs.Point, base);
+    var ctx_begin: ?inputs.Point = if (current.len > 0) current[0] else null;
+    var ctx_end: ?inputs.Point = if (current.len > 0) current[current.len - 1] else null;
+    var polylines_arr = try allocator.alloc([]inputs.Point, compose.ops.len + 1);
+    var poly_count: usize = 0;
+    var i = compose.ops.len;
+    while (i > 0) {
+        i -= 1;
+        const op = compose.ops[i];
+        if (op != .anchor and poly_count == 0) {
+            polylines_arr[poly_count] = try allocator.dupe(inputs.Point, current);
+            ctx_begin = polylines_arr[poly_count][0];
+            ctx_end = polylines_arr[poly_count][polylines_arr[poly_count].len - 1];
+            poly_count += 1;
+        }
+        var poly: []inputs.Point = undefined;
+        if (op == .anchor) {
+            const pt = switch (op.anchor.point) {
+                .point => |p| p,
+                .beginning => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .beginning = .self }, orientation),
+                .end => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .end = .self }, orientation),
+                .middle => |ref| try getExplicitPoint(inp, outputs, ref, idx, .{ .middle = .self }, orientation),
+                .fraction => |frac| try getExplicitPoint(inp, outputs, frac.element, idx, .{ .fraction = frac }, orientation),
+                .self => ctx_begin orelse inputs.Point{ .x = 0, .y = 0 },
+            };
+            if (isPointRow(inp, idx)) {
+                if (poly_count == 0) {
+                    poly = try translatePolylineToPoint(allocator, current, pt);
+                } else {
+                    poly = try translatePolylineToPoint(allocator, polylines_arr[poly_count - 1], pt);
+                }
+            } else {
+                poly = try allocator.alloc(inputs.Point, vectors.len + 1);
+                poly[0] = pt;
+                var cur_pt = pt;
+                for (vectors, 0..) |v, j| {
+                    cur_pt = inputs.Point{ .x = cur_pt.x + v.x, .y = cur_pt.y + v.y };
+                    poly[j + 1] = cur_pt;
+                }
+            }
+            polylines_arr[poly_count] = poly;
+            ctx_begin = poly[0];
+            ctx_end = poly[poly.len - 1];
+            poly_count += 1;
+        } else if (op == .rotate) {
+            const arg = op.rotate.elements[0];
+            const prev_poly = if (poly_count == 0) current else polylines_arr[poly_count - 1];
+            const rot_pt = try resolveGeneralPoint(allocator, arg.point, ctx_begin, ctx_end, inp, outputs, orientation, coordinate_type, plot_steps);
+            poly = try processRotateOp(allocator, prev_poly, arg, rot_pt);
+            polylines_arr[poly_count] = poly;
+            poly_count += 1;
+        } else if (op == .scale) {
+            const arg = op.scale.elements[0];
+            const prev_poly = if (poly_count == 0) current else polylines_arr[poly_count - 1];
+            poly = try processScaleOp(allocator, prev_poly, arg, vectors, orientation, ctx_begin);
+            polylines_arr[poly_count] = poly;
+            poly_count += 1;
+        } else if (op == .mirror) {
+            const prev_poly = if (poly_count == 0) current else polylines_arr[poly_count - 1];
+            switch (op.mirror.target) {
+                .line => |l| {
+                    poly = try processMirrorOp(allocator, prev_poly, l, orientation, ctx_begin);
+                },
+                .vector => |v| {
+                    poly = try processMirrorOp(allocator, prev_poly, inputs.Line{ .a = v.x, .b = v.y, .c = 0 }, orientation, ctx_begin);
+                },
+                .element => |eref| {
+                    const line = try resolveElementToLine(allocator, inp, outputs, eref, idx, coordinate_type, orientation, plot_steps);
+                    poly = try processMirrorOp(allocator, prev_poly, line, orientation, ctx_begin);
+                },
+                .point => |gp| {
+                    const pt = try resolveGeneralPoint(allocator, gp, ctx_begin, ctx_end, inp, outputs, orientation, coordinate_type, plot_steps);
+                    poly = try allocator.alloc(inputs.Point, prev_poly.len);
+                    for (prev_poly, 0..) |p, j| {
+                        poly[j] = inputs.Point{ .x = 2 * pt.x - p.x, .y = 2 * pt.y - p.y };
+                    }
+                },
+            }
+            polylines_arr[poly_count] = poly;
+            poly_count += 1;
+        } else if (op == .shift) {
+            const prev_poly = if (poly_count == 0) current else polylines_arr[poly_count - 1];
+            var cur_poly = try allocator.dupe(inputs.Point, prev_poly);
+            for (op.shift.vectors) |v| {
+                var shifted = try allocator.alloc(inputs.Point, cur_poly.len);
+                for (cur_poly, 0..) |p, j| {
+                    shifted[j] = inputs.Point{ .x = p.x + v.x, .y = p.y + v.y };
+                }
+                allocator.free(cur_poly);
+                cur_poly = shifted;
+            }
+            polylines_arr[poly_count] = cur_poly;
+            poly_count += 1;
+        } else if (op == .center) {
+            const prev_poly = if (poly_count == 0) current else polylines_arr[poly_count - 1];
+            const poly_c = try allocator.alloc(inputs.Point, 1);
+            poly_c[0] = polylineCenter(prev_poly, isPointRow(inp, idx));
+            polylines_arr[poly_count] = poly_c;
+            poly_count += 1;
+        } else if (op == .none) {
+            const prev_poly = if (poly_count == 0) current else polylines_arr[poly_count - 1];
+            polylines_arr[poly_count] = try allocator.dupe(inputs.Point, prev_poly);
+            poly_count += 1;
+        } else {
+            const prev_poly = if (poly_count == 0) current else polylines_arr[poly_count - 1];
+            polylines_arr[poly_count] = try allocator.dupe(inputs.Point, prev_poly);
+            poly_count += 1;
+        }
+    }
+    allocator.free(current);
+    const result = try allocator.dupe(inputs.Point, polylines_arr[poly_count - 1]);
+    for (0..poly_count) |k| {
+        allocator.free(polylines_arr[k]);
+    }
+    allocator.free(polylines_arr);
+    return result;
 }
 
 /// Phase 1 — Scan: Detect any non-point references (beginning, end, middle, fraction)
