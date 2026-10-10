@@ -403,3 +403,28 @@ test "paneBackgroundInlineParser" {
     const r2 = try paneBackgroundInlineParser.parse(a, "back: [o: 75]");
     try testing.expectEqual(Background{ .opacity = 75, .color = .white }, r2.value.ok);
 }
+
+/// Serializes every border definition into the `--styles` line, e.g.
+/// `b0: {border [w:25, o:100, c:lightgrey]}`. The name is the one --styles
+/// collected the definition under, matching the styles, so `use sleek as s`
+/// reports `s::b0` rather than a bare `b0` that nothing answers to.
+pub fn serializeBorderDefinitions(allocator: std.mem.Allocator, defs: []const BorderDefinition) ![]const u8 {
+    if (defs.len == 0) return try allocator.dupe(u8, "");
+    var parts = std.ArrayList([]const u8).empty;
+    defer {
+        for (parts.items) |p| allocator.free(p);
+        parts.deinit(allocator);
+    }
+
+    for (defs, 0..) |def, i| {
+        if (i > 0) try parts.append(allocator, try allocator.dupe(u8, ", "));
+        try parts.append(allocator, try std.fmt.allocPrint(allocator, "{s}: {{border [w:{}, o:{}, c:{s}]}}", .{
+            def.name,
+            def.w.width,
+            def.w.opacity,
+            @tagName(def.w.color),
+        }));
+    }
+
+    return try std.mem.join(allocator, "", parts.items);
+}

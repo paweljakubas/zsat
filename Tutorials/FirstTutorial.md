@@ -1179,6 +1179,29 @@ echo '[[1,1]]' | zsat draw \
 
 The last operator we discuss here in this tutorial is `power` operator, `^:NUM` which applies the function it succeeds `NUM`times.
 
+```bash
+echo '[[0,0.5]]' | zsat draw \
+-s 'use sleek as s, s::b0, e0:{vec2d xy fixed all [l:10, c:black, o:100]},
+    a0: s::a0{ticks:[pos:-0.5,-0.25,0,0.25,0.5, style:[f:above]],values:[style:[f:below], vals:-0.5,-0.25,0,0.25,0.5]},
+    a1: a0{ticks:[style:[f:below], pos:0,0.25,0.5,0.75,1],values:[style:[f:below, a:-90, e:start], vals:0.25,0.5,0.75,1.0]}'\
+-o '(out) -> ( ( (r [36 a {(0,0.5)}])^:3 & a {(0, 0.5)} ) out, ft {(-0.6,0)} {(0.6,0)} a0, ft {(0,0)} {(0,1.1)} a1)' \
+-p 'p0:{size: 600x600, border: s::b0}'
+```
+
+<img src="fig66.png" width="332" style="border: 2px solid grey;">
+
+This is the same as below, but more concise
+
+```bash
+echo '[[0,0.5]]' | zsat draw \
+-s 'use sleek as s, s::b0, e0:{vec2d xy fixed all [l:10, c:black, o:100]},
+    a0: s::a0{ticks:[pos:-0.5,-0.25,0,0.25,0.5, style:[f:above]],values:[style:[f:below], vals:-0.5,-0.25,0,0.25,0.5]},
+    a1: a0{ticks:[style:[f:below], pos:0,0.25,0.5,0.75,1],values:[style:[f:below, a:-90, e:start], vals:0.25,0.5,0.75,1.0]}'\
+-o '(out) -> (  (r [36 a {(0,0.5)}] & r [36 a {(0,0.5)}] & r [36 a {(0,0.5)}] & a {(0, 0.5)} ) out, ft {(-0.6,0)} {(0.6,0)} a0, ft {(0,0)} {(0,1.1)} a1)' \
+-p 'p0:{size: 600x600, border: s::b0}'
+```
+
+`power` can be used inside `hook`/`train`/`&`/`,`.
 
 ## Exploring the tool through help
 

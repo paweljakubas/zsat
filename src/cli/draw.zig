@@ -251,6 +251,18 @@ fn referencedBaseName(name: []const u8, text: []const u8) ?[]const u8 {
     return token;
 }
 
+/// The definition a `--styles` item builds on, e.g. the `s::a0` of
+/// `a0: s::a0{...}`. Only the token right after the item's own name and its
+/// colon can be one, and only a qualified name counts, because a bare base is
+/// either defined alongside or already in play.
+fn inlinePartBaseReference(part: []const u8, name: []const u8) ?QualifiedReference {
+    if (part.len <= name.len) return null;
+    var rest = std.mem.trim(u8, part[name.len..], " \t\r\n");
+    if (rest.len > 0 and rest[0] == ':') rest = std.mem.trim(u8, rest[1..], " \t\r\n");
+    const end = std.mem.indexOfAny(u8, rest, " \t\r\n{[") orelse rest.len;
+    return parseQualifiedReference(rest[0..end]);
+}
+
 fn prefixedName(alloc: std.mem.Allocator, prefix: ?[]const u8, name: []const u8) ![]const u8 {
     if (prefix) |value| return try std.fmt.allocPrint(alloc, "{s}::{s}", .{ value, name });
     return name;
@@ -583,6 +595,14 @@ fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store
     // `definitions`, which also holds definitions merged in on their own.
     var named = std.ArrayList([]const u8).empty;
     const alias_required = parsed_input.imports.len > 1;
+    // A bare `use ns` puts its whole namespace in play, so any of its keys can
+    // be referenced by name. An aliased `use ns as p` names nothing on its own:
+    // it only answers the references (`p::key`) and inherited bases
+    // (`key: p::base{...}`) that spell its prefix out. Pulling the whole
+    // namespace in for an alias would leak definitions the user never asked
+    // for into the style list, so it is done only when `use ns as p` stands
+    // alone, where there is nothing else to go by.
+    const has_styles_parts = references.items.len > 0 or inline_parts.items.len > 0;
     var aliases_seen = std.ArrayList([]const u8).empty;
     defer aliases_seen.deinit(alloc);
     for (parsed_input.imports) |directive| {
@@ -594,7 +614,11 @@ fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store
         } else if (alias_required) {
             return error.ParseStylesFailed;
         }
-        try addImportedDefinitions(alloc, &definitions, &named, store, default_store, directive);
+        const loaded = namespaceStore(store, default_store, directive.namespace);
+        if (!loaded.hasNamespace(directive.namespace)) return reportMissingNamespace(alloc, directive.namespace, store, default_store);
+        if (directive.alias == null or !has_styles_parts) {
+            try addImportedDefinitions(alloc, &definitions, &named, store, default_store, directive);
+        }
     }
 
     if (references.items.len > 0) {
@@ -623,8 +647,21 @@ fn collectRawDefinitions(alloc: std.mem.Allocator, styles_str: []const u8, store
         _ = try addNamespaceDefinitions(alloc, &definitions, if (name_fallback) &named else null, loaded, config.default_namespace);
     }
 
+    var inline_visited = std.ArrayList(QualifiedReference).empty;
+    defer inline_visited.deinit(alloc);
     for (inline_parts.items) |part| {
         if (config.definitionName(part)) |name| {
+            // A base such as the `s::a0` of `a0: s::a0{...}` is a reference in
+            // its own right. An aliased import no longer pulls its namespace in
+            // wholesale, so the base has to be collected like any other
+            // `s::key` for the definition to resolve against it.
+            if (inlinePartBaseReference(part, name)) |base| {
+                if (findImportAlias(parsed_input.imports, base.namespace)) |directive| {
+                    const loaded = namespaceStore(store, default_store, directive.namespace);
+                    if (!loaded.hasNamespace(directive.namespace)) return reportMissingNamespace(alloc, directive.namespace, store, default_store);
+                    try addReferencedDefinition(alloc, &definitions, loaded, default_store, &inline_visited, directive.namespace, base.name, directive.alias);
+                }
+            }
             try upsertRawDefinition(alloc, &definitions, name, part);
             try named.append(alloc, name);
             continue;
@@ -1193,10 +1230,18 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
 
     var result_pairs = try alloc.alloc(Outputs.OutputTransformationPair, outputsValidated.transformationPairs.len);
 
+    // The frame of an output (orientation, plot steps, coordinate system) is a
+    // property of the style that renders the row, which the datum association
+    // picks out — not of the style at the row's positional index. `use sleek as
+    // s` imports `s::e0` ahead of a user's own `e0`, so indexing positionally
+    // would silently apply the imported style's frame. Index through the datum
+    // mapping, exactly as the plotting step does (styleIndexForRow in plot.zig).
     for (0..outputsValidated.transformationPairs.len) |idx| {
-        const coord_orientation = if (styles.len > idx and styles[idx].styleValue.coordinateOrientation != null) styles[idx].styleValue.coordinateOrientation.? else .fixed;
-        const plot_step = if (styles.len > idx and styles[idx].styleValue.plotSteps != null) styles[idx].styleValue.plotSteps.? else .last;
-        const coord_type = if (styles.len > idx and styles[idx].styleValue.coordinateSystem != null) styles[idx].styleValue.coordinateSystem.? else .xy;
+        const style_idx = styleIndexForRow(datumValidated.mappings, idx);
+        const sv = if (style_idx < styles.len) styles[style_idx].styleValue else Styles.defaultStyleValue;
+        const coord_orientation = sv.coordinateOrientation orelse .fixed;
+        const plot_step = sv.plotSteps orelse .last;
+        const coord_type = sv.coordinateSystem orelse .xy;
 
         const transformed = try Outputs.toExplicitPoint(alloc, inputs, outputsValidated, coord_orientation, plot_step, idx, coord_type);
         result_pairs[idx] = transformed.transformationPairs[idx];
@@ -1260,14 +1305,23 @@ fn parse(ctx: zli.CommandContext, alloc: std.mem.Allocator, environ: std.process
     if (debug) {
         const styles_debug = try Styles.serializeStyles(alloc, styles);
         defer alloc.free(styles_debug);
+        const borders_debug = try Border.serializeBorderDefinitions(alloc, borders);
+        defer alloc.free(borders_debug);
+        const axes_debug = try Axis.serializeAxisDefinitions(alloc, axes);
+        defer alloc.free(axes_debug);
         const texts_debug = try Text.serializeTextDefinitions(alloc, texts);
         defer alloc.free(texts_debug);
+        // Show every kind --styles collected: the styles, then the borders,
+        // axes and texts they reach for in --outputs and --panes, each written
+        // out expanded so the line is a complete account of what is in play.
+        var sections = std.ArrayList([]const u8).empty;
+        defer sections.deinit(alloc);
+        try sections.append(alloc, styles_debug);
+        if (borders_debug.len > 0) try sections.append(alloc, borders_debug);
+        if (axes_debug.len > 0) try sections.append(alloc, axes_debug);
+        if (texts_debug.len > 0) try sections.append(alloc, texts_debug);
         try ctx.writer.print("stdin:\n{s}\n", .{stdin_str});
-        if (texts_debug.len > 0) {
-            try ctx.writer.print("\n--styles '{s}, {s}'\n", .{ styles_debug, texts_debug });
-        } else {
-            try ctx.writer.print("\n--styles '{s}'\n", .{styles_debug});
-        }
+        try ctx.writer.print("\n--styles '{s}'\n", .{try std.mem.join(alloc, ", ", sections.items)});
         try ctx.writer.print("--datum '{s}'\n", .{effective_datum_str});
         try ctx.writer.print("--outputs '{s}'\n", .{effective_outputs_str});
         // Build panes string with embedded border info
@@ -1329,6 +1383,20 @@ fn resolvePaneBackground(pane: Panes.Pane) Border.Background {
         .none => return .{},
         .defined => |b| return b,
     }
+}
+
+/// Finds the style index for a given input row via the datum mappings. Rows
+/// without a mapping that reaches the styles fall back to the first style.
+/// Mirrors styleIndexForRow in plot.zig, which the rendering step uses.
+fn styleIndexForRow(mappings: []const Datum.DataElementMapping, row_idx: usize) usize {
+    var style_idx: usize = 0;
+    for (mappings) |mapping| {
+        if (mapping.from == row_idx) {
+            style_idx = mapping.to;
+            break;
+        }
+    }
+    return style_idx;
 }
 
 fn isPt2dRow(styles: []const Styles.Style, mappings: []const Datum.DataElementMapping, row_idx: usize) bool {

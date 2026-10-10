@@ -1149,6 +1149,28 @@ pub fn serializeAxis(alloc: std.mem.Allocator, name: []const u8, axis: Axis) ![]
     return std.fmt.allocPrint(alloc, "{s}: {{{s}}}", .{ name, try std.mem.join(alloc, ", ", sections.items) });
 }
 
+/// Serializes every axis definition into the `--styles` line, e.g.
+/// `a0: {axis ...}, a1: {axis ...}`. Each axis is written out expanded, with its
+/// inheritance chain folded in -- the same text `serializeAxis` produces -- so
+/// the line shows what every axis resolved to. The name is the one --styles
+/// collected the definition under, matching the styles.
+pub fn serializeAxisDefinitions(alloc: std.mem.Allocator, defs: []const AxisDefinition) ![]const u8 {
+    if (defs.len == 0) return try alloc.dupe(u8, "");
+    const resolved = try resolveAxes(alloc, defs);
+    var parts = std.ArrayList([]const u8).empty;
+    defer {
+        for (parts.items) |p| alloc.free(p);
+        parts.deinit(alloc);
+    }
+
+    for (defs, 0..) |def, i| {
+        if (i > 0) try parts.append(alloc, try alloc.dupe(u8, ", "));
+        try parts.append(alloc, try serializeAxis(alloc, def.name, resolved[i].axis));
+    }
+
+    return try std.mem.join(alloc, "", parts.items);
+}
+
 /// Serializes, parses and resolves again, then hands back the axis that comes
 /// out. Comparing it with what went in is what makes the expansion trustworthy:
 /// the text has to mean the same thing on its own.

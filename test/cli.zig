@@ -309,6 +309,76 @@ test "zsat draw with use namespace directive with alias" {
     try testing.expect(std.mem.indexOf(u8, result.stdout, "s::p1:{pt2d") != null);
 }
 
+test "zsat draw pulls in only the definitions an aliased import is asked for" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    // `s::t0` is referenced, so it comes in; `s::e0` is not, so it stays out.
+    // Were the whole namespace pulled in, `s::e0` would shadow the `e0:` the
+    // user defined here the moment the implicit datum reached for the first
+    // named style.
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "use sleek as s, s::t0, e0:{vec2d [c:aqua]}" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--styles 'e0:{vec2d xy fixed last [l:10, c: aqua") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "t0: {txt") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "s::e0") == null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "s::p0") == null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "--datum '(vec) -> (vec -> e0)'") != null);
+}
+
+test "zsat draw reaches a base under an alias without importing the namespace" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfig();
+    defer fixture.deinit();
+
+    // `p1` inherits from `s::p0`; the aliased import must supply that base even
+    // though it brings in no other definition of `sleek`.
+    const argv = &[_][]const u8{ zsat_path, "draw", "--out", "/dev/null", "--debug", "--styles", "use sleek as s, p1: s::p0{[s: 9]}", "--datum", "(pt) -> (pt -> p1)" };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "{(1,1)}", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "s::p0:{pt2d") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "s::e0") == null);
+}
+
+test "zsat draw shows borders and axes expanded in --debug" {
+    defer cleanupOutputFiles();
+    const io = std.testing.io;
+    var fixture = try writeTestConfigWith(all_kinds_config_content);
+    defer fixture.deinit();
+
+    // The border is used by the pane and the axes by --outputs, so --debug has
+    // to spell all of them out, expanded, next to the styles rather than leave
+    // the reader to infer them from the pane and output lines.
+    const argv = &[_][]const u8{
+        zsat_path,
+        "draw",
+        "--out",
+        "/dev/null",
+        "--debug",
+        "--styles",
+        "use all as s, s::b0, a0: s::a0{ticks:[pos:0,0.5]}, a1: a0{ticks:[pos:0.25]}, e0:{vec2d}",
+        "--datum",
+        "(vec) -> (vec -> e0)",
+    };
+    var result = try cmdtest.run(io, .{ .argv = argv, .stdin = "[[2,1.1]]", .env_map = &fixture.env_map });
+    defer result.deinit();
+
+    try testing.expectEqual(@as(u8, 0), result.code);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "s::b0: {border [w:5") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "s::a0: {") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "a0: {ticks:[pos:0,0.5]}") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "a1: {ticks:[pos:0.25]}") != null);
+    try testing.expect(std.mem.indexOf(u8, result.stdout, "s::e0") == null);
+}
+
 /// A namespace holding one definition of every kind, so that the alias can be
 /// exercised for text, border and axis as well as for styles.
 const all_kinds_config_content =
