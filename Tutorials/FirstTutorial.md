@@ -1177,6 +1177,8 @@ echo '[[1,1]]' | zsat draw \
 ```
 <img src="fig65.png" width="332" style="border: 2px solid grey;">
 
+The last operator we discuss here in this tutorial is `power` operator, `^:NUM` which applies the function it succeeds `NUM`times.
+
 
 ## Exploring the tool through help
 

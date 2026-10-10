@@ -1452,24 +1452,77 @@ test "trainParser" {
     try testing.expect(r5.value.ok.right.stop == .scale);
 }
 
+// A single item of an `&` (compose) expression. A plain operation is an item
+// with one op applied once. A powered group `(op1 & op2 & ...)^:n` is an item
+// whose ops are applied `n` times. `toCompose` unwraps every item by appending
+// its ops `times` times, so `power` becomes an ordinary repetition of ops.
+const ComposeItem = struct {
+    ops: []const OneArgFunctionPartial,
+    times: u32,
+};
+
+fn toComposeItemFromOp(arena: std.mem.Allocator, op: OneArgFunctionPartial) mecha.ConvertError!ComposeItem {
+    const ops = try arena.alloc(OneArgFunctionPartial, 1);
+    ops[0] = op;
+    return ComposeItem{ .ops = ops, .times = 1 };
+}
+const composeItemOpParser = oneArgFunctionPartialParser.convert(toComposeItemFromOp);
+
+fn composeParserRef() mecha.Parser(Compose) {
+    return composeParser;
+}
+
+fn toComposeItemFromPowered(arena: std.mem.Allocator, args: anytype) mecha.ConvertError!ComposeItem {
+    _ = arena;
+    const compose: Compose = args[0];
+    const times: u32 = args[1] orelse 1;
+    if (times == 0) return error.ConversionFailed;
+    return ComposeItem{ .ops = compose.ops, .times = times };
+}
+const composeItemPoweredParser = mecha.combine(.{
+    mecha.ref(composeParserRef),
+    powerSuffixParser,
+}).convert(toComposeItemFromPowered);
+
+const composeItemParser = mecha.oneOf(.{
+    composeItemPoweredParser,
+    composeItemOpParser,
+});
+
 const composePartialItemParserRaw = mecha.combine(.{
     common.skipWhitespace,
     mecha.ascii.char('&').discard(),
     common.skipWhitespace,
-    oneArgFunctionPartialParser,
+    composeItemParser,
 });
 const many_composePartialItemParserRaw = mecha.many(composePartialItemParserRaw, .{ .min = 0 });
 const composeParserRaw = mecha.combine(.{
     common.skipOpenBracket,
-    oneArgFunctionPartialParser,
+    composeItemParser,
     many_composePartialItemParserRaw,
     common.skipCloseBracket,
 });
 const composeParserRawP = @TypeOf(composeParserRaw);
 fn toCompose(arena: std.mem.Allocator, args: composeParserRawP.T) mecha.ConvertError!Compose {
-    var ops = try arena.alloc(OneArgFunctionPartial, 1 + args[1].len);
-    ops[0] = args[0];
-    @memcpy(ops[1..], args[1]);
+    var total: usize = args[0].times;
+    for (args[1]) |item| total += item.times;
+
+    const ops = try arena.alloc(OneArgFunctionPartial, total);
+    var k: usize = 0;
+    for (0..args[0].times) |_| {
+        for (args[0].ops) |op| {
+            ops[k] = op;
+            k += 1;
+        }
+    }
+    for (args[1]) |item| {
+        for (0..item.times) |_| {
+            for (item.ops) |op| {
+                ops[k] = op;
+                k += 1;
+            }
+        }
+    }
     return Compose{ .ops = ops };
 }
 const composeParser = composeParserRaw.convert(toCompose);
@@ -1497,6 +1550,37 @@ test "composeParser" {
     try testing.expectEqual(@as(usize, 3), r2.value.ok.ops.len);
 }
 
+test "composeParser unwraps powered groups" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const rot = OneArgFunctionPartial{ .rotate = .{ .elements = &[_]RotateArg{
+        .{ .phi = 90.0, .point = .{ .point = .{ .x = 0.0, .y = 0.0 } } },
+    } } };
+    const anchor = OneArgFunctionPartial{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } };
+
+    const r1 = try composeParser.parse(a, "((r [90 a {(0,0)}])^:3 & a {(1,1)})");
+    try testing.expectEqual(@as(usize, 4), r1.value.ok.ops.len);
+    try testing.expectEqualDeep(rot, r1.value.ok.ops[0]);
+    try testing.expectEqualDeep(rot, r1.value.ok.ops[1]);
+    try testing.expectEqualDeep(rot, r1.value.ok.ops[2]);
+    try testing.expectEqualDeep(anchor, r1.value.ok.ops[3]);
+
+    const anchor2 = OneArgFunctionPartial{ .anchor = .{ .point = .{ .point = .{ .x = 2.0, .y = 2.0 } } } };
+    const r2 = try composeParser.parse(a, "(a {(1,1)} & (r [90 a {(0,0)}])^:2 & a {(2,2)})");
+    try testing.expectEqual(@as(usize, 4), r2.value.ok.ops.len);
+    try testing.expectEqualDeep(anchor, r2.value.ok.ops[0]);
+    try testing.expectEqualDeep(rot, r2.value.ok.ops[1]);
+    try testing.expectEqualDeep(rot, r2.value.ok.ops[2]);
+    try testing.expectEqualDeep(anchor2, r2.value.ok.ops[3]);
+
+    // `^:0` is not a valid power: the suffix is rejected, which leaves `^:0`
+    // unconsumed and makes the whole expression unparseable.
+    const bad = try composeParser.parse(a, "((r [90 a {(0,0)}])^:0 & a {(1,1)})");
+    try testing.expect(bad.value == .err);
+}
+
 //Handling the mapping of the name of output to the transformation of it
 pub const PoweredCompose = struct {
     times: u32,
@@ -1515,7 +1599,9 @@ const powerSuffixParser = mecha.combine(.{
     common.skipCaretColon,
     mecha.convert(common.integer.asStr(), struct {
         fn toU32(_: std.mem.Allocator, s: []const u8) mecha.ConvertError!u32 {
-            return std.fmt.parseInt(u32, s, 10) catch return error.ConversionFailed;
+            const n = std.fmt.parseInt(u32, s, 10) catch return error.ConversionFailed;
+            if (n == 0) return error.ConversionFailed;
+            return n;
         }
     }.toU32),
 }).opt();
@@ -1608,6 +1694,82 @@ test "outputTransformationPairParser" {
         .operation = c2,
     };
     try testing.expectEqualDeep(out2, r2.value.ok);
+}
+
+test "outputTransformationPairParser power kept in AST" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const r1 = try outputTransformationPairParser.parse(a, "(anchor {(1,2)} & scale [[2,3]])^:3 out1");
+    try testing.expectEqualStrings("out1", r1.value.ok.outputName);
+    try testing.expectEqual(@as(?u32, 3), r1.value.ok.power);
+    try testing.expectEqual(@as(usize, 2), r1.value.ok.operation.ops.len);
+    try testing.expect(r1.value.ok.composite == null);
+
+    const r2 = try outputTransformationPairParser.parse(a, "(anchor {(1,2)}) out1");
+    try testing.expectEqual(@as(?u32, null), r2.value.ok.power);
+
+    const r3 = try outputTransformationPairParser.parse(a, "anchor {(1,2)}^:2 out1");
+    try testing.expectEqual(@as(?u32, 2), r3.value.ok.power);
+    try testing.expectEqual(@as(usize, 1), r3.value.ok.operation.ops.len);
+
+    const bad = try outputTransformationPairParser.parse(a, "(anchor {(1,2)})^:0 out1");
+    try testing.expect(bad.value == .err);
+}
+
+test "unwrapPairPower expands power into repeated ops" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const rot = OneArgFunctionPartial{ .rotate = .{ .elements = &[_]RotateArg{
+        .{ .phi = 90.0, .point = .{ .point = .{ .x = 0.0, .y = 0.0 } } },
+    } } };
+    const anchor = OneArgFunctionPartial{ .anchor = .{ .point = .{ .point = .{ .x = 1.0, .y = 1.0 } } } };
+    const base_ops = [_]OneArgFunctionPartial{ rot, anchor };
+
+    const pair = OutputTransformationPair{
+        .outputName = "out",
+        .operation = .{ .ops = &base_ops },
+        .power = 3,
+    };
+    const conn = OutputsValidated{ .transformationPairs = &[_]OutputTransformationPair{pair} };
+
+    const unwrapped = try unwrapPairPower(a, conn);
+    const got = unwrapped.transformationPairs[0].operation.ops;
+    try testing.expectEqual(@as(usize, 6), got.len);
+    try testing.expect(unwrapped.transformationPairs[0].power == null);
+    for (0..3) |rep| {
+        try testing.expectEqualDeep(rot, got[rep * 2]);
+        try testing.expectEqualDeep(anchor, got[rep * 2 + 1]);
+    }
+    try testing.expectEqualStrings("out", unwrapped.transformationPairs[0].outputName);
+}
+
+test "pair power unwrapping matches manual unrolling through toExplicitPoint" {
+    var arena: std.heap.ArenaAllocator = .init(std.heap.page_allocator);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const powered = try connectionParser.parse(a, "(out) -> (r [90 a {(0,0)}] & a {(1,1)})^:3 out");
+    const unrolled = try connectionParser.parse(
+        a,
+        "(out) -> (r [90 a {(0,0)}] & a {(1,1)} & r [90 a {(0,0)}] & a {(1,1)} & r [90 a {(0,0)}] & a {(1,1)}) out",
+    );
+
+    const powered_conn = try validateConnection(a, 1, powered.value.ok);
+    const unrolled_conn = try validateConnection(a, 1, unrolled.value.ok);
+
+    const vector = inputs.InputElement{ .vector = .{ .x = 0.0, .y = 0.5 } };
+    const row = inputs.InputElementRow{ .row = &[_]inputs.InputElement{vector} };
+    const inp = inputs.Inputs{ .input = &[_]inputs.InputElementRow{row} };
+
+    const powered_exp = try toExplicitPoint(a, inp, powered_conn, .fixed, .last, 0, .xy);
+    const unrolled_exp = try toExplicitPoint(a, inp, unrolled_conn, .fixed, .last, 0, .xy);
+
+    try testing.expectEqual(unrolled_exp.transformationPairs.len, powered_exp.transformationPairs.len);
+    try testing.expectEqualDeep(unrolled_exp.transformationPairs, powered_exp.transformationPairs);
 }
 
 test "outputTransformationPairParser composite hook with comma" {
@@ -4954,6 +5116,47 @@ fn applyComposeToPolyline(
     return result;
 }
 
+/// Unwraps the `power` (`^:n`) suffix on every transformation pair into its
+/// expanded form: the pair's operations repeated `n` times. The result is the
+/// same list of operations one would get by writing the operation out `n`
+/// times joined with `&`. This is done before any phase runs so that from this
+/// point on a powered pair is indistinguishable from an ordinary, manually
+/// unrolled pair. Composite pairs (train/hook) are left untouched because a
+/// compound result is not a single polyline and therefore cannot be threaded.
+fn unwrapPairPower(allocator: std.mem.Allocator, outputs: OutputsValidated) ToExplicitPointError!OutputsValidated {
+    var has_power = false;
+    for (outputs.transformationPairs) |pair| {
+        if (pair.power != null and pair.composite == null) {
+            has_power = true;
+            break;
+        }
+    }
+    if (!has_power) return outputs;
+
+    const result = try allocator.alloc(OutputTransformationPair, outputs.transformationPairs.len);
+    for (outputs.transformationPairs, 0..) |pair, i| {
+        const times = pair.power orelse 1;
+        if (pair.power == null or pair.composite != null) {
+            result[i] = pair;
+            continue;
+        }
+        const src = pair.operation.ops;
+        const ops = try allocator.alloc(OneArgFunctionPartial, src.len * @as(usize, times));
+        var k: usize = 0;
+        for (0..times) |_| {
+            for (src) |op| {
+                ops[k] = op;
+                k += 1;
+            }
+        }
+        result[i] = OutputTransformationPair{
+            .outputName = pair.outputName,
+            .operation = .{ .ops = ops },
+        };
+    }
+    return OutputsValidated{ .transformationPairs = result };
+}
+
 /// Phase 1 — Scan: Detect any non-point references (beginning, end, middle, fraction)
 /// among all anchors. This flag gates Phase 3 vs Phase 4.
 ///
@@ -4974,7 +5177,8 @@ fn applyComposeToPolyline(
 /// Phase 4 — Resolve references: If Phase 1 found non-point references (and Phase 2
 /// did not trigger), resolve them via resolveNonPointReferences, replacing each
 /// beginning/end/middle/fraction with its explicit point coordinate.
-pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize, coordinate_type: CoordinateType) ToExplicitPointError!OutputsValidated {
+pub fn toExplicitPoint(allocator: std.mem.Allocator, inp: inputs.Inputs, outputs_in: OutputsValidated, orientation: CoordinateOrientation, plot_steps: PlotSteps, output_idx: usize, coordinate_type: CoordinateType) ToExplicitPointError!OutputsValidated {
+    const outputs = try unwrapPairPower(allocator, outputs_in);
     var has_non_point_refs = false;
     for (outputs.transformationPairs) |pair| {
         for (pair.operation.ops) |op| {
