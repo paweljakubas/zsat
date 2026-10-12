@@ -2092,6 +2092,33 @@ test "zsat draw color --help" {
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "c:"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "black"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "aqua"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "zsat draw color red --help"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "zsat draw color c --help"));
+}
+
+test "zsat draw color NAME --help" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "color", "red", "--help" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "red"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "ff0000"));
+}
+
+test "zsat draw color LETTER --help" {
+    defer cleanupOutputFiles();
+    const argv = &[_][]const u8{ zsat_path, "draw", "color", "c", "--help" };
+    var result = try cmdtest.run(std.testing.io, .{ .argv = argv });
+    defer result.deinit();
+
+    try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "Colors beginning with 'c'"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "cadetblue"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "crimson"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "cyan"));
+    try testing.expect(!std.mem.containsAtLeast(u8, result.stdout, 1, "darkred"));
 }
 
 test "zsat draw objects --help" {

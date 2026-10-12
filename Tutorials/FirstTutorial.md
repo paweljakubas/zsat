@@ -1214,3 +1214,7 @@ zsat draw objects --help
 ```
 
 Now you can dive deeper in any topic you are interested in.
+
+One that might be of interest is `color`.
+
+<img src="fig67.png" width="332" style="border: 2px solid grey;">

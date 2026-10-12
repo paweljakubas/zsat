@@ -1,4 +1,5 @@
 const std = @import("std");
+const common = @import("draw/common.zig");
 
 /// Help text for `zsat draw vec2d --help`
 pub const vec2d_help =
@@ -369,17 +370,25 @@ pub const line_help =
 pub const color_help =
     \\Colors are specified by name in the `c` (color) attribute.
     \\
-    \\Any standard CSS color name is accepted. Common choices include:
+    \\Any standard CSS color name is accepted (148 names in total).
+    \\Common choices include:
     \\
     \\  black, white, grey, silver
     \\  red, green, blue, yellow, cyan, magenta
     \\  orange, purple, brown, pink
     \\  aqua, teal, navy, lime, olive
-    \\  coral, salmon, tomato, gold, coral
+    \\  coral, salmon, tomato, gold
     \\  lightblue, lightgreen, lightgrey, lightcoral
     \\  darkred, darkgreen, darkblue, darkgrey
     \\  aliceblue, antiquewhite, azure, beige, bisque
-    \\  ... and many more (full CSS palette supported)
+    \\
+    \\Inspect a specific color, showing a swatch next to its name:
+    \\  zsat draw color red --help
+    \\  zsat draw color rebeccapurple --help
+    \\
+    \\List every color beginning with a letter, one swatch per name:
+    \\  zsat draw color c --help
+    \\  zsat draw color d --help
     \\
     \\Examples:
     \\  c: black
@@ -626,4 +635,51 @@ pub fn printHelpExec(ctx: @import("zli").CommandContext) !void {
         try ctx.writer.print("{s}\n", .{help});
     }
     try ctx.writer.flush();
+}
+
+/// Renders the interactive color reference.
+///
+/// `selector` is either:
+///   - null: print the general `color_help` text,
+///   - a single letter: list every color name beginning with that letter,
+///   - a full color name: print a single swatch next to the name.
+///
+/// When `ansi` is true a filled, truecolor block is emitted as the swatch;
+/// otherwise the RGB value is printed in a plain-text form.
+pub fn renderColorReference(selector: ?[]const u8, ansi: bool, writer: anytype) !void {
+    const sel = selector orelse {
+        try writer.print("{s}\n", .{color_help});
+        return;
+    };
+
+    if (sel.len == 1 and std.ascii.isAlphabetic(sel[0])) {
+        const letter = std.ascii.toLower(sel[0]);
+        try writer.print("Colors beginning with '{c}':\n\n", .{letter});
+        var found = false;
+        inline for (std.meta.tags(common.ColorName)) |c| {
+            const name = @tagName(c);
+            if (name[0] == letter) {
+                try printSwatch(name, c, ansi, writer);
+                found = true;
+            }
+        }
+        if (!found) try writer.print("  (none)\n", .{});
+        return;
+    }
+
+    if (std.meta.stringToEnum(common.ColorName, sel)) |c| {
+        try printSwatch(sel, c, ansi, writer);
+        return;
+    }
+
+    try writer.print("Unknown color: '{s}'.\n\n{s}\n", .{ sel, color_help });
+}
+
+fn printSwatch(name: []const u8, c: common.ColorName, ansi: bool, writer: anytype) !void {
+    const rgb = common.colorNameToRGB(c);
+    if (ansi) {
+        try writer.print("  \x1b[48;2;{d};{d};{d}m      \x1b[0m  {s}\n", .{ rgb.r, rgb.g, rgb.b, name });
+    } else {
+        try writer.print("  [#{x:0>2}{x:0>2}{x:0>2}]  {s}\n", .{ rgb.r, rgb.g, rgb.b, name });
+    }
 }
