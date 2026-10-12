@@ -9,12 +9,11 @@ name: Release
 #        binaries + a sha256sums file attached.
 #   A human then publishes the draft in the GitHub UI.
 #
-# NOTE: GitHub's hardened Releases API refuses GITHUB_TOKEN for releases whose
-# target commit modifies workflow files. The draft creation below therefore uses
-# the fine-grained PAT stored in the RELEASE_TOKEN secret (Contents: read/write
-# and Workflows on this repo). Create that secret in Settings -> Secrets before
-# the first tag. Without it, fall back to the default token by replacing
-# `secrets.RELEASE_TOKEN` with `secrets.GITHUB_TOKEN` below.
+# NOTE: GitHub's hardened Releases API refuses GITHUB_TOKEN when the tagged
+# commit modifies workflow files. To support that case, set a fine-grained PAT
+# in the RELEASE_TOKEN secret (Contents: read/write and Workflows on this repo).
+# When RELEASE_TOKEN is not configured the workflow falls back to the default
+# GITHUB_TOKEN, which is sufficient for tags that do not touch workflow files.
 
 on:
   push:
@@ -97,12 +96,12 @@ jobs:
             done
           fi
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
 
       - name: Create draft release
         uses: softprops/action-gh-release@v2
         with:
-          token: ${{ secrets.RELEASE_TOKEN }}
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
           tag_name: ${{ github.ref_name }}
           draft: true
           generate_release_notes: true
