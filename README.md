@@ -127,10 +127,11 @@ Tip: Use `echo -e` instead of `echo` to ensure newlines are properly interpreted
 | 0.3.0 | polygons |
 | 0.4.0 | curves |
 | 0.5.0 | multi-styles for `all` |
-| 0.6.0 | view functionality |
-| 0.7.0 | matrix2d grid |
-| 0.8.0 | multipane functionality |
-| 0.9.0 | matrix2d contour |
+| 0.6.0 | animations |
+| 0.7.0 | view functionality |
+| 0.8.0 | matrix2d grid |
+| 0.9.0 | multipane functionality |
+| 0.10.0 | matrix2d contour |
 | next | dyadic ops, recall functionality, encapsulations, legends, arrows, J+zsat video demos |
 
 ## Contributions
