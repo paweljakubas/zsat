@@ -19,7 +19,7 @@ test "zsat version" {
     var result = try cmdtest.run(std.testing.io, .{ .argv = argv });
     defer result.deinit();
 
-    try testing.expect(std.mem.startsWith(u8, result.stdout, "0.0.1\n"));
+    try testing.expect(std.mem.startsWith(u8, result.stdout, "0.2.0\n"));
     // Note: zli 5.1.1 appends a terminal cursor-show escape sequence (\x1b[?25h)
     // to stdout on command completion, so we no longer assert an exact length.
     try testing.expect(result.stdout.len > 8);

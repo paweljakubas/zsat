@@ -17,7 +17,7 @@ pub fn build(io: std.Io, writer: *Writer, reader: *Reader, allocator: std.mem.Al
     const root = try zli.Command.init(init_opts, .{
         .name = "zsat",
         .description = "Zig-powered science animation and plot command line tool",
-        .version = .{ .major = 0, .minor = 0, .patch = 1, .pre = null, .build = null },
+        .version = .{ .major = 0, .minor = 2, .patch = 0, .pre = null, .build = null },
     }, showHelp);
 
     try root.addCommands(&.{

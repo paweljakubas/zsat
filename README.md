@@ -43,46 +43,51 @@ When `--out` is specified, irrespective of the terminal, output goes to file.
 ```bash
 $ zsat --help
 Zig-powered science animation and plot command line tool
-v0.0.1
-<commit>
+v0.2.0
 
 Usage: zsat [options]
 
 Available commands:
-   draw (d)        Construct figure from elements, sources, outputs, panes and frames
-   version (v)     Show zsat version
+  draw (d)        Construct figure for stdin data using styles, datum, outputs, panes and frames
+  version (v)     Show zsat version
 
 Flags:
    -h, --help      Shows the help for a command [Bool] (default: false)
-
-Use "zsat [command] --help" for more information.
 ```
 
 ### draw command
 
 ```bash
 $ zsat draw --help
-Construct a figure from stdin data using styles, datum mappings, outputs, panes, and frames.
-
-Usage: zsat draw [options]
+Construct figure for stdin data using styles, datum, outputs, panes and frames
 
 To explore help more try: zsat draw objects --help
 
+Usage: zsat draw [options]
+
+Available commands:
+  angle             How to represent angles: degrees, radians, and fractions of pi
+  axis              How to define axes: line, ticks, and value labels
+  background        How to define the pane background: color and opacity
+  border            How to define pane borders: width, opacity, and color
+  color             Available color names for line color
+  line              How to define lines for the mirror transformation
+  objects           Overview of objects and concepts you can explore
+  point             How to define points: explicit coordinates or references
+  pt2d              2D point data format: input shape, markers, and style attributes
+  vec2d             2D vector data format and concepts
+
 Flags:
-   --out             Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal.
-   --overwrite       Let --save replace a key that is already defined in the target namespace instead of failing.
-   --save            Persist a style defined in --styles into ~/.config/zsat/zsat.conf as NS::KEY, e.g. --save mynamespace::e1. The namespace is created when it does not exist yet.
-   -d, --datum       Mapping data streams to the defined styles. Omitted, the first data input is associated with the firstly defined style, the second one with the secondly defined style, and so on, wrapping around when there are more inputs than styles.
-   -s, --styles      Style(s) definition to be used in further steps when constructing the figure.
-                     Default: "e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}"
-   --debug           Dump the drawing representation for a command invoked.
-   -o, --outputs     Input(s) transformation definition of the outputs.
-                     Default: "(out) -> (anchor {(0,0)}) out"
-   -f, --frames      Frame(s) definition of the figure.
-                     Default: "(out) -> out -> p0"
-   -p, --panes       Pane(s) definition to be used in frame construction of the figure.
-                     Default: "p0:{size: 600x600}"
-   -h, --help        Shows the help for a command
+   --out             Output filename for the PNG image. When specified, always writes to file instead of displaying in terminal. [String]
+   --overwrite       Let --save replace a key that is already defined in the target namespace instead of failing. [Bool] (default: false)
+   --save            Persist a style defined in --styles into ~/.config/zsat/zsat.conf as NS::KEY, e.g. --save mynamespace::e1. The namespace is created when it does not exist yet. [String]
+   -d, --datum       Mapping data streams to the defined styles. Omitted, the first data input is associated with the firstly defined style, the second one with the secondly defined style, and so on, wrapping around when there are more inputs than styles. [String]
+   -s, --styles      Style(s) definition to be used in further steps when constructing the figure. [String] (default: "e0:{vec2d xy fixed last [l:10, c: black, o: 100, e:none, j: none, d: none]}")
+   --debug           Dump the drawing representation for a command invoked. [Bool] (default: false)
+   -o, --outputs     Input(s) transformation definition of the outputs. [String] (default: "(out) -> (anchor {(0,0)}) out")
+   -f, --frames      Frame(s) definition of the figure. [String] (default: "(out) -> out -> p0")
+   -p, --panes       Pane(s) definition to be used in frame construction of the figure. [String] (default: "p0:{size: 600x600}")
+   -h, --help        Shows the help for a command [Bool] (default: false)
 ```
 
 To explore the available concepts and objects, run:
@@ -153,15 +158,20 @@ zig build test --summary all
 
 To create a new release:
 
-1. **Tag the commit** on `main` (or the target commit) with a version matching `v*`:
+1. **Bump the version** in `src/cli/root.zig` (the `.version` field of the root command) to the release number, and update the [Current state of the tool](#current-state-of-the-tool) help printout above. Commit the change on `main`:
+   ```bash
+   git commit -am "bump version to v0.2.0"
+   ```
+
+2. **Tag the commit** on `main` (or the target commit) with a version matching `v*`:
    ```bash
    git tag v0.2.0
    git push origin v0.2.0
    ```
 
-2. **Wait for the workflow**. Pushing the tag triggers the Release GitHub Actions workflow, which builds binaries for `linux-x86_64`, `macos-aarch64`, and `macos-x86_64`, packages them as `.tar.gz`, generates a `sha256sums.txt` file, and creates a **draft release** with auto-generated release notes.
+3. **Wait for the workflow**. Pushing the tag triggers the Release GitHub Actions workflow, which builds binaries for `linux-x86_64`, `macos-aarch64`, and `macos-x86_64`, packages them as `.tar.gz`, generates a `sha256sums.txt` file, and creates a **draft release** with auto-generated release notes.
 
-3. **Publish the draft**. Open the draft release on the GitHub Releases page, review the notes and attached files, and click "Publish release" to make it public.
+4. **Publish the draft**. Open the draft release on the GitHub Releases page, review the notes and attached files, and click "Publish release" to make it public.
 
 ## Zig packages (outside std) proudly used in the project:
 
