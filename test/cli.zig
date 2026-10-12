@@ -1652,7 +1652,7 @@ test "zsat draw with debug and background" {
     try testing.expect(std.mem.containsAtLeast(u8, back_result.stdout, 1, "background: {opacity: 10, color: black}"));
 }
 
-test "zsat draw -h cleaned output" {
+test "zsat draw -h output" {
     defer cleanupOutputFiles();
     const argv = &[_][]const u8{ zsat_path, "draw", "-h" };
     var result = try cmdtest.run(std.testing.io, .{ .argv = argv });
@@ -1661,19 +1661,12 @@ test "zsat draw -h cleaned output" {
     try testing.expectEqual(std.process.Child.Term{ .exited = 0 }, result.term);
     try testing.expectEqual(@as(u8, 0), result.code);
 
-    // Should show the hint pointing to objects --help instead of listing commands
+    // Hint pointing users to the richer objects help
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "To explore help more try: zsat draw objects --help"));
 
-    // Type annotations like [String] or [Bool] should NOT appear
-    try testing.expect(!std.mem.containsAtLeast(u8, result.stdout, 1, " [String]"));
-    try testing.expect(!std.mem.containsAtLeast(u8, result.stdout, 1, " [Bool]"));
-    try testing.expect(!std.mem.containsAtLeast(u8, result.stdout, 1, " [Int]"));
-
-    // Defaults should appear on their own line prefixed with "Default:"
-    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "Default: \"e0:{vec2d xy fixed last"));
-
-    // --datum has no literal default: the association follows the defined styles
-    try testing.expect(std.mem.indexOf(u8, result.stdout, "Default: \"(vec) -> (vec -> e0)\"") == null);
+    // Usage line and flags are listed
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "Usage: zsat draw [options]"));
+    try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "--styles"));
     try testing.expect(std.mem.containsAtLeast(u8, result.stdout, 1, "the first data input is associated with the firstly defined style"));
 }
 

@@ -760,7 +760,7 @@ pub fn register(init_opts: zli.InitOptions) !*zli.Command {
         .name = "draw",
         .shortcut = "d",
         .description = "Construct figure for stdin data using styles, datum, outputs, panes and frames",
-        .commands_hint = "To explore help more try: zsat draw objects --help",
+        .help = "To explore help more try: zsat draw objects --help",
     }, run);
 
     try cmd.addFlag(style_flag);
