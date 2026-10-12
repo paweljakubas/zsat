@@ -12,30 +12,29 @@ There are wonderful visualization tools, used widely in scientific community, li
 or countless libraries in Python/R/Julia ecosystems.
 
 But they lack five features that are crucial for my workflow:
-- they are not integrated with modern terminal emulators that have graphics support
-- the paradigm of plot/animation construction in the current tools is not satisfactory for the person that has worked with a great [haskell diagrams](https://archives.haskell.org/projects.haskell.org/diagrams/) library, is in pursuit of total control and expliciteness and fond of math
-- they are far away in terms of succinctness of data manipulation that one can realize in array languages like APL or J (of which I am a huge fan), and the elegance of Haskell
-- it usually takes a long time to produce a satisfactory animation using existent tools and the intermediate feedback loop is too slow for me
-- it is not so staightforward to save customized templates that could be reused later and thanks to that accelerate the workflow
+- They are not integrated with modern terminal emulators that support graphics.
+- The paradigm for constructing plots and animations in existing tools is not satisfactory for someone who has worked with the excellent [Haskell Diagrams](https://archives.haskell.org/projects.haskell.org/diagrams/) library, values total control and explicitness, and has a strong mathematical inclination.
+- They fall short in terms of the succinctness of data manipulation achievable in array languages like APL or J (of which I am a huge fan), as well as the elegance of Haskell.
+- Producing a satisfactory animation usually takes too long with existing tools, and the intermediate feedback loop is too slow for me.
+- It is not straightforward to save customized templates for reuse to accelerate the workflow.
 
 Hence, my humble attempt to address those pain points as the goals of this project.
 
-I also treat this as an opportunity to learn and practice Zig, a truely wonderful general programming language with an angle to be performant, explicit and low-level.
-As AI agentic era has started it is going to be probably more recreational programming project, but still, I do have a lot of fun developing it and do not intend to stop:-)
-
+I also treat this as an opportunity to learn and practice Zig, a truly wonderful general-purpose programming language that is performant, explicit, and low-level.
+With the rise of AI agents, this is likely to remain more of a recreational programming project, but I still have a lot of fun developing it and do not intend to stop!
 **zsat** must have had picked maximum two out of three choices from _flexibility_, _power_ and _simplicity_.
 And, by a design, both __flexibility__ and __power__ have been chosen over _simplicity_.
-Meaning, if you are in pursuit of the simplicity **zsat** might not be the best choice.
+This means that if simplicity is your top priority, **zsat** may not be the best choice for you.
 
 ## Terminal
 
 If one wants to have a full experience I advocated for, and enlisted as one of the five crucial features in the Rationale section above,
 then terminal emulator that implements [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) is required.
-The terminals supporting **kitty graphics protocol** includes Kitty, WezTerm and Ghostty, to name a few.
-`zsat` supports the protocol natively using [zigimg](https://github.com/zigimg/zigimg).
+Terminals that support the Kitty graphics protocol include Kitty, WezTerm, and Ghostty, to name a few.
+`zsat` supports this protocol natively using [zigimg](https://github.com/zigimg/zigimg).
 
-**Terminal detection**: `zsat` checks the `TERM` environment variable for kitty graphics protocol support (xterm, kitty, ghostty).
-If not supported it is outputing to file automatically.
+**Terminal detection**: `zsat` checks the `TERM` environment variable to detect Kitty graphics protocol support (e.g., xterm, kitty, ghostty).
+If not supported, output is automatically written to a file.
 
 When `--out` is specified, irrespective of the terminal, output goes to file.
 
@@ -63,7 +62,7 @@ Use "zsat [command] --help" for more information.
 
 ```bash
 $ zsat draw --help
-Construct figure for stdin data using styles, datum, outputs, panes and frames
+Construct a figure from stdin data using styles, datum mappings, outputs, panes, and frames.
 
 Usage: zsat draw [options]
 
@@ -86,7 +85,7 @@ Flags:
    -h, --help        Shows the help for a command
 ```
 
-To explore available concepts and objects, run:
+To explore the available concepts and objects, run:
 
 ```bash
 zsat draw objects --help
@@ -119,6 +118,27 @@ Tip: Use `echo -e` instead of `echo` to ensure newlines are properly interpreted
 ## In-depth tutorial
 
 [New to zsat -> go here](./Tutorials/FirstTutorial.md)
+
+## Roadmap
+
+| Version | Planned Features |
+| --- | --- |
+| 0.3.0 | polygons |
+| 0.4.0 | curves |
+| 0.5.0 | multi-styles for `all` |
+| 0.6.0 | view functionality |
+| 0.7.0 | matrix2d grid |
+| 0.8.0 | multipane functionality |
+| 0.9.0 | matrix2d contour |
+| next | dyadic ops, recall functionality, encapsulations, legends, arrows, J+zsat video demos |
+
+## Contributions
+
+Contributions are welcome! However, all contributions must be submitted through a separate branch and must fall into one of the following categories:
+
+- Documentation enhancements
+- Features that comply with the roadmap
+- Bug fixes
 
 ## Development
 
