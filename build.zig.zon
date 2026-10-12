@@ -38,7 +38,7 @@
     .dependencies = .{
         .zli = .{
             .url = "git+https://github.com/xcaeser/zli#main",
-            .hash = "zli-5.1.4-LeUjpuIHAQCKt7oSt2PT--jcAn70ULMMDQYS3NO6knQG",
+            .hash = "zli-5.1.1-LeUjpnIGAQDTYRwG83lLapga8go3ubhJ2vRk3zQZLqAg",
         },
         .mecha = .{
             .url = "git+https://github.com/Hejsil/mecha#master",
@@ -50,11 +50,11 @@
         },
         .z2d = .{
             .url = "git+https://github.com/vancluever/z2d#main",
-            .hash = "z2d-0.13.0-j5P_HgcYEgCVPxNKpwVnXyzcW53IsFiWSCxF54AfRtM0",
+            .hash = "z2d-0.12.0-j5P_HsE8EQAuRulQMsEkrCevU85rTFl4JIOz7uJdCYA-",
         },
         .zigimg = .{
             .url = "git+https://github.com/zigimg/zigimg.git#master",
-            .hash = "zigimg-0.1.0-8_eo2sBLGACBebrhQZUwRliZNSUyDn6szp99eip_6-Rw",
+            .hash = "zigimg-0.1.0-8_eo2mHBFwDLhWjXriR17_b7VF6qML1f98Xokp7ZZbop",
         },
     },
     .paths = .{

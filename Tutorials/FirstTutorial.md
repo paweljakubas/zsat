@@ -1213,45 +1213,4 @@ The high level information, aka an entry point to dive deeper, is the following
 zsat draw objects --help
 ```
 
-To learn about the `vec2d` data format — input shapes, coordinate systems, and how vectors compose:
-
-```bash
-zsat draw vec2d --help
-```
-
-For a complete reference on style attributes — coordinate system (`xy`/`polar`), orientation (`fixed`/`origin`/`coord`), plot steps (`last`/`all`), and all line properties:
-
-```bash
-zsat draw vec2d style --help
-```
-
-To see how transformations are composed in `--outputs` — `anchor`, `rotate`, `scale`, `mirror`, `project`, `orthogonal` — and the syntax for angles and poins:
-
-```bash
-zsat draw vec2d output --help
-```
-
-`pt2d` is documented in the same fashion
-```bash
-zsat draw pt2d --help
-```
-
-For the syntax of points, both explicit `{(x,y)}` and by reference (`beg self`, `mid out0`, `25% self`):
-
-```bash
-zsat draw point --help
-```
-
-For the syntax of lines used in mirroring — general form, horizontal, vertical, and special cases like `y=x`:
-
-```bash
-zsat draw line --help
-```
-
-To browse available colors, here are some beginning with the letter **c**:
-`coral`, `crimson`, `cyan`, `chocolate`, `chartreuse`, `cadetblue`, `cornflowerblue`, `cornsilk`.
-You can see the full list wih:
-
-```bash
-zsat draw color --help
-```
+Now you can dive deeper in any topic you are interested in.

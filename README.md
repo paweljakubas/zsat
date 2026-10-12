@@ -117,12 +117,13 @@ Tip: Use `echo -e` instead of `echo` to ensure newlines are properly interpreted
 
 ## In-depth tutorial
 
-[New to zsat -> go here](./Tutorials/FirstTutorial.md)
+[New to zsat ? -> go here](./Tutorials/FirstTutorial.md)
 
 ## Roadmap
 
 | Version | Planned Features |
 | --- | --- |
+| 0.2.0 | ✅ Done vector, line, persistance, text, axis, border, background, one-arg parameter combinators (hook, train), compose, power |
 | 0.3.0 | polygons |
 | 0.4.0 | curves |
 | 0.5.0 | multi-styles for `all` |
@@ -168,3 +169,9 @@ To create a new release:
 - [**cmdtest**](https://github.com/pyk/cmdtest) Testing of CLI app
 - [**zigimg**](https://github.com/zigimg/zigimg) Image processing for **kitty graphics protocol** support
 - [**z2d**](https://github.com/vancluever/z2d) 2d graphics backend
+
+---
+
+## License
+
+Apache-2.0
