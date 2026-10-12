@@ -118,6 +118,9 @@ pub const Cache = struct {
     /// here keeps every measurement from re-reading the font file.
     font: ?z2d.Font = null,
     font_path: []const u8 = "",
+    /// True when `font` borrows the embedded default's static memory, which
+    /// must never be freed.
+    font_builtin: bool = false,
     /// Set once a font fails to load, so a bad path is not retried per label.
     font_broken: bool = false,
 
@@ -129,7 +132,9 @@ pub const Cache = struct {
         var it = self.entries.keyIterator();
         while (it.next()) |key| self.alloc.free(key.*);
         self.entries.deinit(self.alloc);
-        if (self.font) |*font| font.deinit(self.alloc);
+        if (self.font) |*font| {
+            if (!self.font_builtin) font.deinit(self.alloc);
+        }
     }
 
     /// Returns the ink box of `text` in `font_path` at `size`, measuring it on
@@ -173,8 +178,13 @@ pub const Cache = struct {
     fn loadFont(self: *Cache, io: std.Io, font_path: []const u8) ?*z2d.Font {
         if (self.font != null and std.mem.eql(u8, self.font_path, font_path)) return &self.font.?;
         if (self.font_broken and std.mem.eql(u8, self.font_path, font_path)) return null;
-        if (self.font) |*font| font.deinit(self.alloc);
-        self.font = z2d.Font.loadFile(io, self.alloc, font_path) catch {
+        if (self.font) |*font| {
+            // The embedded default borrows static memory, so only heap-loaded
+            // fonts may be freed.
+            if (!self.font_builtin) font.deinit(self.alloc);
+        }
+        self.font_builtin = std.mem.eql(u8, font_path, default_font_path);
+        self.font = openFont(io, self.alloc, font_path) catch {
             self.font_broken = true;
             self.font_path = font_path;
             return null;
@@ -185,23 +195,40 @@ pub const Cache = struct {
     }
 };
 
-/// zsat resolves "default" to this font, so it is what the layout maths is
-/// tuned against. Systems without it still get labels, just off the estimate,
-/// so the tests skip rather than fail.
-const default_font_path = "/usr/share/fonts/truetype/hack/Hack-Regular.ttf";
+/// The default font (Hack) is embedded so text renders identically everywhere
+/// instead of depending on a system font being installed. zsat resolves
+/// "default" to `default_font_path`, the sentinel below, and loads the data
+/// with `openFont`.
+pub const default_font_data: []const u8 = @embedFile("assets/Hack-Regular.ttf");
 
-/// Returns true when the default font is installed and can be measured.
-fn defaultFontAvailable(alloc: std.mem.Allocator, io: std.Io) bool {
-    const font = z2d.Font.loadFile(io, alloc, default_font_path) catch return false;
-    var f = font;
-    defer f.deinit(alloc);
-    return true;
+/// Sentinel standing in for a filesystem path when the embedded font is used,
+/// so the cache and layout code keep treating fonts as path-keyed.
+pub const default_font_path = "<builtin:Hack-Regular>";
+
+/// Loads a font from `font_path`, resolving the sentinel to the embedded
+/// default. The buffer variant borrows `default_font_data`, so a returned
+/// buffer font must not be deinitialized.
+pub fn openFont(io: std.Io, alloc: std.mem.Allocator, font_path: []const u8) !z2d.Font {
+    if (std.mem.eql(u8, font_path, default_font_path)) {
+        return z2d.Font.loadBuffer(default_font_data);
+    }
+    return z2d.Font.loadFile(io, alloc, font_path);
+}
+
+/// Sets `context`'s font from `font_path`, resolving the sentinel to the
+/// embedded default. A load error is swallowed so callers can still draw the
+/// rest of the figure.
+pub fn setContextFont(context: *z2d.Context, font_path: []const u8) void {
+    if (std.mem.eql(u8, font_path, default_font_path)) {
+        context.setFontToBuffer(default_font_data) catch {};
+    } else {
+        context.setFontToFile(font_path) catch {};
+    }
 }
 
 test "ink box tracks the drawn glyphs for the default font" {
     const alloc = std.testing.allocator;
     const io = std.testing.io;
-    if (!defaultFontAvailable(alloc, io)) return error.SkipZigTest;
 
     // The default font's digits sit well below the origin and to the right of
     // the pen, which is what makes the naive 0.6 * size estimate wrong.
@@ -224,7 +251,6 @@ test "ink box tracks the drawn glyphs for the default font" {
 test "a longer label measures wider than a single digit" {
     const alloc = std.testing.allocator;
     const io = std.testing.io;
-    if (!defaultFontAvailable(alloc, io)) return error.SkipZigTest;
 
     var cache = Cache.init(alloc);
     defer cache.deinit();
@@ -243,7 +269,6 @@ test "a longer label measures wider than a single digit" {
 test "ink boxes are cached per font, size and string" {
     const alloc = std.testing.allocator;
     const io = std.testing.io;
-    if (!defaultFontAvailable(alloc, io)) return error.SkipZigTest;
 
     var cache = Cache.init(alloc);
     defer cache.deinit();

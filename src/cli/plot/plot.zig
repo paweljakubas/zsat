@@ -1063,10 +1063,10 @@ fn drawAxisOverlays(context: *z2d.Context, io: std.Io, metrics: *text_metrics.Ca
 
             if (!font_set) {
                 const font_path = if (std.mem.eql(u8, vals.style.font, "default"))
-                    "/usr/share/fonts/truetype/hack/Hack-Regular.ttf"
+                    text_metrics.default_font_path
                 else
                     vals.style.font;
-                context.setFontToFile(font_path) catch {};
+                text_metrics.setContextFont(context, font_path);
                 active_font = font_path;
                 font_set = true;
             }
@@ -1292,7 +1292,7 @@ fn axisOverlayDeviceBounds(
 
     if (overlay.values) |vals| {
         const font_path = if (std.mem.eql(u8, vals.style.font, "default"))
-            "/usr/share/fonts/truetype/hack/Hack-Regular.ttf"
+            text_metrics.default_font_path
         else
             vals.style.font;
         const th = if (overlay.ticks) |ticks| @as(f64, @floatFromInt(ticks.style.height)) * pixel_scale else 0.0;
@@ -1717,10 +1717,10 @@ pub fn plot_via_z2d(io: std.Io, parsed_data: anytype, output_path: ?[]const u8) 
         // Draw text overlays
         if (@hasField(@TypeOf(parsed_data), "textOverlays") and parsed_data.textOverlays.len > 0) {
             const font_path = if (std.mem.eql(u8, parsed_data.textOverlays[0].font, "default"))
-                "/usr/share/fonts/truetype/hack/Hack-Regular.ttf"
+                text_metrics.default_font_path
             else
                 parsed_data.textOverlays[0].font;
-            context.setFontToFile(font_path) catch {};
+            text_metrics.setContextFont(&context, font_path);
             defer context.deinitFont();
             for (parsed_data.textOverlays) |txt| {
                 const plot_x = origin_x + @as(f64, txt.x) * x_scale;
