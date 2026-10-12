@@ -147,6 +147,20 @@ zig build
 zig build test --summary all
 ```
 
+## Triggering a release
+
+To create a new release:
+
+1. **Tag the commit** on `main` (or the target commit) with a version matching `v*`:
+   ```bash
+   git tag v0.2.0
+   git push origin v0.2.0
+   ```
+
+2. **Wait for the workflow**. Pushing the tag triggers the Release GitHub Actions workflow, which builds binaries for `linux-x86_64`, `macos-aarch64`, and `macos-x86_64`, packages them as `.tar.gz`, generates a `sha256sums.txt` file, and creates a **draft release** with auto-generated release notes.
+
+3. **Publish the draft**. Open the draft release on the GitHub Releases page, review the notes and attached files, and click "Publish release" to make it public.
+
 ## Zig packages (outside std) proudly used in the project:
 
 - [**zli**](https://github.com/xcaeser/zli) CLI development support
